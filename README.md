@@ -1,3 +1,5 @@
+> **Moved to Thoth:** New development belongs in [thoth/agents/curator](https://github.com/kudama/thoth/tree/main/agents/curator). This repository is retained as an archived historical reference. The original commits and files are preserved in Thoth history.
+
 # Curator
 
 A proposed local media intelligence and management service above Plex, Sonarr/Radarr, and Synology.
