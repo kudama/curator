@@ -30,6 +30,14 @@ def digest(path):
 def executable(config, name):
     fallback = {'ffprobe': TOPAZ + 'ffprobe', 'ffmpeg': TOPAZ + 'ffmpeg',
                 'topaz': TOPAZ + 'ffmpeg', 'handbrake': '/opt/homebrew/bin/HandBrakeCLI'}
+    if name in {'ffmpeg', 'ffprobe'} and not config.get(name):
+        candidates = [fallback[name], shutil.which(name), '/opt/homebrew/bin/' + name,
+                      '/usr/local/bin/' + name]
+        found = next((p for p in candidates if p and Path(p).is_absolute()
+                      and Path(p).is_file() and os.access(p, os.X_OK)), None)
+        if not found:
+            raise ValueError(f'{name} was not found. Install FFmpeg or set its absolute path in Settings.')
+        return found
     if name == 'handbrake' and not config.get(name):
         candidates = ['/Applications/HandBrakeCLI', shutil.which('HandBrakeCLI'),
                       '/opt/homebrew/bin/HandBrakeCLI', '/usr/local/bin/HandBrakeCLI']

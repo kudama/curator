@@ -437,6 +437,7 @@ class Workflows(unittest.TestCase):
             self.assertEqual(argv[argv.index('-c')+1],'copy')
             Path(argv[-1]).write_bytes(b'fixed-hvc1');return SimpleNamespace(returncode=0)
         with patch('curator.service.tools.probe',side_effect=[before,after]), \
+             patch('curator.service.tools.executable',return_value='/fixture/ffmpeg'), \
              patch('curator.service.subprocess.run',side_effect=remux):
             result=self.service.action(task['id'],'repair_quicktime',task['version'])
         self.assertEqual(result['status'],'applied')
@@ -475,11 +476,11 @@ class Workflows(unittest.TestCase):
         task=dict(self.task,kind='optimize',status='awaiting_review',output=str(output),validation=[],
                   source_hash=digest(self.file),output_hash=digest(output),comparison_loaded=True)
         with self.store.transaction():self.store.put('tasks',task['id'],task)
-        replace=os.replace
-        def fail_stage(source,destination):
+        move=self.service.move_with_fallback
+        def fail_stage(task,source,destination,phase):
             if Path(source).name.startswith('.curator-'):raise OSError('Simulated swap failure')
-            return replace(source,destination)
-        with patch('curator.service.os.replace',side_effect=fail_stage),self.assertRaises(ValueError):
+            return move(task,source,destination,phase)
+        with patch.object(self.service,'move_with_fallback',side_effect=fail_stage),self.assertRaises(ValueError):
             self.service.review(task['id'],1,'manual')
         self.assertEqual(self.file.read_bytes(),b'original-video')
         self.assertFalse(self.file.with_name(self.file.stem+'-old'+self.file.suffix).exists())

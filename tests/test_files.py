@@ -76,7 +76,9 @@ class Plans(unittest.TestCase):
     def plan(self,kind='rename',**kwargs):
         data=dict(kind=kind,assets=[self.assets[0]['id']] if kind=='rename' else [a['id'] for a in self.assets[:2]],filename='Better.mkv' if kind=='rename' else 'Joined.mkv',title='Trip')
         data.update(kwargs)
-        with patch('curator.file_workflows.tools.probe',return_value=media()):return self.service.file_plan(data)
+        with patch('curator.file_workflows.tools.probe',return_value=media()), \
+             patch('curator.file_workflows.multipart.normalization_encoder',return_value='h264_videotoolbox'):
+            return self.service.file_plan(data)
     def run_task(self,task):
         self.service.action(task['id'],'queue',task['version']);self.service._execute(task['id']);return self.service.get_task(task['id'])
     def test_rename_moves_sidecars_backups_preserves_identity_and_task_ids(self):
