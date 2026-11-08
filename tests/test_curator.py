@@ -437,6 +437,7 @@ class Workflows(unittest.TestCase):
             self.assertEqual(argv[argv.index('-c')+1],'copy')
             Path(argv[-1]).write_bytes(b'fixed-hvc1');return SimpleNamespace(returncode=0)
         with patch('curator.service.tools.probe',side_effect=[before,after]), \
+             patch('curator.service.tools.executable',return_value='/fixture/ffmpeg'), \
              patch('curator.service.subprocess.run',side_effect=remux):
             result=self.service.action(task['id'],'repair_quicktime',task['version'])
         self.assertEqual(result['status'],'applied')
