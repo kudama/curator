@@ -247,8 +247,17 @@ def main():
     parser.add_argument('--state', default='~/Library/Application Support/Curator')
     parser.add_argument('--open', action='store_true', help='Open the local app in your default browser')
     args = parser.parse_args()
-    store = Store(args.state)
-    server = App(('127.0.0.1', args.port), Service(store))
+    if not 0 <= args.port <= 65535:
+        parser.error('--port must be between 0 and 65535')
+    try:
+        store = Store(args.state)
+    except (OSError, ValueError) as error:
+        parser.exit(2, f'Curator could not open its local state: {error}\n')
+    try:
+        server = App(('127.0.0.1', args.port), Service(store))
+    except OSError as error:
+        store.close()
+        parser.exit(2, f'Curator could not listen on 127.0.0.1:{args.port}: {error}. Close the other instance or try --port 8791.\n')
     print(f'Curator: http://127.0.0.1:{server.server_port}', flush=True)
     if args.open:
         import webbrowser

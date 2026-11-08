@@ -1,5 +1,7 @@
 # Preview validation — 2026-11-08
 
+Third-party readiness follow-up: 265 tests pass with generated-video integration enabled and no skips on the review host, including a clean stdlib-only source copy. Credential-redirect, publication-collision, generic tool discovery and startup regressions are covered. See [release readiness](release-readiness.md) for findings, corrections and remaining acceptance. The historical 260-case snapshot evidence below is retained for provenance.
+
 The standalone snapshot contains the same runtime and test sources as the reviewed application under Thoth, including the latest Collections, Tags / genres, and Labels pickers.
 
 Fresh local run: 260 unittest cases, 257 passed and 3 skipped because optional local media tools were unavailable. Python compilation and all three JavaScript syntax checks pass. Tests use synthetic fixtures and temporary catalogs; they do not establish compatibility with every Plex/NAS configuration.

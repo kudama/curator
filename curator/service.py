@@ -1056,10 +1056,10 @@ class Service(FileWorkflows, FolderWorkflows):
                 raise
             self._save(task, archive=str(saved), original_renamed=True, progress={'phase': 'Publishing processed video'})
             try:
-                os.replace(stage, source)
+                self.move_with_fallback(task, stage, source, 'Installing processed video')
             except Exception:
                 if not source.exists():
-                    os.replace(saved, source)
+                    self.move_with_fallback(task, saved, source, 'Restoring original video')
                     self._save(task, archive=None, original_renamed=False)
                 raise
             self._save(task, published=True, progress={'phase': 'Refreshing Plex'})

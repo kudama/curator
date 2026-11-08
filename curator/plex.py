@@ -4,15 +4,24 @@ import re
 import hashlib
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, quote
-from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 
 class PlexError(ValueError):
     pass
 
 
-class NoImageRedirect(HTTPRedirectHandler):
+class NoPlexRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            fp.close()
+        raise PlexError('Plex redirects are not allowed; configure the direct server URL')
+
+
+class NoImageRedirect(NoPlexRedirect):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            fp.close()
         raise PlexError('Plex image redirects are not allowed')
 
 
@@ -40,7 +49,7 @@ class Plex:
         if not isinstance(token, str) or not token or '\n' in token or '\r' in token:
             raise PlexError('Plex token is required')
         self.url, self.token = url.rstrip('/'), token
-        self.transport = transport or urlopen
+        self.transport = transport or build_opener(NoPlexRedirect()).open
         self.image_transport = transport or build_opener(NoImageRedirect()).open
 
     def request(self, path, method='GET', params=None, data=None, content_type=None, ignore_body=False):
@@ -63,6 +72,8 @@ class Plex:
             code = error.code
             error.close()
             raise PlexError(f'Plex returned HTTP {code}') from None
+        except PlexError:
+            raise
         except (URLError, TimeoutError, OSError, ValueError):
             raise PlexError('Plex request failed; check server, token and connectivity') from None
 

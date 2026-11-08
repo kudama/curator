@@ -20,9 +20,10 @@ Curator is a local Mac workspace for reviewing and improving Plex libraries, wit
 
 ## Get started
 
-Install Python 3.11 or newer on macOS. Then download this repository, open Terminal in its folder, and run:
+Install [Python 3.11 or newer for macOS](https://www.python.org/downloads/macos/). Download this repository using **Code → Download ZIP**, extract it, and open Terminal in the extracted folder. Confirm your interpreter, then start Curator:
 
 ```sh
+python3 --version
 python3 -m curator.web --open
 ```
 
@@ -30,7 +31,7 @@ You can also double-click `Curator.command`. If macOS blocks the launcher, use t
 
 Curator opens at http://127.0.0.1:8790. It is a local application, not a remotely hosted web service.
 
-1. In **Settings**, enter your Plex server root URL and token. Use a server you administer.
+1. In **Settings**, enter your Plex server root URL (for example, `http://plex-server:32400`) and token. Use a server you administer. Plex documents [how to find your token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). Use the direct server URL; redirects are refused to protect the token.
 2. Refresh libraries and select one. In **Library settings**, map every Plex media location to its corresponding mounted Mac folder.
 3. Choose the commercial or home-movie profile. Scan the library to analyze files.
 4. Review proposals in the workbench. Save metadata explicitly, or approve selected processing tasks and run them from **Processing**.
@@ -42,8 +43,8 @@ For example, a Plex root `/srv/media/Home Movies` might map to `/Volumes/Media/H
 
 | Tool | Used for | Setup |
 | --- | --- | --- |
-| FFmpeg and ffprobe | Video inspection, sampling, joining, validation | Install separately; configure absolute executable paths in Settings. Curator also recognizes the Topaz-bundled tools. |
-| HandBrakeCLI | Encoding and preset discovery | Install the CLI separately; the GUI app alone cannot run jobs. Select an installed preset before queueing. |
+| FFmpeg and ffprobe | Video inspection, sampling, joining, validation | Install from [FFmpeg](https://ffmpeg.org/download.html). Curator checks the Topaz bundle, your PATH, and common Homebrew paths. Explicit paths in Settings take precedence. |
+| HandBrakeCLI | Encoding and preset discovery | Get the CLI from [HandBrake](https://handbrake.fr/downloads2.php); install/configure the `HandBrakeCLI` executable. Select an installed preset before queueing. |
 | Topaz Video | Optional upscaling | Install and license separately; configure its executable and reviewed model/filter settings. |
 | Ollama | Optional local home-movie analysis | Runs at `127.0.0.1:11434`; the default vision model is `qwen3-vl:8b-instruct`. |
 | Mage / external image editor | Optional artwork creation | Curator prepares prompts/reference frames; create images manually and import them. |
@@ -79,6 +80,6 @@ node --check curator/static/collections.js
 
 Node is only used for optional developer syntax checks. Tests use synthetic data and temporary state; optional integration tests skip when the required local tools are missing.
 
-See [architecture](docs/architecture.md), [validation](docs/validation.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+See [troubleshooting and recovery](docs/troubleshooting.md), [architecture](docs/architecture.md), [validation](docs/validation.md), [release review](docs/release-readiness.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Report reproducible bugs in [GitHub Issues](https://github.com/kudama/curator/issues), using synthetic media and sanitized details.
 
 MIT licensed. Curator is independent of Plex, HandBrake, Topaz, Ollama, Mage, and Kometa.
