@@ -6,6 +6,8 @@ Curator is a local Mac workspace for reviewing and improving Plex libraries, wit
 
 **Early preview.** macOS is the intended platform. Provider behavior and mounted-storage compatibility still need broader testing. Curator runs independently; no agent platform, cloud account, Docker, Node build, or Python package installation is required.
 
+Curator started as a tool for my own Plex library and home-movie workflow, so its current features and assumptions reflect that specific use case. I'm sharing it in the hope that it's useful to others, and I welcome [feature requests, ideas, and bug reports](https://github.com/kudama/curator/issues) for other workflows.
+
 ## What it does
 
 - Compact library workbench with search, folder/task grouping, and a persistent review panel.
