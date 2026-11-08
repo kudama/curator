@@ -1,28 +1,84 @@
-> **Moved to Thoth:** New development belongs in [thoth/agents/curator](https://github.com/kudama/thoth/tree/main/agents/curator). This repository is retained as an archived historical reference. The original commits and files are preserved in Thoth history.
-
 # Curator
 
-A proposed local media intelligence and management service above Plex, Sonarr/Radarr, and Synology.
+Your library, considered.
 
-Status: design and planning. This repository stores the discussed feature set and proposed workflows/specifications. No application, connectors, or automatic media operations are implemented.
+Curator is a local Mac workspace for reviewing and improving Plex libraries, with particular attention to home movies. Browse files, edit metadata and artwork, organize folders, process video, compare results, and explicitly publish the changes you choose.
 
-## Planned capabilities
+**Early preview.** macOS is the intended platform. Provider behavior and mounted-storage compatibility still need broader testing. Curator runs independently; no agent platform, cloud account, Docker, Node build, or Python package installation is required.
 
-- Library health: corrupt/incomplete files, duplicates, orphaned files, missing subtitles, bad Plex matches, naming and codec/container inconsistencies.
-- Storage intelligence: utilization by library/resolution/codec, historical growth, capacity forecasts, oversized files, and estimated reclaimable space.
-- Smart transcoding and codec modernization: estimate useful HEVC/AV1 savings, preserve intentional high-quality remuxes, validate output, replace safely, and retain rollback.
-- Playback intelligence: Direct Play/Direct Stream/transcode, client compatibility, buffering/failures, and explanations for transcoding.
-- Usage and upgrade context: use authorized watch history to inform recommendations; show the quality/storage tradeoff of proposed Sonarr/Radarr upgrades.
-- Metadata curation: bad matches, missing artwork, collections/tags, duplicate editions, and reviewed corrections.
-- Home movies: separate privacy and preservation rules; retain originals, identify duplicates, organize dates, and propose local tagging/search and previews.
-- Operations: dashboard, job history, service versions, approved upgrades, and backup/recovery checks for databases/configuration.
+## What it does
 
-Operating model: **Discover → Recommend → Approve → Execute → Verify → Roll back.** Watch history informs recommendations; it does not authorize deletion.
+- Compact library workbench with search, folder/task grouping, and a persistent review panel.
+- Unified metadata, cast/profile pictures, cover, background, logo, and square-art editing.
+- Searchable Collections, Tags / genres, and Labels from the selected Plex library; draft new names inline. Smart collections are read-only.
+- Folder metadata previews, fill/merge/replace modes, shared artwork/cast, and reusable folder defaults.
+- Multiple Plex storage roots with independent mappings to Mac-mounted folders.
+- HandBrake encoding and optional Topaz upscaling, progress and approximate encode ETA, cancellation, and durable task history.
+- Separate Processing, Review, and Publishing stages; output comparison before replacement.
+- Multipart video joins with reviewed ordering, chapter markers, and metadata choices; reviewed file renaming.
+- Local home-movie analysis through optional Ollama, manual artwork prompts/import, playlist ordering, and Kometa definition export.
 
-## Documents
+## Get started
 
-- [Proposed specification](docs/specification.md)
-- [Theoretical workflows](docs/workflows.md)
-- [Decisions and sources](docs/decisions.md)
+Install Python 3.11 or newer on macOS. Then download this repository, open Terminal in its folder, and run:
 
-Credentials, media, watch history, catalogs, exports, databases, and machine-specific configuration belong outside Git. Jarvis can consume Curator's authorized summaries through a future bounded interface.
+```sh
+python3 -m curator.web --open
+```
+
+You can also double-click `Curator.command`. If macOS blocks the launcher, use the Terminal command above.
+
+Curator opens at http://127.0.0.1:8790. It is a local application, not a remotely hosted web service.
+
+1. In **Settings**, enter your Plex server root URL and token. Use a server you administer.
+2. Refresh libraries and select one. In **Library settings**, map every Plex media location to its corresponding mounted Mac folder.
+3. Choose the commercial or home-movie profile. Scan the library to analyze files.
+4. Review proposals in the workbench. Save metadata explicitly, or approve selected processing tasks and run them from **Processing**.
+5. Compare processed output, then **Accept & publish**. Copying, verification, and Plex refresh appear under **Publishing**.
+
+For example, a Plex root `/srv/media/Home Movies` might map to `/Volumes/Media/Home Movies`. These are examples, not required paths. Library browsing and metadata editing do not require all video tools; probing and processing require configured executables.
+
+## Optional tools
+
+| Tool | Used for | Setup |
+| --- | --- | --- |
+| FFmpeg and ffprobe | Video inspection, sampling, joining, validation | Install separately; configure absolute executable paths in Settings. Curator also recognizes the Topaz-bundled tools. |
+| HandBrakeCLI | Encoding and preset discovery | Install the CLI separately; the GUI app alone cannot run jobs. Select an installed preset before queueing. |
+| Topaz Video | Optional upscaling | Install and license separately; configure its executable and reviewed model/filter settings. |
+| Ollama | Optional local home-movie analysis | Runs at `127.0.0.1:11434`; the default vision model is `qwen3-vl:8b-instruct`. |
+| Mage / external image editor | Optional artwork creation | Curator prepares prompts/reference frames; create images manually and import them. |
+| Kometa | Exported collection definitions | Curator exports definitions; managed Kometa execution is not included. |
+
+No third-party executables, models, or media are bundled. Their licenses and terms apply separately.
+
+## Originals, recovery, and local data
+
+Processed videos are separate outputs until accepted. Publication rechecks source/output identity and hashes, stages the replacement, and preserves the original alongside it as `film-old.mkv` for a source named `film.mkv`. Existing backup names block replacement. Join publication retains its source parts. There is no automatic original cleanup.
+
+Private state defaults to `~/Library/Application Support/Curator`: settings, Plex token, SQLite catalog, task receipts, and generated assets. The token is stored locally, not encrypted by Curator. Keep this folder private and outside Git. Media remains on your mapped storage. Explicitly saved folder artwork preferences may also create sidecars beside media.
+
+Stop with Ctrl+C. Restart only after active work finishes. Interrupted processing/publication becomes blocked for inspection instead of replaying automatically. To use a separate test state directory:
+
+```sh
+python3 -m curator.web --state /tmp/curator-demo --port 8791 --open
+```
+
+## Current limits
+
+This preview has automated fixture coverage and limited operator acceptance, not compatibility certification for every Plex agent, client, codec, or NAS. Cast/artwork rendering varies across Plex clients. Licensed Topaz model acceptance, representative encoding quality, local-vision semantic quality, and broader mounted-storage recovery need further verification. Automated HD visual-quality scoring, richer metadata matching, managed Kometa execution, and extras creation remain unfinished. Windows support and remote/network hosting are not provided.
+
+## Development
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q curator
+node --check curator/static/app.js
+node --check curator/static/workbench.js
+node --check curator/static/collections.js
+```
+
+Node is only used for optional developer syntax checks. Tests use synthetic data and temporary state; optional integration tests skip when the required local tools are missing.
+
+See [architecture](docs/architecture.md), [validation](docs/validation.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+
+MIT licensed. Curator is independent of Plex, HandBrake, Topaz, Ollama, Mage, and Kometa.
