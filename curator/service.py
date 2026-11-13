@@ -20,6 +20,7 @@ from . import tools, branding, cast
 from .file_workflows import FileWorkflows, FILE_KINDS
 from .folders import FolderWorkflows
 from .progress import EncodingProgress
+from .mage import Mage
 
 
 def identifier(*values):
@@ -77,6 +78,7 @@ class Service(FileWorkflows, FolderWorkflows):
         cfg = self.config()
         public = {k: v for k, v in cfg.items() if k != 'plex_token'}
         public['token_configured'] = bool(cfg.get('plex_token'))
+        public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         return dict(config=public, libraries=self.store.all('libraries'), assets=self.store.all('assets'),
                     tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in self.store.all('tasks') if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=bool(self.active))

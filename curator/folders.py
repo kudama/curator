@@ -112,7 +112,7 @@ class FolderWorkflows:
         return photo
 
     def folder_settings(self, data):
-        if not isinstance(data, dict) or set(data) - {'fields','artwork','mode','recursive','branding'}:raise ValueError('Invalid folder settings')
+        if not isinstance(data, dict) or set(data) - {'fields','artwork','mode','recursive','branding','portrait'}:raise ValueError('Invalid folder settings')
         mode = data.get('mode', 'fill')
         if not isinstance(mode,str) or mode not in {'fill','merge','replace'} or type(data.get('recursive', False)) is not bool:raise ValueError('Choose a folder scope and metadata mode')
         if not isinstance(data.get('fields',{}),dict):raise ValueError('Invalid folder metadata fields')
@@ -139,7 +139,7 @@ class FolderWorkflows:
                 rows.append(dict(name=row['name'].strip(), role=row.get('role',''), **({'photo':photo} if photo else {})))
             cast.validate_rows([{k:v for k,v in row.items() if k != 'photo'} for row in rows])
             fields['cast'] = rows
-        if not isinstance(artwork, dict) or set(artwork) - {'background','logo','square'}:raise ValueError('Choose shared background, logo or square artwork')
+        if not isinstance(artwork, dict) or set(artwork) - {'cover','background','logo','square'}:raise ValueError('Choose shared cover, background, logo or square artwork')
         images = {}
         for kind, value in artwork.items():
             if not isinstance(value, dict) or set(value) - {'image','photo'}:raise ValueError('Invalid shared artwork')
@@ -150,10 +150,21 @@ class FolderWorkflows:
             branding.validate(brand)
             if brand.get('logo'):raise ValueError('Manage creator logo files in the file editor')
             if brand.get('preset_id') not in {p['id'] for p in self.config().get('branding_presets', branding.DEFAULT_PRESETS)}:raise ValueError('Choose an available branding preset')
-        return dict(fields=fields, artwork=images, mode=mode, recursive=data.get('recursive',False), branding=brand)
+        settings = dict(fields=fields, artwork=images, mode=mode, recursive=data.get('recursive',False), branding=brand)
+        portrait = data.get('portrait')
+        if portrait is not None:
+            if 'cast' in fields or not isinstance(portrait, dict) or set(portrait) != {'profile_id','revision'}:
+                raise ValueError('Choose one saved portrait separately from shared cast replacement')
+            profile = self.store.get('settings', 'cast_profiles', {}).get(portrait['profile_id'])
+            if not profile or profile['revision'] != portrait['revision'] or not profile.get('photo'):
+                raise ValueError('Saved portrait changed or has no picture; reopen the folder editor')
+            photo = self._folder_photo(encoded=base64.b64encode(self.cast_profile_image(portrait['profile_id'])).decode())
+            settings['portrait'] = dict(name=profile['name'], photo=photo, profile_id=portrait['profile_id'], revision=portrait['revision'])
+        return settings
 
     def save_folder_defaults(self, fid, data, revision, branding_revision=None):
         folder = self.folder_node(fid);settings = self.folder_settings(data)
+        if settings.get('portrait'):raise ValueError('Portrait application requires a fresh preview; it cannot become an automatic folder default')
         library = self.library(folder['library'])
         local = map_path(folder['path'] + '/.curator-folder', library['mappings'], False).parent
         if not local.is_dir():raise ValueError('Mapped folder is unavailable')
@@ -170,8 +181,20 @@ class FolderWorkflows:
 
     def _folder_changes(self, item, settings, client=None):
         before = self.metadata_fields(item);changes = {}
-        for field, proposed in settings['fields'].items():
-            result = combine(before[field], proposed, settings['mode'], field)
+        fields = dict(settings['fields'])
+        portrait = settings.get('portrait')
+        if portrait:
+            # Explicitly match the named saved identity; preserve every other credit.
+            rows = []
+            matched = False
+            for original in before['cast']:
+                row = dict(original)
+                if row['name'].strip().casefold() == portrait['name'].strip().casefold():
+                    row.pop('thumb', None);row['photo'] = portrait['photo'];matched = True
+                rows.append(row)
+            if matched:fields['cast'] = rows
+        for field, proposed in fields.items():
+            result = proposed if portrait and field == 'cast' else combine(before[field], proposed, settings['mode'], field)
             if field=='cast' and client:
                 normalized=[]
                 for row in result:

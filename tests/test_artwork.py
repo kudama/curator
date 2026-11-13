@@ -168,8 +168,9 @@ class Artwork(unittest.TestCase):
         changed = json.loads(json.dumps(presets));changed[0]['details'] = 'Custom prompt details'
         self.service.save_config({'branding_presets': changed[:4]})
         self.assertEqual(self.service.state()['config']['branding_presets'][0]['details'], 'Custom prompt details')
-        with self.assertRaisesRegex(ValueError, 'four or five'):
-            self.service.save_config({'branding_presets': changed[:3]})
+        self.service.save_config({'branding_presets': changed[:1]})
+        with self.assertRaisesRegex(ValueError, 'one and fifty'):
+            self.service.save_config({'branding_presets': []})
         duplicate = changed.copy();duplicate[-1] = changed[0]
         with self.assertRaisesRegex(ValueError, 'unique'):
             self.service.save_config({'branding_presets': duplicate})
@@ -251,3 +252,20 @@ class Artwork(unittest.TestCase):
         plex=Plex('http://localhost:32400','token',transport=lambda *a,**kw:io.BytesIO(image))
         with patch.object(plex,'item',return_value={'Image':[{'type':'clearLogo','url':'/library/metadata/10/clearLogo/1'}]}):
             self.assertEqual(plex.image('10','logo'),image)
+
+    def test_style_defaults_round_trip_without_changing_defaults_or_receipts(self):
+        from copy import deepcopy
+        defaults=deepcopy(branding.DEFAULT_PRESETS)
+        receipt=deepcopy(self.service.get_task(self.task['id']))
+        style=dict(defaults[0],id='custom-style',name='Custom',negative_prompt='No borders',model='mango-v3',ratio='16:9',resolution='1K')
+        self.service.save_config({'branding_presets':defaults+[style]})
+        self.assertEqual(self.service.state()['config']['branding_presets'][-1],style)
+        self.service.save_config({'branding_presets':[dict(style,name='Renamed')]})
+        self.assertEqual(self.service.get_task(self.task['id']),receipt)
+        self.assertEqual(branding.DEFAULT_PRESETS,defaults)
+
+    def test_invalid_style_defaults_are_rejected_before_storage(self):
+        for override in [dict(ratio='invalid'),dict(resolution='8K'),dict(model=[]),dict(negative_prompt=1),dict(secret='not-allowed')]:
+            with self.subTest(override=override),self.assertRaises(ValueError):
+                self.service.save_config({'branding_presets':[dict(branding.DEFAULT_PRESETS[0],**override)]})
+        self.assertEqual(self.service.state()['config']['branding_presets'],branding.DEFAULT_PRESETS)

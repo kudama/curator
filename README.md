@@ -11,7 +11,8 @@ Curator started as a tool for my own Plex library and home-movie workflow, so it
 ## What it does
 
 - Compact library workbench with search, folder/task grouping, and a persistent review panel.
-- Unified metadata, cast/profile pictures, cover, background, logo, and square-art editing.
+- Separate Metadata Manager and Artwork Manager views retain pending edits when switching; existing cast/profile editing remains available.
+- Shared editable visual styles, manual prompt preparation/import, and reviewed folder cover/background/logo/square artwork.
 - Searchable Collections, Tags / genres, and Labels from the selected Plex library; draft new names inline. Smart collections are read-only.
 - Folder metadata previews, fill/merge/replace modes, shared artwork/cast, and reusable folder defaults.
 - Multiple Plex storage roots with independent mappings to Mac-mounted folders.
@@ -49,7 +50,7 @@ For example, a Plex root `/srv/media/Home Movies` might map to `/Volumes/Media/H
 | HandBrakeCLI | Encoding and preset discovery | Get the CLI from [HandBrake](https://handbrake.fr/downloads2.php); install/configure the `HandBrakeCLI` executable. Select an installed preset before queueing. |
 | Topaz Video | Optional upscaling | Install and license separately; configure its executable and reviewed model/filter settings. |
 | Ollama | Optional local home-movie analysis | Runs at `127.0.0.1:11434`; the default vision model is `qwen3-vl:8b-instruct`. |
-| Mage / external image editor | Optional artwork creation | Curator prepares prompts/reference frames; create images manually and import them. |
+| Mage / external image editor | Optional artwork creation | Curator prepares prompts/reference frames; create images manually and import them. Optional API model/balance discovery is available; paid API submission is disabled pending reliable pre-submit pricing. |
 | Kometa | Exported collection definitions | Curator exports definitions; managed Kometa execution is not included. |
 
 No third-party executables, models, or media are bundled. Their licenses and terms apply separately.
@@ -58,7 +59,7 @@ No third-party executables, models, or media are bundled. Their licenses and ter
 
 Processed videos are separate outputs until accepted. Publication rechecks source/output identity and hashes, stages the replacement, and preserves the original alongside it as `film-old.mkv` for a source named `film.mkv`. Existing backup names block replacement. Join publication retains its source parts. There is no automatic original cleanup.
 
-Private state defaults to `~/Library/Application Support/Curator`: settings, Plex token, SQLite catalog, task receipts, and generated assets. The token is stored locally, not encrypted by Curator. Keep this folder private and outside Git. Media remains on your mapped storage. Explicitly saved folder artwork preferences may also create sidecars beside media.
+Private state defaults to `~/Library/Application Support/Curator`: settings, Plex token, SQLite catalog, task receipts, and generated assets. The token is stored locally, not encrypted by Curator. An optional Mage key is kept separately in a private `mage-api-key` file (owner-only permissions); it is never returned by the state API. Clear it by saving an empty key in Artwork Manager. Keychain integration remains a follow-up. Keep this folder private and outside Git. Media remains on your mapped storage. Explicitly saved folder artwork preferences may also create sidecars beside media.
 
 Stop with Ctrl+C. Restart only after active work finishes. Interrupted processing/publication becomes blocked for inspection instead of replaying automatically. To use a separate test state directory:
 

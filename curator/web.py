@@ -200,6 +200,13 @@ class Handler(BaseHTTPRequestHandler):
                 result = {'started': True}
             elif path == '/api/task/edit':
                 result = service.edit_task(data['id'], data['plan'], data['version'])
+            elif path == '/api/mage/key':
+                from .mage import Mage
+                Mage(service.store.root).save_key(data['key'])
+                result = {'configured': Mage(service.store.root).configured()}
+            elif path == '/api/mage/check':
+                from .mage import Mage
+                result = Mage(service.store.root).discover()
             elif path == '/api/metadata/task':
                 result = service.metadata_task(data['asset'])
             elif path == '/api/metadata/queue':
