@@ -45,7 +45,7 @@ class Folders(unittest.TestCase):
         self.art={}
         def artwork(rating,data,kind):
             self.art[kind]=data;self.plex.writes.append(kind)
-            self.plex.rows[0][{'background':'art','logo':'clearLogo','square':'squareArt'}[kind]]='/library/art/'+kind
+            self.plex.rows[0][{'cover':'thumb','background':'art','logo':'clearLogo','square':'squareArt'}[kind]]='/library/art/'+kind
             return self.plex.item(rating)
         self.plex.artwork=artwork;self.plex.image=lambda rating,kind:self.art[kind]
         self.plex.cast_photo=lambda rating,data:'/library/uploaded/photo'
@@ -154,7 +154,7 @@ class Folders(unittest.TestCase):
         with self.assertRaises(ValueError):self.service.folder_read('unknown')
         directory=self.store.root/'folder-images';directory.mkdir();(directory/('a'*64)).symlink_to(self.file)
         with self.assertRaises(ValueError):self.service.folder_image('a'*64)
-        for settings in [dict(fields={'unknown':'x'}),dict(artwork={'cover':{}}),dict(mode='unexpected')]:
+        for settings in [dict(fields={'unknown':'x'}),dict(artwork={'unsupported':{}}),dict(mode='unexpected')]:
             with self.assertRaises(ValueError):self.service.folder_settings(settings)
 
     def test_background_publication_returns_before_operation_finishes_and_state_readable(self):
@@ -323,3 +323,42 @@ class Folders(unittest.TestCase):
         self.assertEqual(self.service.get_task(home['id'])['status'],'resolved')
         self.assertEqual(self.service.get_task(video['id'])['status'],'awaiting_review')
         self.assertEqual(self.service.get_task(self.task['id'])['status'],'resolved')
+
+    def test_shared_cover_uses_existing_review_queue_and_verified_readback(self):
+        self.tagged_adapter()
+        data=self.settings();data.update(fields={},mode='replace',artwork={'cover':{'image':base64.b64encode(PNG).decode()}})
+        preview=self.service.folder_preview(self.folder()['id'],data)
+        self.assertEqual(self.plex.writes,[])
+        queued=self.service.queue_folder_preview(preview['id'])
+        self.service._execute(queued['tasks'][0])
+        self.assertEqual(self.service.get_task(queued['tasks'][0])['status'],'applied')
+        again=self.service.folder_preview(self.folder()['id'],data)
+        self.assertEqual(again['rows'][0]['artwork'],{})
+        with self.assertRaisesRegex(ValueError,'No applicable changes'):self.service.queue_folder_preview(again['id'])
+
+    def saved_portrait(self):
+        photo=hashlib.sha256(PNG).hexdigest();directory=self.store.root/'cast';directory.mkdir(exist_ok=True);(directory/photo).write_bytes(PNG)
+        pid='a'*32
+        with self.store.transaction():self.store.put('settings','cast_profiles',{pid:dict(name='Alice',revision=1,photo=photo)})
+        return dict(profile_id=pid,revision=1)
+
+    def test_portrait_only_changes_matching_identity_preserving_other_credits(self):
+        self.tagged_adapter();self.plex.rows[0]['Role']=[dict(tag='Alice',role='Self',thumb=''),dict(tag='Bob',role='Guest',thumb='/bob')]
+        other=self.add('b'*24,'Other.mkv');self.plex.rows[1]['Role']=[dict(tag='Bob',role='Self',thumb='/bob')]
+        data=self.settings();data.update(fields={},portrait=self.saved_portrait())
+        preview=self.service.folder_preview(self.folder()['id'],data)
+        by_id={r['asset']:r for r in preview['rows']}
+        changed=by_id[self.asset['id']]['changes']['cast']
+        self.assertEqual(changed[0]['role'],'Self');self.assertIn('photo',changed[0])
+        self.assertEqual(changed[1],dict(name='Bob',role='Guest',thumb='/bob'))
+        self.assertEqual(by_id[other['id']]['changes'],{})
+        self.assertEqual(self.plex.writes,[])
+        queued=self.service.queue_folder_preview(preview['id']);self.assertEqual(queued['queued'],1)
+
+    def test_stale_portrait_and_automatic_folder_defaults_are_rejected(self):
+        data=self.settings();data.update(fields={},portrait=self.saved_portrait())
+        with self.assertRaisesRegex(ValueError,'fresh preview'):
+            self.service.save_folder_defaults(self.folder()['id'],data,None)
+        data['portrait']['revision']=2
+        with self.assertRaisesRegex(ValueError,'portrait changed'):
+            self.service.folder_preview(self.folder()['id'],data)

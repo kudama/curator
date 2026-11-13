@@ -104,7 +104,8 @@ function renderAssetOverview(asset,signature=''){
  overviewSignature=signature||JSON.stringify([asset.item,asset.blocked,fileTasks(asset).map(t=>[t.id,t.status,t.version,t.error])]);
  $('task-kind').textContent='REVIEW SUGGESTIONS';$('task-title').textContent=fileName(asset);$('task-reason').hidden=true;$('task-feedback').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();if(asset.item?.thumb)detail.append(thumbnail(asset,true));detail.append(node('p',metaLine(asset),'muted'));
- const links=node('div',undefined,'inspector-links');links.append(button('Edit metadata',async()=>{const t=await api('metadata/task',{asset:asset.id});await refresh();await openTask(t.id);},'text-button'));
+ const links=node('div',undefined,'inspector-links');links.append(button('Metadata Manager',async()=>{const t=await api('metadata/task',{asset:asset.id});await refresh();await openTask(t.id);},'text-button'));
+ links.append(button('Artwork Manager',async()=>{const t=await api('metadata/task',{asset:asset.id});await refresh();await openTask(t.id,'artwork');},'text-button'));
  const tools=node('details',undefined,'file-menu');tools.append(node('summary','File tools'));for(const [label,kind] of [['Rename file','rename'],['Join parts','join'],['Collection & playlist','group']])tools.append(button(label,()=>openFileOperation(catalogIndex().byId.get(asset.id),kind),'subtle'));tools.append(button('Manage tasks',()=>openTaskManager(asset.id),'subtle'));links.append(tools);detail.append(links);
  if(asset.availability_error||asset.blocked)detail.append(node('p',asset.availability_error||asset.blocked,'task-error'));
  const tasks=fileTasks(asset).filter(t=>!HISTORY_TASK_STATES.has(t.status));
