@@ -24,14 +24,14 @@ def validate_presets(rows):
         raise ValueError('Define between one and fifty branding presets')
     seen = set()
     for row in rows:
-        if not isinstance(row, dict) or not {'id', 'name', 'details', 'background', 'typography'} <= set(row) or set(row) - {'id', 'name', 'details', 'background', 'typography', 'negative_prompt', 'model', 'ratio', 'resolution'}:
+        if not isinstance(row, dict) or not {'id', 'name', 'details', 'background', 'typography'} <= set(row) or set(row) - {'id', 'name', 'details', 'background', 'typography', 'negative_prompt', 'model', 'ratio', 'resolution', 'description'}:
             raise ValueError('Invalid branding preset fields')
         if not isinstance(row['id'], str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}', row['id']) or row['id'] in seen:
             raise ValueError('Branding preset IDs must be unique and stable')
         seen.add(row['id'])
         if any(not isinstance(row[k], str) or not row[k].strip() or len(row[k]) > 3000 for k in ('name', 'details', 'background', 'typography')):
             raise ValueError('Complete each branding preset name and prompt details')
-        for field in ('negative_prompt', 'model', 'ratio', 'resolution'):
+        for field in ('negative_prompt', 'model', 'ratio', 'resolution', 'description'):
             if field in row and (not isinstance(row[field], str) or len(row[field]) > 3000):
                 raise ValueError('Invalid optional preset field: ' + field)
         if row.get('ratio') and row['ratio'] not in {'21:9','16:9','3:2','5:4','1:1','4:5','2:3','9:16','9:21'}:

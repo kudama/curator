@@ -200,6 +200,24 @@ class Handler(BaseHTTPRequestHandler):
                 result = {'started': True}
             elif path == '/api/task/edit':
                 result = service.edit_task(data['id'], data['plan'], data['version'])
+            elif path == '/api/artwork/candidates':
+                result = service.artwork_candidates(data['id'],data['version'],data['count'])
+            elif path == '/api/mage/quote':
+                result = service.mage_quote(data['tasks'])
+            elif path == '/api/mage/authorize':
+                result = service.authorize_mage(data['quote'],data.get('consent'))
+            elif path == '/api/mage/resume':
+                result = service.resume_mage(data['id'],data['version'])
+            elif path == '/api/portrait/remember':
+                result = service.remember_portrait_identity(data['asset'],data['index'])
+            elif path == '/api/portrait/save':
+                result = service.save_portrait(data['profile_id'], data['revision'], data['image'])
+            elif path == '/api/portrait/plan':
+                result = service.portrait_plan(data['profile_id'], data['revision'], data['targets'])
+            elif path == '/api/artwork/plan':
+                result = service.artwork_plan(data['assets'], data['kind'], data['preset_id'], data.get('overrides'), data.get('images'), data.get('originals'), data.get('references'))
+            elif path == '/api/artwork/save-style':
+                result = service.save_artwork_style(data['id'], data['name'])
             elif path == '/api/mage/key':
                 from .mage import Mage
                 Mage(service.store.root).save_key(data['key'])
