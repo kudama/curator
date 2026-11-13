@@ -79,3 +79,39 @@ class MageDiscovery(unittest.TestCase):
         for path in ['/account','/mango/generate','https://other.invalid']:
             with self.assertRaises(ValueError):self.mage.get(path)
         self.opener.open.assert_not_called()
+
+    def test_quote_rejects_nondefault_price_and_implicit_paid_references(self):
+        catalog=self.catalog();row=catalog['architectures'][0]
+        row.update(gems=42,base_config={'model_id':'mango-v4','aspect_ratio':'4:5','resolution':'2K'},options={'aspect_ratio':['4:5','16:9'],'resolution':['1K','2K']})
+        self.mage.get=lambda path:catalog
+        settings={'model':'mango-v3','ratio':'4:5','resolution':'2K','prompt':'Synthetic','negative_prompt':''}
+        with self.assertRaisesRegex(ValueError,'No verified'):self.mage.quote(settings)
+        settings['model']='mango-v4';self.assertEqual(self.mage.quote(settings)['gems'],42)
+        settings['prompt']='@person portrait'
+        with self.assertRaisesRegex(ValueError,'No verified'):self.mage.quote(settings)
+        self.opener.open.assert_not_called()
+
+    def test_asset_download_never_uses_api_key_or_follows_unverified_hosts(self):
+        for url in ['http://assets.mage.space/result.png','https://127.0.0.1/x','https://mage.space.evil.invalid/x','https://user@mage.space/x']:
+            with self.assertRaises(ValueError):self.mage.download(url)
+        self.opener.open.assert_not_called()
+        self.opener.open.return_value=io.BytesIO(b'\x89PNG\r\n\x1a\nsynthetic')
+        self.mage.download('https://assets.mage.space/result.png')
+        request=self.opener.open.call_args.args[0]
+        self.assertIsNone(request.get_header('Authorization'))
+
+    def test_job_retries_are_bounded_and_keep_idempotency_key(self):
+        from unittest.mock import patch
+        self.mage._job_request=Mock(side_effect=[ValueError('Mage job HTTP 429'),ValueError('Mage job outcome is uncertain'),{'request_id':'a'*36,'status':'in_progress'}])
+        with patch('time.sleep'):
+            self.mage.submit({'prompt':'Synthetic'},'persistent-key')
+        self.assertEqual(self.mage._job_request.call_count,3)
+        for call in self.mage._job_request.call_args_list:self.assertEqual(call.args[-1],'persistent-key')
+        self.mage._job_request=Mock(side_effect=ValueError('Mage job HTTP 401'))
+        with patch('time.sleep'),self.assertRaises(ValueError):self.mage.submit({},'persistent-key')
+        self.assertEqual(self.mage._job_request.call_count,1)
+
+    def test_job_paths_cannot_redirect_credential_or_escape_request_scope(self):
+        for method,path in [('POST','https://other.invalid'),('GET','/requests/../account/status'),('GET','/mango/generate')]:
+            with self.assertRaises(ValueError):self.mage._job_request(method,path)
+        self.opener.open.assert_not_called()

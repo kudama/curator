@@ -21,6 +21,7 @@ from .file_workflows import FileWorkflows, FILE_KINDS
 from .folders import FolderWorkflows
 from .progress import EncodingProgress
 from .mage import Mage
+from .artwork import ArtworkWorkflows
 
 
 def identifier(*values):
@@ -28,7 +29,7 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows):
+class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
@@ -155,7 +156,7 @@ class Service(FileWorkflows, FolderWorkflows):
         current_kinds = {finding['kind'] for finding in findings}
         for old in self.store.all('tasks'):
             if (old['asset'] == asset['id'] and old['kind'] not in current_kinds
-                    and old['status'] == 'recommendation' and old['kind'] not in FILE_KINDS | {'folder_metadata'}):
+                    and old['status'] == 'recommendation' and old['kind'] not in FILE_KINDS | {'folder_metadata','artwork','mage_generation','portrait'}):
                 old.update(status='resolved', reason='Resolved by the latest scan', updated=now(), error=None)
                 old.pop('approval', None)
                 self.store.put('tasks', old['id'], old)
@@ -332,7 +333,7 @@ class Service(FileWorkflows, FolderWorkflows):
             raise ValueError('Unsupported plan settings')
         with self.store.transaction():
             task = self.get_task(key)
-            if task['kind'] in FILE_KINDS:
+            if task['kind'] in FILE_KINDS | {'artwork','mage_generation','portrait'}:
                 raise ValueError('Preview a new file operation to change its plan')
             if 'handbrake_preset' in plan and (task['kind'] != 'optimize' or
                     not isinstance(plan['handbrake_preset'], str) or not plan['handbrake_preset'].strip()):
@@ -361,6 +362,7 @@ class Service(FileWorkflows, FolderWorkflows):
         if action == 'queue':
             candidate = self.get_task(key)
             if candidate['version'] != version:raise ValueError('Stale task version; refresh first')
+            if candidate['kind'] in {'artwork','mage_generation','portrait'}:raise ValueError('Use artwork review; paid generation requires a verified configuration quote')
             if candidate['kind'] == 'folder_metadata':raise ValueError('Review a fresh folder preview before queueing these changes')
             prepared_status = candidate['status']
             prepared = self._prepare_queue(candidate, handbrake_preset)
@@ -404,8 +406,9 @@ class Service(FileWorkflows, FolderWorkflows):
             elif action == 'cancel':
                 if task['status'] not in {'queued','running','publishing'}:raise ValueError('This task is no longer queued or running; refresh first')
                 if task['status']=='publishing':raise ValueError('Publication is finishing; its file changes cannot be cancelled safely')
-                if task['status']=='running' and task['kind'] not in {'upscale','optimize','join'}:raise ValueError('This operation is finishing; remove its task after it completes')
+                if task['status']=='running' and task['kind'] not in {'upscale','optimize','join','mage_generation'}:raise ValueError('This operation is finishing; remove its task after it completes')
                 self.cancels.add(key)
+                if task['kind']=='mage_generation':task['mage_cancel_requested']=True
                 if task['status'] not in {'running', 'publishing'}:
                     task['status'] = 'cancelled'
             elif action == 'queue':
@@ -508,13 +511,15 @@ class Service(FileWorkflows, FolderWorkflows):
                 if task.get('approval') != task['version'] or key in self.cancels:
                     raise ValueError('Approval changed or job cancelled')
                 self.check_busy_sources(task)
-                asset = self.asset(task)
-                if asset['fingerprint'] != task.get('source'):
+                asset = self.asset(task,check=task['kind']!='mage_generation')
+                if task['kind']!='mage_generation' and asset['fingerprint'] != task.get('source'):
                     raise ValueError('Source changed since queue approval')
                 task.update(status='running', updated=now())
                 self.store.put('tasks', key, task)
             if task['kind'] in FILE_KINDS:
                 self.execute_file_task(task)
+            elif task['kind'] == 'mage_generation':
+                self.execute_mage(task)
             elif task['kind'] == 'folder_metadata':
                 self.execute_folder_metadata(task, asset)
             elif task['kind'] == 'metadata':
@@ -979,10 +984,10 @@ class Service(FileWorkflows, FolderWorkflows):
     def review(self, key, version, mode, background=False):
         with self.store.transaction():
             task = self.get_task(key)
-            if task['status'] != 'awaiting_review' or task['version'] != version:
+            if task.get('deleted') or task['status'] != 'awaiting_review' or task['version'] != version:
                 raise ValueError('Result is not awaiting review, or its version changed')
             self.check_busy_sources(task)
-            asset = self.asset(task)
+            asset = self.asset(task, check=task['kind'] not in {'artwork','portrait'})
             if task['kind'] in {'upscale', 'optimize', 'join'} and not task.get('comparison_loaded'):
                 raise ValueError('Load the source/output comparison before publishing')
             task['status'] = 'publishing'
@@ -996,7 +1001,11 @@ class Service(FileWorkflows, FolderWorkflows):
     def _finish_review(self, task, asset, propagate=True):
         key = task['id']
         try:
-            if task['kind'] == 'home':
+            if task['kind'] == 'artwork':
+                self.publish_artwork(task,asset)
+            elif task['kind'] == 'portrait':
+                self.publish_portrait(task,asset)
+            elif task['kind'] == 'home':
                 changes = task['plan'].get('changes') or dict(title=task['result']['title'],
                            summary=task['result']['summary'],
                            collection=sorted(set(self.metadata_fields(asset['item'])['collection'] + task['result']['themes'])))

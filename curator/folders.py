@@ -266,7 +266,7 @@ class FolderWorkflows:
                 for row in rows:
                     tid = key(preview_id,row['rating_key'])
                     task = dict(id=tid,asset=row['asset'],library=preview['library'],title=row['title'],kind='folder_metadata',
-                        reason='Apply reviewed folder metadata',evidence={'folder':folder['path']},plan=dict(folder=folder['id'],settings_signature=key(preview['settings']),changes=row['changes'],artwork=row['artwork'],art_before=row['art_before']),
+                        reason='Apply reviewed folder metadata',evidence={'folder':folder['path']},plan=dict(folder=folder['id'],settings_signature=key(preview['settings']),changes=row['changes'],artwork=row['artwork'],art_before=row['art_before'],portrait_profile=preview['settings'].get('portrait')),
                         metadata_before=row['before'],source=row['source'],status='queued',approval=1,version=1,created=now(),updated=now())
                     self.store.put('tasks',tid,task);self.store.event(tid,dict(action='approved folder preview',preview=preview_id));tasks.append(tid)
                     for old in pending:
@@ -297,7 +297,9 @@ class FolderWorkflows:
                     self.store.event(task['id'],dict(action='resolved already satisfied metadata',folder=fid))
 
     def execute_folder_metadata(self, task, asset):
-        client = self.checked_client(self.library(asset['library']));item = client.item(asset['rating_key']);plan = task['plan']
+        client = self.checked_client(self.library(asset['library']));plan = task['plan']
+        if plan.get('portrait_profile') and isinstance(client,Plex):raise ValueError('Native Plex portrait transport is unverified; use the local portrait download and manual fallback')
+        item = client.item(asset['rating_key'])
         _, remaining, artwork=self._folder_changes(item,dict(fields=plan['changes'],artwork=plan['artwork'],mode='replace'),client)
         artwork={kind:value for kind,value in artwork.items() if not Plex.artwork_path(item,kind) or hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest()!=value['photo']}
         if not remaining and not artwork:
