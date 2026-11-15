@@ -1,7 +1,7 @@
 # Foundry: single-host Curator deployment
 
-Status: **agreed deployment design (2026-11-15); not yet implemented or deployed**.
-Implementation tracked under Curator PR #9 and related issues.
+Status: **implementation in PR #9 (2026-11-15); not yet deployed or accepted on Foundry**.
+Coding review is tracked under #10/#11; real deployment acceptance remains #12.
 
 ## Intended result
 
@@ -64,6 +64,56 @@ Implementation tracked under Curator PR #9 and related issues.
   hardening for a later release.
 - No domain login now; Synology Directory Server remains a future option,
   not an implementation dependency.
+
+## Configure the implemented listener
+
+The default command still binds only `127.0.0.1`. `--host` accepts an explicit
+loopback or RFC1918 IPv4 address; DNS names, wildcard, public, link-local and
+IPv6 binds are refused. `--expected-host` adds a bare browser hostname and may
+be repeated. The bound address is always an accepted Host; `localhost` is added
+automatically only for the default `127.0.0.1` bind. Authorities include the
+actual listening port. A mutating request must have exactly one matching Host
+and Origin plus the existing session cookie and `X-Curator-Request` header.
+Duplicate Host/Origin headers and requests across two configured aliases are
+rejected. These browser checks do not authenticate users on the permitted network.
+
+After verifying the actual interface, DNS and firewall rules under #12, an
+operator can run this example with the real private address substituted:
+
+```sh
+python3 -m curator.web --host 192.168.1.20 --expected-host foundry
+```
+
+Then open `http://foundry:8790`. Do not bind a LAN interface before the required
+network policy is in place. An accepted hostname is not a firewall rule.
+
+For a reviewed installation, the LaunchAgent generator accepts the same flags:
+
+```sh
+python3 scripts/install-foundry-launchagent.py \
+  --host 192.168.1.20 --expected-host foundry
+```
+
+It generates a per-user plist and prints activation commands; it does not load a
+service or install media tools. The default remains explicit loopback. Existing
+plists are refused unless the operator explicitly chooses `--replace`; symlinked
+plists are always refused. Preserve the existing plist before choosing replacement.
+State must remain on local disk, outside the source checkout and NAS shares;
+the generator does not establish that a volume is local. Stop an existing Curator
+instance and reconcile pending work before loading a replacement. The service
+starts after GUI login; no pre-login/headless-boot acceptance is claimed.
+
+## Coding validation
+
+2026-11-15: the integrated network/launcher changes passed 321 local tests
+(three optional integrations skipped). New cases cover loopback defaults,
+explicit private binds, actual bound ports, Host/Origin mismatch and duplication,
+preserved cookies/header checks, successful same-origin writes and CLI validation
+before state creation, plus an actual local loopback bind. Launcher tests also
+cover repeated hostnames, plist round trips and existing-definition preservation.
+These results do not establish Foundry firewall reachability, mounts,
+state migration, video tools, real media safety or login recovery. No Curator
+service was installed or started during this coding review.
 
 ## Migrate existing Curator state
 
