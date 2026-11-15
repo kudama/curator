@@ -1,136 +1,103 @@
 # Foundry: single-host Curator deployment
 
-This optional deployment keeps the published Mac application architecture: Curator UI,
-Python API, SQLite queue and media processing all run on **Foundry**. Your desktop only
-needs a browser and an SSH tunnel. The standard `python3 -m curator.web --open`
-installation remains unchanged. No Postgres, workers, queue broker, or exposed HTTP
-listener is necessary.
+Status: **agreed deployment design (2026-11-15); not yet implemented or deployed**.
+Implementation tracked under Curator PR #9 and related issues.
 
-## Prerequisites
+## Intended result
 
-- macOS on Foundry, Python 3.11+, and the Curator repository checked out in a
-  stable location. Moving the checkout invalidates the LaunchAgent's working directory.
-- Foundry and desktop can connect over SSH. Enable **Remote Login** for an
-  authorized account on Foundry, preferably using SSH keys. Limit access to the
-  private network or an existing secure VPN. Do not port-forward SSH or Curator
-  from the public internet.
-- Plex connectivity from Foundry. Mount the media shares on **Foundry** and verify
-  both read and intended write permissions before starting an encode/publish operation.
-- Install and license Topaz Video AI and install HandBrakeCLI, FFmpeg and ffprobe
-  on Foundry. The HandBrake GUI alone is not equivalent to HandBrakeCLI.
-- Do not put Curator's SQLite/state directory on SMB, NFS or another network share.
+- Curator runs on **Foundry** (macOS): Python HTTP UI/API, SQLite task and
+  catalog state, processing queue, HandBrakeCLI/FFmpeg/ffprobe/Topaz executables.
+- From a desktop or other permitted private-network client, open
+  **`http://foundry:8790`** directly in a normal browser. **No SSH tunnel,
+  separate frontend, proxy, Docker, PostgreSQL, queue broker or worker service.**
+- Curator is **unauthenticated by design for this deployment**. Do not add a
+  login or Synology Directory Server integration at this stage. This is an
+  explicit trust decision: anyone who can reach this port can read Curator state
+  and trigger actions, including media modifications and publication.
+- Limit reachability with the Foundry host firewall and network controls
+  to trusted private clients. Do not expose Curator to the public internet.
+  **Do not assume that placing Foundry on VLAN 20 alone restricts clients**
+  across VLANs. Confirm the actual allowed desktop subnet(s) before deploying.
+- Public Curator remains localhost-only by default; private-network listening
+  must be a clearly opt-in, explicit interface binding.
+- Use only the intended Foundry network interface/address, **not `0.0.0.0`**.
+  Actual Foundry IP and hostname resolution must be confirmed at deployment.
 
-## 1. Install and configure Curator on Foundry
+## Application changes required
 
-On Foundry, from the Curator checkout:
+1. Add a `--host` (or equivalent bind-address) option to Curator's Python
+   server, defaulting to `127.0.0.1`. Listen on an explicit Foundry LAN address
+   only when selected. No binding to all interfaces by default.
+2. Preserve existing cookie, same-origin, CSRF-header, Host, and browser
+   security checks. Generalize the exact Host and Origin checks for the
+   configured address and port (including the expected `foundry` hostname).
+   Reject unrelated/forged Host/Origin values. Session cookies must remain
+   `HttpOnly` and `SameSite=Strict`; the cookie alone is **not authentication**.
+   Remote browser access must not accidentally enable cross-origin mutation.
+3. Add regression tests for localhost default, opt-in LAN host access,
+   rejected Host/Origin mutations, API reads and reviewed writes, and port
+   matching. Use synthetic fixture state; no live Plex or media changes.
+4. Keep the existing per-user macOS LaunchAgent, but make its configured
+   bind address explicit and documented. Service starts after user login,
+   keeps Curator running when the desktop browser closes, and logs startup
+   failures. Do not claim pre-login, headless boot reliability from a user
+   LaunchAgent.
+5. Retain SQLite on **Foundry local disk**, with one Curator process owning
+   the state. Keep processing, review, and publishing on the same host.
+   Preserve restart behavior that blocks uncertain interrupted jobs rather
+   than automatically replaying potentially destructive work.
 
-```sh
-python3 --version
-python3 -m curator.web --open
-```
+## Foundry setup and operator boundaries
 
-In the browser, set the Plex server URL/token and map each Plex storage root to
-the corresponding **Foundry** mounted-media path. Configure executable paths
-in Settings when needed; the LaunchAgent's PATH can differ from an interactive
-Terminal. Confirm that the CLI tools actually run under the same macOS user
-that will run the LaunchAgent. Stop Curator when configuration is complete.
+- The operator installs/licenses **Topaz Video AI** and installs **HandBrakeCLI**.
+  Verify FFmpeg/ffprobe and the exact CLI executable paths. The application must
+  not attempt to install or license tools.
+- Mount the Synology media roots on Foundry and map Plex's media paths to the
+  Foundry mount paths in Curator. Verify readable source paths, write/rename
+  permissions for approved publication, available disk space, and behavior if
+  the share disappears during a job.
+- Plex connectivity and credentials are configured on Foundry. Do not commit
+  tokens, media metadata, live task receipts or runtime catalogs.
+- Because the UI is plain HTTP without user authentication, do not access it
+  over untrusted Wi-Fi, a routed guest network, or an untrusted VPN. The
+  network access controls are part of deployment acceptance, not optional
+  hardening for a later release.
+- No domain login now; Synology Directory Server remains a future option,
+  not an implementation dependency.
 
-For existing Curator users, migrate the state before configuring any new work,
-as described below.
+## Migrate existing Curator state
 
-## 2. Install per-user background startup
+1. Stop all Curator instances and let outstanding file operations finish.
+2. Back up the **entire** local `~/Library/Application Support/Curator`
+   directory (SQLite/WAL, settings, receipts, generated art and credentials).
+   Keep the backup private; do not copy the database while it is live.
+3. Transfer the stopped-state directory to the same private local path on
+   Foundry via a secure mechanism. Preserve owner permissions.
+4. Reconcile Plex root mappings, existing task source/output paths and
+   pending queue items for **Foundry** before processing or publishing.
+   Block unresolved desktop-only paths; never blindly resume file writes.
+5. Verify a small representative scan → encode → review → publish sequence,
+   including original retention, checksum/readback and Plex refresh.
+   Validate browser reconnect and interrupted-job recovery.
 
-From the stable Curator checkout on Foundry, use the exact Python interpreter
-used for successful interactive Curator startup:
+## Acceptance criteria
 
-```sh
-python3 scripts/install-foundry-launchagent.py
-launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.curator.foundry.plist"
-launchctl print gui/$(id -u)/com.curator.foundry
-```
+- On a fresh standalone Mac, the default invocation is still available only
+  at `127.0.0.1:8790`. Unauthorized Host/Origin combinations remain rejected.
+- With an explicitly configured Foundry bind address and permitted network
+  path, `http://foundry:8790` loads and approved browser actions succeed
+  from the desktop **without a tunnel or sign-in**.
+- A client outside the approved network cannot reach TCP/8790; no public
+  interface is exposed. Verify actual firewall policy, not just documentation.
+- Closing the desktop browser does not stop a processing job. Restart and
+  interrupted-publish behavior remain safe and observable.
+- Curator cannot write to missing/unmounted media roots or silently overwrite
+  originals; an interrupted publication is inspected before retry.
+- The documented LaunchAgent, state migration and startup/recovery behavior
+  are tested against Foundry before declaring deployment complete.
 
-The script writes a per-user macOS LaunchAgent, set to restart after failures.
-It **does not** start the service, install media tools, modify firewall settings
-or expose Curator beyond loopback. Stop a manually running Curator before
-loading the agent; only one process can own its state directory. For reinstallation
-after editing the generated plist, unload it first:
+## Explicitly out of scope
 
-```sh
-launchctl bootout gui/$(id -u)/com.curator.foundry
-python3 scripts/install-foundry-launchagent.py --replace
-launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.curator.foundry.plist"
-```
-
-The LaunchAgent runs **after the user logs into macOS**, not at pre-login boot.
-Ensure the user session remains active for unattended work; test the behavior
-across a reboot and an ordinary login. The default state path is
-`~/Library/Application Support/Curator`; logs are in that directory. Do not
-run two Curator instances against it.
-
-## 3. Open Curator from your desktop
-
-With SSH access configured to Foundry:
-
-```sh
-ssh -N -L 8790:127.0.0.1:8790 foundry
-```
-
-Then visit `http://127.0.0.1:8790` **on your desktop**. Keep the tunnel running
-while using the browser. Curator's current Origin validation requires the browser's port to match the
-server's port. If port 8790 is occupied on the desktop, stop the conflicting
-process, or deliberately configure **both** Curator on Foundry and the tunnel
-to use the same alternative port.
-
-The current Curator HTTP server explicitly requires localhost Host and Origin
-values and a session cookie. The browser speaks to desktop localhost and SSH
-forwards to Foundry localhost, so no LAN binding/authentication rewrite is needed.
-Never use `ssh -g` or bind the tunnel to `0.0.0.0`. SSH credentials and session
-access protect the remote connection.
-
-## 4. Move existing state from the desktop (optional)
-
-1. Stop Curator on the **desktop** and confirm no encode/publish operation is active.
-   Stop Curator on Foundry too; never copy a live WAL database.
-2. Make a separate backup of the entire desktop
-   `~/Library/Application Support/Curator` directory, including SQLite WAL/SHM
-   files if present, task receipts, artwork assets, and the private token/key
-   files. Treat backups as secrets.
-3. Transfer that entire stopped-state directory over SSH, for example from the
-   desktop (adjust the real SSH destination and path):
-   
-   ```sh
-   tar -C "$HOME/Library/Application Support" -cf - Curator | \
-     ssh foundry 'mkdir -p "$HOME/Library/Application Support" && tar -C "$HOME/Library/Application Support" -xf -'
-   ```
-
-4. On Foundry, ensure the state directory is private to its service account.
-   Update all Plex-to-local path mappings for Foundry's actual mount paths.
-   Existing task output paths and unfinished queue items may still refer to
-   desktop locations. **Inspect and reconcile them before running the queue.**
-5. Validate a small synthetic/sample file through scan → encode → review →
-   publish. Confirm the original is retained and Plex refreshes correctly.
-   Only then start any backlog processing.
-
-For a fresh Foundry deployment without valuable existing state, skip the
-migration and configure Curator directly.
-
-## Recovery and operational limits
-
-- Curator's current restart behavior blocks interrupted `running` and
-  `publishing` tasks for **manual inspection**. It does not blindly resume
-  file mutations. This is intentional; verify retained originals and outputs
-  before retrying.
-- Losing an SSH tunnel disconnects only the browser; the Foundry process and
-  already running jobs continue. Stopping the LaunchAgent or logging out can
-  interrupt them.
-- The service will not automatically mount NAS shares. Verify mounted shares
-  and permissions before starting jobs; Curator checks missing and changed
-  mappings and rejects unsafe publication.
-- Check `launchd.stderr.log`, `launchd.stdout.log`, and the task's publication
-  log if startup or publishing fails.
-- Back up Curator's *stopped or consistently snapshotted* state along with
-  normal Synology media backups. Do not copy a live SQLite file in isolation.
-
-This setup is intentionally a single-host deployment. Changing it to native
-LAN listening, a shared database or remote processing workers is **not**
-required for Foundry.
+- PostgreSQL, Redis, RabbitMQ, Celery, containerizing Curator, distributed
+  workers, video-tool installation, Synology LDAP/Directory login, general
+  Internet exposure, changing the local Mac install default.
