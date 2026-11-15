@@ -1,6 +1,55 @@
 'use strict';
 // Navigation and presentation only. Editors continue to use the existing approved workflows.
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
+let serviceRestarting=false,serviceStatus=null;
+function serviceBusy(){return Boolean(state.queue_running||(state.tasks||[]).some(t=>['running','publishing'].includes(t.status))||Object.values(state.scans||{}).some(s=>s.running)||Object.values(state.presence||{}).some(s=>s.running));}
+function updateServiceControls(){
+ const control=$('restart-curator'),note=$('service-status');if(!control||!note)return;
+ control.disabled=serviceRestarting||!serviceStatus?.restart_available||serviceBusy();
+ if(!serviceStatus)return;
+ note.textContent=!serviceStatus.restart_available?'Restart is available when Curator runs as the managed login service.':serviceBusy()?'Finish processing, publishing and library checks before restarting.':'Running on '+serviceStatus.hostname+'. Starts after login.';
+}
+async function loadServiceStatus(){
+ try{serviceStatus=await api('service/status');updateServiceControls();}
+ catch(error){$('service-status').textContent='Service controls are unavailable in this running instance.';$('restart-curator').disabled=true;}
+}
+async function serviceFetch(path,options={}){
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+ try{return await fetch(path,{...options,signal:controller.signal,cache:'no-store'});}
+ finally{clearTimeout(timer);}
+}
+async function requestServiceRestart(){
+ let response;
+ try{response=await serviceFetch('/api/service/restart',{method:'POST',headers:{'Content-Type':'application/json','X-Curator-Request':'1'},body:'{}'});}
+ catch(error){return;} // Acceptance may be uncertain: poll, never repeat the POST.
+ if(response.status>=400&&response.status<500){
+  let message='Restart was refused.';try{message=(await response.json()).error||message;}catch(error){}
+  throw Error(message);
+ }
+}
+async function waitForServiceRestart(instance,options={}){
+ const now=options.now||Date.now,pause=options.pause||(ms=>new Promise(resolve=>setTimeout(resolve,ms))),deadline=now()+(options.timeout??60000);
+ while(now()<deadline){
+  await pause(1000);
+  let status;
+  try{
+   const page=await serviceFetch('/');if(!page.ok)continue; // Renew the HttpOnly session cookie after restart.
+   const response=await serviceFetch('/api/service/status');if(!response.ok)continue;status=await response.json();
+  }catch(error){continue;}
+  if(typeof status.instance_id==='string'&&status.instance_id!==instance)return status;
+  if(status.restart_error)throw Error(status.restart_error);
+ }
+ throw Error('Curator has not reconnected yet. Check the service log before trying another restart.');
+}
+async function restartCurator(){
+ if(serviceRestarting||serviceBusy())return;
+ if(!confirm('Save any settings or review edits first. Restart Curator now? The page will reload.'))return;
+ const note=$('service-restart-feedback');serviceRestarting=true;updateServiceControls();note.textContent='Requesting restart…';
+ try{
+  const before=await api('service/status');await requestServiceRestart();note.textContent='Waiting for Curator to reconnect…';
+  await waitForServiceRestart(before.instance_id);location.reload();
+ }catch(error){serviceRestarting=false;note.textContent=error.message;updateServiceControls();}
+}
 function inspectorOpen(){return !$('task-dialog').hidden;}
 function prepareInspector(){
  const close=$('task-dialog').querySelector('[data-close]');
@@ -41,6 +90,7 @@ function initWorkbench(){
  $('file-search').oninput=e=>{searchText=e.target.value.trim().toLocaleLowerCase();render();};
  $('folder-choice').onchange=e=>{const id=e.target.value;e.target.value='';if(id)run(()=>openFolder(id));};
  $('collapse-folders').onclick=collapseAllFolders;
+ const restart=$('restart-curator');if(restart)restart.onclick=restartCurator;
  window.addEventListener('beforeunload',e=>{if(inspectorDirty){e.preventDefault();e.returnValue='';}});
  $('task-detail').addEventListener('input',()=>{if(inspectorMode==='file-tools')inspectorDirty=true;});
  $('task-dialog').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeInspector();}});

@@ -53,7 +53,7 @@ class ListenerPolicy(unittest.TestCase):
              patch.object(web,'Store',return_value=state), patch.object(web,'Service') as service, \
              patch.object(web,'App',return_value=server) as app, patch('sys.stdout',new_callable=io.StringIO):
             web.main()
-        app.assert_called_once_with(('10.0.0.106',8790),service.return_value,expected_hosts=('foundry',))
+        app.assert_called_once_with(('10.0.0.106',8790),service.return_value,expected_hosts=('foundry',),managed_service=False)
         server.server_close.assert_called_once();state.close.assert_called_once()
 
 

@@ -7,7 +7,7 @@ function node(tag,text,cls){const el=document.createElement(tag);if(text!==undef
 function toast(text,error=false){const feedback=$($('config-dialog').open?'config-feedback':'task-feedback');if(feedback&&(inspectorOpen()||$('config-dialog').open)){feedback.hidden=false;feedback.textContent=text;feedback.className=error?'artwork-status error':'artwork-status';}$('toast').textContent=text;$('toast').className=error?'error':'';$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,7000);}
 async function api(path,data){const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}
 async function run(fn){try{return await fn();}catch(e){toast(e.message,true);}}
-async function refresh(){state=await api('state');if(!libraryId&&state.libraries.length)libraryId=state.libraries[0].id;render();}
+async function refresh(){if(serviceRestarting)return;state=await api('state');if(!libraryId&&state.libraries.length)libraryId=state.libraries[0].id;render();updateServiceControls();}
 function current(){return state.libraries.find(x=>x.id===libraryId);}
 const COMPLETED_TASK_STATES=new Set(['applied','resolved']);
 const HISTORY_TASK_STATES=new Set(['applied','resolved','rejected','cancelled']);
@@ -234,7 +234,7 @@ function renderPresetSettings(){
  const old=$('add-style-preset');if(old)old.remove();const create=button('Create style',()=>add({id:'style-'+crypto.randomUUID().slice(0,12),name:'New style',details:'Natural colors and a simple composition.',background:'a complementary neutral tone',typography:'Clean readable title lettering.'}),'subtle');create.id='add-style-preset';container.after(create);
 }
 function readPresetSettings(){return [...$('preset-settings').children].filter(row=>row.querySelector('[data-enabled]').checked).map(row=>({id:row.dataset.presetId,...Object.fromEntries([...row.querySelectorAll('[data-preset-field]')].map(input=>[input.dataset.presetField,input.value]))}));}
-function openConfig(){$('config-feedback').hidden=true;renderPresetSettings();const form=$('config-form');for(const el of form.elements){if(el.name&&el.name!=='plex_token')el.value=state.config[el.name]??el.defaultValue??'';}form.elements.plex_token.value='';$('config-dialog').showModal();}
+function openConfig(){$('config-feedback').hidden=true;renderPresetSettings();const form=$('config-form');for(const el of form.elements){if(el.name&&el.name!=='plex_token')el.value=state.config[el.name]??el.defaultValue??'';}form.elements.plex_token.value='';$('config-dialog').showModal();run(loadServiceStatus);}
 $('settings').onclick=openConfig;
 $('config-form').onsubmit=e=>{e.preventDefault();run(async()=>{const data=Object.fromEntries(new FormData(e.target));for(const key of ['max_mbps_1080','max_mbps_4k'])data[key]=Number(data[key]);data.branding_presets=readPresetSettings();await api('config',data);$('config-dialog').close();await refresh();toast('Workspace settings saved');});};
 $('connect').onclick=()=>run(async()=>{if(!state.config.token_configured){openConfig();return;}await api('connect',{});await refresh();toast('Plex libraries refreshed');});
@@ -417,7 +417,7 @@ async function openFileOperation(asset,kind){
  },'primary');actions.append(button('Cancel',()=>closeInspector()),preview);showInspector();
 }
 let presencePending=false;
-async function syncCatalog(){if(!libraryId||presencePending||!state.config.token_configured)return;presencePending=true;try{await api('library/presence',{library:libraryId});}catch(error){if(error.message!=='Not found')throw error;}finally{presencePending=false;}}
+async function syncCatalog(){if(serviceRestarting)return;if(!libraryId||presencePending||!state.config.token_configured)return;presencePending=true;try{await api('library/presence',{library:libraryId});}catch(error){if(error.message!=='Not found')throw error;}finally{presencePending=false;}}
 initWorkbench();run(async()=>{await refresh();await syncCatalog();});setInterval(()=>run(refresh),4000);setInterval(()=>run(syncCatalog),60000);
 
 function folderValue(value){if(Array.isArray(value))return value.map(v=>typeof v==='string'?v:v.name+(v.role?' ('+v.role+')':'')+(v.photo||v.thumb?' · photo':'')).join(', ')||'(empty)';return value||'(empty)';}

@@ -5,6 +5,8 @@ import json
 import ipaddress
 import re
 import secrets
+import threading
+from contextlib import nullcontext
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +16,7 @@ from .service import Service
 from .store import Store
 from .tools import image_bytes
 from .tools import handbrake_presets
+from .runtime import ServiceRuntime, RestartBlocked, Restarting, RESTART_EXIT_CODE
 
 
 def listener_settings(host, expected_hosts=()):
@@ -42,9 +45,10 @@ def listener_settings(host, expected_hosts=()):
 class App(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, service, expected_hosts=()):
+    def __init__(self, address, service, expected_hosts=(), managed_service=False):
         host, expected_hosts = listener_settings(address[0], expected_hosts)
         self.service = service
+        self.runtime = ServiceRuntime(service, managed=managed_service)
         self.session = secrets.token_urlsafe(32)
         super().__init__((host, address[1]), Handler)
         self.allowed_authorities = {name + ':' + str(self.server_port) for name in expected_hosts}
@@ -95,7 +99,18 @@ class Handler(BaseHTTPRequestHandler):
                 return False
         return True
 
+    def dispatch(self, method, mutate=False):
+        runtime = getattr(self.server, 'runtime', None)
+        try:
+            with runtime.request(mutate) if runtime else nullcontext():
+                return method()
+        except Restarting:
+            return self.reply({'error':'Curator is restarting; reconnect shortly.'},503)
+
     def do_GET(self):
+        return self.dispatch(self.get_response)
+
+    def get_response(self):
         if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
@@ -107,6 +122,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return self.reply({'error': 'Open Curator in this browser first'}, 403)
         try:
+            if path == '/api/service/status':
+                return self.reply(self.server.runtime.status())
             if path == '/api/library/metadata-choices':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.library_metadata_choices(query['library'][0], query['field'][0]))
@@ -191,6 +208,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error': str(e) if isinstance(e, ValueError) else 'Resource unavailable'}, 400)
 
     def do_POST(self):
+        return self.dispatch(self.post_response, mutate=True)
+
+    def post_response(self):
         if not self.allowed(mutate=True):
             return self.reply({'error': 'Local session/origin required'}, 403)
         try:
@@ -202,6 +222,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Expected a JSON object')
             service = self.server.service
             path = urlsplit(self.path).path
+            if path == '/api/service/restart':
+                if data:
+                    raise ValueError('Restart accepts no parameters')
+                result = self.server.runtime.request_restart()
+                try:
+                    self.reply(result,202)
+                finally:
+                    threading.Thread(target=self.server.shutdown,daemon=True).start()
+                return
             if path == '/api/folders/defaults':
                 result=service.save_folder_defaults(data['id'], data['settings'], data.get('revision'), data.get('branding_revision'))
             elif path == '/api/folders/preview':
@@ -292,6 +321,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self.reply({'error': 'Not found'}, 404)
             self.reply(result)
+        except RestartBlocked as error:
+            self.reply({'error':str(error)},409)
         except (ValueError, KeyError, TypeError) as e:
             self.reply({'error': str(e) if isinstance(e, ValueError) else 'Missing or invalid request field'}, 400)
         except Exception:
@@ -306,6 +337,7 @@ def main():
                         help='Additional bare browser hostname, such as foundry; repeat as needed')
     parser.add_argument('--state', default='~/Library/Application Support/Curator')
     parser.add_argument('--open', action='store_true', help='Open the local app in your default browser')
+    parser.add_argument('--managed-service', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
         parser.error('--port must be between 0 and 65535')
@@ -318,7 +350,8 @@ def main():
     except (OSError, ValueError) as error:
         parser.exit(2, f'Curator could not open its local state: {error}\n')
     try:
-        server = App((host, args.port), Service(store), expected_hosts=expected_hosts)
+        server = App((host, args.port), Service(store), expected_hosts=expected_hosts,
+                     managed_service=args.managed_service)
     except OSError as error:
         store.close()
         parser.exit(2, f'Curator could not listen on {host}:{args.port}: {error}. Close the other instance or try --port 8791.\n')
@@ -326,13 +359,23 @@ def main():
     if args.open:
         import webbrowser
         webbrowser.open(f'http://{host}:{server.server_port}')
+    restart = False
     try:
-        server.serve_forever()
+        while True:
+            server.serve_forever()
+            if not server.runtime.restart_requested:
+                break
+            if server.runtime.wait_for_idle():
+                restart = True
+                break
+            server.runtime.cancel_restart()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
         store.close()
+    if restart:
+        raise SystemExit(RESTART_EXIT_CODE)
 
 
 if __name__ == '__main__':
