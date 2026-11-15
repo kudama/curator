@@ -58,7 +58,7 @@ function updateProgressView(box,t){
 function localPath(value){
  let path=value.trim();
  if(path.length>=2&&((path.startsWith("'")&&path.endsWith("'"))||(path.startsWith('"')&&path.endsWith('"'))))path=path.slice(1,-1);
- if(path&&!path.startsWith('/'))throw Error('Use the mounted Mac folder path, starting with /Volumes/ or /. Wrapping quotes are removed automatically.');
+ if(path&&!path.startsWith('/'))throw Error('Use an absolute folder path on the computer running Curator, starting with /Volumes/ or /. Wrapping quotes are removed automatically.');
  return path;
 }
 const ARTWORK_LABELS={cover:'Cover',background:'Background',logo:'Logo',square:'Square art'};
@@ -247,11 +247,11 @@ async function openLibrarySettings(){
  const saved=lib.mappings||[],detected=(lib.locations||[]).map(x=>x.path).filter(x=>typeof x==='string'&&x.startsWith('/'));
  const roots=[...new Set([...detected,...saved.map(x=>x.plex_root)])];
  const covered=root=>saved.some(m=>root===m.plex_root||root.startsWith(m.plex_root.replace(/\/$/,'')+'/'));
- if(!note.textContent.startsWith('Using saved'))note.textContent=detected.length+' Plex folders · '+detected.filter(covered).length+' mapped · '+detected.filter(r=>!covered(r)).length+' need a Mac path';
+ if(!note.textContent.startsWith('Using saved'))note.textContent=detected.length+' Plex folders · '+detected.filter(covered).length+' mapped · '+detected.filter(r=>!covered(r)).length+' need a folder path on Curator’s computer';
  for(const [index,root] of roots.entries()){
   const row=node('div',undefined,'mapping-row'),plexLabel=node('label','Folder '+(index+1)+' · '+(detected.includes(root)?'Plex location':'saved mapping')),plex=node('input');plex.value=root;plex.readOnly=true;plex.name='plex_root';plexLabel.append(plex);
-  const localLabel=node('label','Matching folder on this Mac'),local=node('input');local.name='local_root';local.placeholder='/Volumes/Media/…';local.value=saved.find(x=>x.plex_root===root)?.local_root||'';localLabel.append(local);row.append(plexLabel,localLabel);
-  if(!local.value)row.append(node('p',covered(root)?'Covered by a saved parent mapping; add a specific Mac path here only to override it.':'Not mapped yet. Files in this location need their own Mac path.','muted'));
+  const localLabel=node('label',"Folder on Curator's computer"),local=node('input');local.name='local_root';local.placeholder='/Volumes/Media/…';local.value=saved.find(x=>x.plex_root===root)?.local_root||'';localLabel.append(local);row.append(plexLabel,localLabel);
+  if(!local.value)row.append(node('p',covered(root)?'Covered by a saved parent mapping; add a specific path on the computer running Curator here only to override it.':'Not mapped yet. Files in this location need a folder path on the computer running Curator.','muted'));
   $('mapping-rows').append(row);
  }
  if(!roots.length)$('mapping-rows').append(node('p','Plex did not return folder locations. Refresh libraries to retrieve them.','muted'));
@@ -303,7 +303,7 @@ function recommendation(t,asset){
  }else if(t.kind==='playlist'){
   title='Create the proposed viewing order';description=`Review ${t.evidence?.ordered?.length||0} ordered items and any missing-episode warnings below.`;next='Approve and queue the playlist only when its order is correct.';
  }else{
-  title=t.status==='resolved'?'This finding is resolved':'Resolve file access before processing';description=t.error||asset?.blocked||t.reason;next=t.status==='resolved'?'The latest scan no longer reports this issue.':'Check the mapped Mac folder and whether this file still exists, then rescan the library.';
+  title=t.status==='resolved'?'This finding is resolved':'Resolve file access before processing';description=t.error||asset?.blocked||t.reason;next=t.status==='resolved'?'The latest scan no longer reports this issue.':'Check the mapped folder on the computer running Curator and whether this file still exists, then rescan the library.';
  }
  box.append(node('div','RECOMMENDATION','eyebrow'),node('h3',title),node('p',description),node('p',next,'next-step'));
  return box;
