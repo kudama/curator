@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def make_properties(root, state, port, python, host="127.0.0.1", expected_hosts=()):
     from curator.web import listener_settings
     host, expected_hosts = listener_settings(host, expected_hosts)
-    arguments = [python, "-m", "curator.web", "--state", str(state), "--port", str(port), "--host", host]
+    arguments = [python, "-m", "curator.web", "--state", str(state), "--port", str(port), "--host", host, "--managed-service"]
     for name in expected_hosts:
         arguments.extend(["--expected-host", name])
     return {

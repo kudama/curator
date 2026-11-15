@@ -151,3 +151,11 @@ service was installed or started during this coding review.
 - PostgreSQL, Redis, RabbitMQ, Celery, containerizing Curator, distributed
   workers, video-tool installation, Synology LDAP/Directory login, general
   Internet exposure, changing the local Mac install default.
+
+## Restart from the browser
+
+With the generated LaunchAgent installed, open **Settings → Curator service → Restart Curator**. Save edits first: the page reconnects and reloads after the service starts again. The server refuses a restart during processing, publishing, library scans, file availability checks, or another data-changing request. Accepted requests drain before the database closes. Queued tasks and review decisions remain stored; restarting does not start the queue.
+
+The managed service exits with status 75 after a requested restart; launchd's existing unsuccessful-exit policy relaunches it. A manually started server has no UI restart capability. Existing installations must regenerate and reload their LaunchAgent to enable this control; updating source alone does not change loaded arguments. Preserve the old plist before replacement and wait for an idle service before refreshing it.
+
+This is a per-user LaunchAgent: Curator starts **after the configured user logs in**, not before login. RunAtLoad and relaunch behavior do not establish unattended reboot acceptance. A next-login/reboot check remains a separate deployment check.

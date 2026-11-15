@@ -19,7 +19,7 @@ class FoundryLaunchAgent(unittest.TestCase):
         properties = foundry.make_properties(root, state, 8790, "/opt/homebrew/bin/python3")
         self.assertEqual(properties["ProgramArguments"], [
             "/opt/homebrew/bin/python3", "-m", "curator.web",
-            "--state", str(state), "--port", "8790", "--host", "127.0.0.1"
+            "--state", str(state), "--port", "8790", "--host", "127.0.0.1", "--managed-service"
         ])
         self.assertNotIn("--expected-host", properties["ProgramArguments"])
         self.assertEqual(properties["WorkingDirectory"], str(root))
@@ -38,7 +38,7 @@ class FoundryLaunchAgent(unittest.TestCase):
         props = foundry.make_properties(Path('/src/curator'), Path('/local/state'), 8790,
             '/python', '10.0.0.106', ['foundry','foundry.tfs.apt'])
         args = plistlib.loads(plistlib.dumps(props))['ProgramArguments']
-        self.assertEqual(args[-6:],['--host','10.0.0.106','--expected-host','foundry',
+        self.assertEqual(args[-7:],['--host','10.0.0.106','--managed-service','--expected-host','foundry',
                                     '--expected-host','foundry.tfs.apt'])
 
     def test_invalid_binding_is_refused(self):
