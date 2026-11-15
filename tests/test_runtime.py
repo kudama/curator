@@ -144,6 +144,9 @@ class RealRestart(unittest.TestCase):
         from curator.store import Store
         with tempfile.TemporaryDirectory() as directory:
             original=Store(directory)
+            with original.transaction():
+                original.put('tasks','queued-test',{'id':'queued-test','status':'queued','version':7,'approval':{'reviewed':True}})
+                original.put('tasks','review-test',{'id':'review-test','status':'awaiting_review','version':2})
             before={table:original.all(table) for table in ('tasks','libraries','assets')}
             original.close()
             identities=[]
