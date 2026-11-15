@@ -83,6 +83,6 @@ node --check curator/static/collections.js
 
 Node is only used for optional developer syntax checks. Tests use synthetic data and temporary state; optional integration tests skip when the required local tools are missing.
 
-See [troubleshooting and recovery](docs/troubleshooting.md), [architecture](docs/architecture.md), [validation](docs/validation.md), [release review](docs/release-readiness.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Report reproducible bugs in [GitHub Issues](https://github.com/kudama/curator/issues), using synthetic media and sanitized details.
+For optional always-on use on a separate Mac, see [Foundry single-host deployment](docs/foundry-deployment.md). The default local installation is unchanged.\n\nSee [troubleshooting and recovery](docs/troubleshooting.md), [architecture](docs/architecture.md), [validation](docs/validation.md), [release review](docs/release-readiness.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Report reproducible bugs in [GitHub Issues](https://github.com/kudama/curator/issues), using synthetic media and sanitized details.
 
 MIT licensed. Curator is independent of Plex, HandBrake, Topaz, Ollama, Mage, and Kometa.
