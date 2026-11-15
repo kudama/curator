@@ -725,7 +725,8 @@ class HTTPBoundary(unittest.TestCase):
             def makefile(self,*args):return io.BytesIO(request.encode())
             def sendall(self,data):self.output.extend(data)
         connection=Connection()
-        server=SimpleNamespace(server_port=8790,session=session,service=SimpleNamespace(state=lambda:{'ok':True}))
+        server=SimpleNamespace(server_port=8790,session=session,service=SimpleNamespace(state=lambda:{'ok':True}),
+                               allowed_authorities={'127.0.0.1:8790','localhost:8790'})
         Handler(connection,('127.0.0.1',1),server)
         return bytes(connection.output)
 

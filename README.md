@@ -32,7 +32,7 @@ python3 -m curator.web --open
 
 You can also double-click `Curator.command`. If macOS blocks the launcher, use the Terminal command above.
 
-Curator opens at http://127.0.0.1:8790. It is a local application, not a remotely hosted web service.
+Curator opens at http://127.0.0.1:8790. The default is a local application. Optional trusted private-network hosting is described in the Foundry deployment guide.
 
 1. In **Settings**, enter your Plex server root URL (for example, `http://plex-server:32400`) and token. Use a server you administer. Plex documents [how to find your token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). Use the direct server URL; redirects are refused to protect the token.
 2. Refresh libraries and select one. In **Library settings**, map every Plex media location to its corresponding mounted Mac folder.
@@ -69,7 +69,7 @@ python3 -m curator.web --state /tmp/curator-demo --port 8791 --open
 
 ## Current limits
 
-This preview has automated fixture coverage and limited operator acceptance, not compatibility certification for every Plex agent, client, codec, or NAS. Cast/artwork rendering varies across Plex clients. Licensed Topaz model acceptance, representative encoding quality, local-vision semantic quality, and broader mounted-storage recovery need further verification. Automated HD visual-quality scoring, richer metadata matching, managed Kometa execution, and extras creation remain unfinished. Windows support and remote/network hosting are not provided.
+This preview has automated fixture coverage and limited operator acceptance, not compatibility certification for every Plex agent, client, codec, or NAS. Cast/artwork rendering varies across Plex clients. Licensed Topaz model acceptance, representative encoding quality, local-vision semantic quality, and broader mounted-storage recovery need further verification. Automated HD visual-quality scoring, richer metadata matching, managed Kometa execution, and extras creation remain unfinished. Windows support and public Internet hosting are not provided. Private-network hosting is opt-in and requires the documented network acceptance checks.
 
 ## Development
 
@@ -82,6 +82,8 @@ node --check curator/static/collections.js
 ```
 
 Node is only used for optional developer syntax checks. Tests use synthetic data and temporary state; optional integration tests skip when the required local tools are missing.
+
+For optional service use after login on a separate Mac, see [Foundry single-host deployment](docs/foundry-deployment.md). The default local installation is unchanged.
 
 See [troubleshooting and recovery](docs/troubleshooting.md), [architecture](docs/architecture.md), [validation](docs/validation.md), [release review](docs/release-readiness.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Report reproducible bugs in [GitHub Issues](https://github.com/kudama/curator/issues), using synthetic media and sanitized details.
 

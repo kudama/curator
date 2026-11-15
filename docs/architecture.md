@@ -1,6 +1,6 @@
 # Architecture
 
-Curator is a standalone local Mac application: Python 3.11+ standard library, loopback threaded HTTP server, plain HTML/CSS/JavaScript, and SQLite state on local disk. Shared media stays on mapped storage; the state database must not live on a network share.
+Curator is a standalone local Mac application by default: Python 3.11+ standard library, loopback threaded HTTP server, plain HTML/CSS/JavaScript, and SQLite state on local disk. An optional single-host Foundry deployment with direct restricted-LAN browser access is specified in [Foundry deployment](foundry-deployment.md); its explicit private IPv4 binding and exact Host/Origin checks are implemented in the deployment PR; target-host network acceptance remains separate. Shared media stays on mapped storage; the state database must not live on a network share.
 
 `store.py` owns records, transactions, events, and a single-instance state lock. `plex.py` wraps Plex HTTP APIs without accessing its internal database. `paths.py` translates declared Plex roots to mounted Mac paths. `service.py` coordinates catalog/task workflows; `folders.py` and `file_workflows.py` keep bulk metadata and file operations scoped. `tools.py`, `multipart.py`, and `progress.py` handle subprocess plans, video validation/joins, and telemetry. `web.py` serves the local UI and API. The static workbench, metadata pickers, and application scripts require no build.
 

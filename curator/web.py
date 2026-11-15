@@ -1,7 +1,9 @@
-"""Loopback-only app server. No external frontend dependencies."""
+"""Local app server with explicit private-network opt-in; no frontend dependencies."""
 import argparse
 import base64
 import json
+import ipaddress
+import re
 import secrets
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,13 +16,41 @@ from .tools import image_bytes
 from .tools import handbrake_presets
 
 
+def listener_settings(host, expected_hosts=()):
+    if not isinstance(host, str):
+        raise ValueError('Bind host must be an explicit IPv4 address')
+    try:
+        address = ipaddress.IPv4Address(host)
+    except ipaddress.AddressValueError:
+        raise ValueError('Bind host must be an explicit loopback or RFC1918 IPv4 address') from None
+    private = any(address in ipaddress.IPv4Network(network)
+                  for network in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
+    if not address.is_loopback and not private:
+        raise ValueError('Bind host must be loopback or RFC1918 IPv4; wildcard/public binds are refused')
+    if not isinstance(expected_hosts, (tuple, list)):
+        raise ValueError('Expected hostnames must be a list or tuple')
+    aliases = []
+    for name in expected_hosts:
+        if (not isinstance(name, str) or len(name) > 253 or not name
+                or any(not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?', label)
+                       for label in name.split('.'))):
+            raise ValueError('Expected hostnames must be bare DNS names without scheme, port or path')
+        aliases.append(name.lower())
+    return str(address), tuple(aliases)
+
+
 class App(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, service):
+    def __init__(self, address, service, expected_hosts=()):
+        host, expected_hosts = listener_settings(address[0], expected_hosts)
         self.service = service
         self.session = secrets.token_urlsafe(32)
-        super().__init__(address, Handler)
+        super().__init__((host, address[1]), Handler)
+        self.allowed_authorities = {name + ':' + str(self.server_port) for name in expected_hosts}
+        self.allowed_authorities.add(host + ':' + str(self.server_port))
+        if host == '127.0.0.1':
+            self.allowed_authorities.add('localhost:' + str(self.server_port))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -42,9 +72,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def request_host(self):
+        hosts = self.headers.get_all('Host', [])
+        return hosts[0] if len(hosts) == 1 and hosts[0] in self.server.allowed_authorities else None
+
     def allowed(self, mutate=False):
-        port = self.server.server_port
-        if self.headers.get('Host') not in {f'127.0.0.1:{port}', f'localhost:{port}'}:
+        host = self.request_host()
+        if host is None:
             return False
         cookie = SimpleCookie()
         try:
@@ -57,14 +91,12 @@ class Handler(BaseHTTPRequestHandler):
         if mutate:
             if self.headers.get('X-Curator-Request') != '1':
                 return False
-            origin = self.headers.get('Origin')
-            if origin not in {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}:
+            if self.headers.get_all('Origin', []) != ['http://' + host]:
                 return False
         return True
 
     def do_GET(self):
-        port = self.server.server_port
-        if self.headers.get('Host') not in {f'127.0.0.1:{port}', f'localhost:{port}'}:
+        if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
         static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'),
@@ -269,24 +301,31 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description='Curator local Plex library workspace')
     parser.add_argument('--port', type=int, default=8790)
+    parser.add_argument('--host', default='127.0.0.1', help='Explicit loopback or RFC1918 IPv4 bind address')
+    parser.add_argument('--expected-host', action='append', default=[],
+                        help='Additional bare browser hostname, such as foundry; repeat as needed')
     parser.add_argument('--state', default='~/Library/Application Support/Curator')
     parser.add_argument('--open', action='store_true', help='Open the local app in your default browser')
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
         parser.error('--port must be between 0 and 65535')
     try:
+        host, expected_hosts = listener_settings(args.host, args.expected_host)
+    except ValueError as error:
+        parser.error(str(error))
+    try:
         store = Store(args.state)
     except (OSError, ValueError) as error:
         parser.exit(2, f'Curator could not open its local state: {error}\n')
     try:
-        server = App(('127.0.0.1', args.port), Service(store))
+        server = App((host, args.port), Service(store), expected_hosts=expected_hosts)
     except OSError as error:
         store.close()
-        parser.exit(2, f'Curator could not listen on 127.0.0.1:{args.port}: {error}. Close the other instance or try --port 8791.\n')
-    print(f'Curator: http://127.0.0.1:{server.server_port}', flush=True)
+        parser.exit(2, f'Curator could not listen on {host}:{args.port}: {error}. Close the other instance or try --port 8791.\n')
+    print(f'Curator: http://{host}:{server.server_port}', flush=True)
     if args.open:
         import webbrowser
-        webbrowser.open(f'http://127.0.0.1:{server.server_port}')
+        webbrowser.open(f'http://{host}:{server.server_port}')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
