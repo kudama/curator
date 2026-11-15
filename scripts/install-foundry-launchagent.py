@@ -13,6 +13,22 @@ from pathlib import Path
 LABEL = "com.curator.foundry"
 
 
+def make_properties(root, state, port, python):
+    return {
+        "Label": LABEL,
+        "ProgramArguments": [python, "-m", "curator.web",
+                             "--state", str(state), "--port", str(port)],
+        "WorkingDirectory": str(root),
+        "RunAtLoad": True,
+        "KeepAlive": {"SuccessfulExit": False},
+        "StandardOutPath": str(state / "launchd.stdout.log"),
+        "StandardErrorPath": str(state / "launchd.stderr.log"),
+        "EnvironmentVariables": {
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        },
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate a Curator launchd LaunchAgent")
     parser.add_argument("--state", default="~/Library/Application Support/Curator",
@@ -40,19 +56,7 @@ def main():
     if destination.exists() and not args.replace:
         parser.error(f"{destination} already exists; pass --replace to overwrite it")
 
-    properties = {
-        "Label": LABEL,
-        "ProgramArguments": [sys.executable, "-m", "curator.web",
-                             "--state", str(state), "--port", str(args.port)],
-        "WorkingDirectory": str(root),
-        "RunAtLoad": True,
-        "KeepAlive": {"SuccessfulExit": False},
-        "StandardOutPath": str(state / "launchd.stdout.log"),
-        "StandardErrorPath": str(state / "launchd.stderr.log"),
-        "EnvironmentVariables": {
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        },
-    }
+    properties = make_properties(root, state, args.port, sys.executable)
     with destination.open("wb") as output:
         plistlib.dump(properties, output)
     destination.chmod(0o600)
