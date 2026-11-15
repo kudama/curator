@@ -76,9 +76,10 @@ ssh -N -L 8790:127.0.0.1:8790 foundry
 ```
 
 Then visit `http://127.0.0.1:8790` **on your desktop**. Keep the tunnel running
-while using the browser. If your desktop already uses port 8790, change the
-*first* port, for example `-L 8791:127.0.0.1:8790`, and open
-`http://127.0.0.1:8791`.
+while using the browser. Curator's current Origin validation requires the browser's port to match the
+server's port. If port 8790 is occupied on the desktop, stop the conflicting
+process, or deliberately configure **both** Curator on Foundry and the tunnel
+to use the same alternative port.
 
 The current Curator HTTP server explicitly requires localhost Host and Origin
 values and a session cookie. The browser speaks to desktop localhost and SSH
@@ -98,8 +99,8 @@ access protect the remote connection.
    desktop (adjust the real SSH destination and path):
    
    ```sh
-   rsync -aE "$HOME/Library/Application Support/Curator/" \
-     "foundry:Library/Application Support/Curator/"
+   tar -C "$HOME/Library/Application Support" -cf - Curator | \
+     ssh foundry 'mkdir -p "$HOME/Library/Application Support" && tar -C "$HOME/Library/Application Support" -xf -'
    ```
 
 4. On Foundry, ensure the state directory is private to its service account.
