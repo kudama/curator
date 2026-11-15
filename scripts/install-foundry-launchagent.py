@@ -73,7 +73,7 @@ def main():
     destination.chmod(0o600)
     print(f"Created: {destination}")
     print(f"Configured bind: {args.host}:{args.port}; expected browser names: {', '.join(args.expected_host) or '(bind address only)'}")
-    print("For a LAN bind, enforce the approved private-client firewall policy before starting.")
+    print("A LAN bind has no login or source-subnet filtering; every reachable client can act.")
     print("After stopping any manually running Curator instance, load the agent:")
     print(f'  launchctl bootstrap gui/$(id -u) "{destination}"')
     print(f"  launchctl kickstart -k gui/$(id -u)/{LABEL}")

@@ -14,10 +14,10 @@ Coding review is tracked under #10/#11; real deployment acceptance remains #12.
   login or Synology Directory Server integration at this stage. This is an
   explicit trust decision: anyone who can reach this port can read Curator state
   and trigger actions, including media modifications and publication.
-- Limit reachability with the Foundry host firewall and network controls
-  to trusted private clients. Do not expose Curator to the public internet.
-  **Do not assume that placing Foundry on VLAN 20 alone restricts clients**
-  across VLANs. Confirm the actual allowed desktop subnet(s) before deploying.
+- The operator explicitly chose **no source-subnet restrictions** on 2026-11-15.
+  Any client with a network route to the bound private address/port can use Curator.
+  Do not claim VLAN placement or application Host checks isolate other clients.
+  No public interface binding or Internet port forwarding is part of this deployment.
 - Public Curator remains localhost-only by default; private-network listening
   must be a clearly opt-in, explicit interface binding.
 - Use only the intended Foundry network interface/address, **not `0.0.0.0`**.
@@ -58,10 +58,9 @@ Coding review is tracked under #10/#11; real deployment acceptance remains #12.
   the share disappears during a job.
 - Plex connectivity and credentials are configured on Foundry. Do not commit
   tokens, media metadata, live task receipts or runtime catalogs.
-- Because the UI is plain HTTP without user authentication, do not access it
-  over untrusted Wi-Fi, a routed guest network, or an untrusted VPN. The
-  network access controls are part of deployment acceptance, not optional
-  hardening for a later release.
+- The UI is plain HTTP without user authentication or source-subnet filtering.
+  Every reachable client can act; browser Host/Origin checks are not client
+  authorization. This is the explicit operator decision for this deployment.
 - No domain login now; Synology Directory Server remains a future option,
   not an implementation dependency.
 
@@ -77,15 +76,15 @@ and Origin plus the existing session cookie and `X-Curator-Request` header.
 Duplicate Host/Origin headers and requests across two configured aliases are
 rejected. These browser checks do not authenticate users on the permitted network.
 
-After verifying the actual interface, DNS and firewall rules under #12, an
+After verifying the actual interface, DNS and network reachability under #12, an
 operator can run this example with the real private address substituted:
 
 ```sh
 python3 -m curator.web --host 192.168.1.20 --expected-host foundry
 ```
 
-Then open `http://foundry:8790`. Do not bind a LAN interface before the required
-network policy is in place. An accepted hostname is not a firewall rule.
+Then open `http://foundry:8790`. No subnet allowlist is installed or claimed.
+An accepted hostname is a browser safety setting, not a firewall rule.
 
 For a reviewed installation, the LaunchAgent generator accepts the same flags:
 
@@ -137,8 +136,9 @@ service was installed or started during this coding review.
 - With an explicitly configured Foundry bind address and permitted network
   path, `http://foundry:8790` loads and approved browser actions succeed
   from the desktop **without a tunnel or sign-in**.
-- A client outside the approved network cannot reach TCP/8790; no public
-  interface is exposed. Verify actual firewall policy, not just documentation.
+- The service binds only the selected private interface, with no public
+  wildcard bind. No source-subnet restriction or application login is claimed;
+  verify and record the actual reachable clients and operator-selected exposure.
 - Closing the desktop browser does not stop a processing job. Restart and
   interrupted-publish behavior remain safe and observable.
 - Curator cannot write to missing/unmounted media roots or silently overwrite
