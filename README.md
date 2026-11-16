@@ -21,6 +21,10 @@ Curator started as a tool for my own Plex library and home-movie workflow, so it
 - Multipart video joins with reviewed ordering, chapter markers, and metadata choices; reviewed file renaming.
 - Local home-movie analysis through optional Ollama, manual artwork prompts/import, playlist ordering, and Kometa definition export.
 
+## Appearance
+
+Use the **Theme** selector in the upper-right corner to choose **Classic** or **Cyberpunk**. The choice applies immediately and is remembered in that browser for the current Curator address. It does not change library data or pending edits.
+
 ## Get started
 
 Install [Python 3.11 or newer for macOS](https://www.python.org/downloads/macos/). Download this repository using **Code → Download ZIP**, extract it, and open Terminal in the extracted folder. Confirm your interpreter, then start Curator:
