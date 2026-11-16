@@ -57,3 +57,11 @@ Supersedes the remaining-code list above where described below. PR #7 merged as 
 **#5 remains limited by provider pricing/asset-host validation:** reviewed docs publish architecture-default cost, not a quote for arbitrary Mango 2/3/4 settings or references. The app cannot safely infer those prices. Live account/provider acceptance and actual result-host compatibility remain unverified. Do not mark full reference-generation acceptance complete on fixture evidence alone.
 
 **#6 native transport remains blocked with manual fallback:** no disposable Plex server/version/agent was identified for authorized verification. No Mac-local URL is presented as a working Ubuntu cast transport. This matches the issue's explicit blocked/manual-fallback alternative; it does not claim durable native portrait display.
+
+## Folder artwork and editor corrections — 2026-11-15
+
+Shared artwork has an independent replace/fill setting: a metadata rule that fills missing text no longer silently prevents an explicitly previewed artwork replacement. Existing saved rules retain their stored behavior until edited; new artwork selections default to replacement in the editor. Recursive scope remains explicit and changes still use preview/approval.
+
+Imported individual backgrounds/posters remain visible as saved local candidates after saving or reopening the editor, with a direct Review & publish action. Saving a draft does not claim that Plex was updated. No rescan is required to see retained drafts.
+
+Portrait Library can create a named local person with an optional picture without requiring a Plex credit. Metadata Cast retains Add person and Remember profile. Collections, tags and labels have a visible Add new action and Enter support in their pickers; smart collections remain read-only. These changes do not publish existing drafts or alter live media automatically.

@@ -15,6 +15,18 @@ class ArtworkPlans(unittest.TestCase):
     setUp=test_curator.Workflows.setUp
     tearDown=test_curator.Workflows.tearDown
 
+    def test_new_local_person_can_be_created_without_a_plex_credit(self):
+        before=self.store.all('assets')
+        result=self.service.create_cast_profile('  New Person  ',ENCODED)
+        profile=next(p for p in self.service.cast_profiles() if p['id']==result['profile_id'])
+        self.assertEqual(profile['name'],'New Person');self.assertTrue(profile['has_photo'])
+        self.assertEqual(self.service.cast_profile_image(result['profile_id']),PNG)
+        self.assertEqual(self.store.all('assets'),before);self.assertEqual(self.plex.writes,[])
+        with self.assertRaisesRegex(ValueError,'already has this name'):self.service.create_cast_profile('new person')
+        for name,image in [('',None),('Bad picture',[]),('Bad picture','invalid')]:
+            with self.subTest(name=name,image=image),self.assertRaises(ValueError):self.service.create_cast_profile(name,image)
+        self.assertEqual(len(self.service.cast_profiles()),1)
+
     def plan(self, **kwargs):
         return self.service.artwork_plan([self.asset['id']], 'cover', 'gritty', images={self.asset['id']:ENCODED}, **kwargs)
 

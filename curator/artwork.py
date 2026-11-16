@@ -120,6 +120,29 @@ class ArtworkWorkflows:
         self._cache_metadata(asset,result)
         self._save(task,status='applied',result={'verified':True},error=None)
 
+    def create_cast_profile(self, name, encoded=None):
+        from . import cast
+        cast.validate_rows([{'name':name}])
+        name=name.strip()
+        image=cast.photo_bytes(encoded) if encoded is not None else None
+        photo=cast.photo_id(image) if image else None
+        with self.store.transaction():
+            profiles=self.store.get('settings','cast_profiles',{})
+            if any(p['name'].strip().casefold()==name.casefold() for p in profiles.values()):
+                raise ValueError('A saved person already has this name; choose that profile or use a distinct name')
+            if image:
+                directory=self.store.root/'cast';directory.mkdir(mode=0o700,exist_ok=True)
+                target=directory/photo
+                if target.is_symlink():raise ValueError('Invalid portrait storage')
+                if not target.exists():
+                    import os
+                    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,'wb') as out:out.write(image);out.flush();os.fsync(out.fileno())
+            pid=uuid.uuid4().hex
+            profiles[pid]=dict(name=name,photo=photo,revision=1)
+            self.store.put('settings','cast_profiles',profiles)
+        return dict(profile_id=pid,revision=1)
+
     def save_portrait(self, profile_id, revision, encoded):
         from . import cast
         image = cast.photo_bytes(encoded)

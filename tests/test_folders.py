@@ -51,6 +51,21 @@ class Folders(unittest.TestCase):
         self.plex.cast_photo=lambda rating,data:'/library/uploaded/photo'
         self.plex.cast_image=lambda path:PNG
 
+    def test_artwork_replacement_is_independent_of_metadata_fill(self):
+        item=dict(self.asset['item'],studio='Existing',thumb='/existing/poster',art='/existing/background')
+        settings=self.service.folder_settings(dict(fields={'studio':'New'},artwork={'cover':{'image':base64.b64encode(PNG).decode()},'background':{'image':base64.b64encode(PNG).decode()}},mode='fill',artwork_mode='replace',recursive=True))
+        _,changes,art=self.service._folder_changes(item,settings)
+        self.assertNotIn('studio',changes);self.assertEqual(set(art),{'cover','background'})
+        settings['artwork_mode']='fill'
+        self.assertEqual(self.service._folder_changes(item,settings)[2],{})
+
+    def test_artwork_policy_survives_saved_defaults_and_validates(self):
+        data=self.settings();data.update(artwork_mode='replace',artwork={'background':{'image':base64.b64encode(PNG).decode()}})
+        saved=self.service.save_folder_defaults(self.folder()['id'],data,None)
+        self.assertEqual(saved['defaults']['artwork_mode'],'replace');self.assertEqual(saved['defaults']['mode'],'fill')
+        for mode in ('merge','unknown',[],False):
+            with self.subTest(mode=mode),self.assertRaises(ValueError):self.service.folder_settings(dict(data,artwork_mode=mode))
+
     def test_tree_counts_include_parent_levels_and_hide_deleted(self):
         self.add('b'*24,'Series/Part1.mkv');self.add('c'*24,'Series/Nested/Part2.mkv')
         gone=self.add('d'*24,'Gone/file.mkv');gone['present']=False

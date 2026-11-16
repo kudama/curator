@@ -112,9 +112,11 @@ class FolderWorkflows:
         return photo
 
     def folder_settings(self, data):
-        if not isinstance(data, dict) or set(data) - {'fields','artwork','mode','recursive','branding','portrait'}:raise ValueError('Invalid folder settings')
+        if not isinstance(data, dict) or set(data) - {'fields','artwork','mode','artwork_mode','recursive','branding','portrait'}:raise ValueError('Invalid folder settings')
         mode = data.get('mode', 'fill')
         if not isinstance(mode,str) or mode not in {'fill','merge','replace'} or type(data.get('recursive', False)) is not bool:raise ValueError('Choose a folder scope and metadata mode')
+        artwork_mode=data.get('artwork_mode')
+        if artwork_mode is not None and artwork_mode not in ('fill','replace'):raise ValueError('Choose whether to replace artwork or fill missing artwork')
         if not isinstance(data.get('fields',{}),dict):raise ValueError('Invalid folder metadata fields')
         fields = dict(data.get('fields', {}));artwork = data.get('artwork', {})
         if fields:
@@ -151,6 +153,7 @@ class FolderWorkflows:
             if brand.get('logo'):raise ValueError('Manage creator logo files in the file editor')
             if brand.get('preset_id') not in {p['id'] for p in self.config().get('branding_presets', branding.DEFAULT_PRESETS)}:raise ValueError('Choose an available branding preset')
         settings = dict(fields=fields, artwork=images, mode=mode, recursive=data.get('recursive',False), branding=brand)
+        if artwork_mode is not None:settings['artwork_mode']=artwork_mode
         portrait = data.get('portrait')
         if portrait is not None:
             if 'cast' in fields or not isinstance(portrait, dict) or set(portrait) != {'profile_id','revision'}:
@@ -206,7 +209,7 @@ class FolderWorkflows:
                     normalized.append(row)
                 result=normalized
             if not self._same_metadata(before,{field:result}):changes[field] = result
-        artwork = {kind:value for kind,value in settings['artwork'].items() if settings['mode'] == 'replace' or not Plex.artwork_path(item,kind)}
+        artwork = {kind:value for kind,value in settings['artwork'].items() if settings.get('artwork_mode',settings['mode']) == 'replace' or not Plex.artwork_path(item,kind)}
         return before, changes, artwork
 
     def folder_preview(self, fid, data):
@@ -349,6 +352,7 @@ class FolderWorkflows:
         _, changes, artwork = self._folder_changes(asset['item'],defaults)
         receipt = self.store.get('settings','folder-applied:' + key(key(asset['library'],defaults['folder']),asset['rating_key']))
         settings = {field:defaults[field] for field in ('fields','artwork','mode','recursive','branding')}
+        if 'artwork_mode' in defaults:settings['artwork_mode']=defaults['artwork_mode']
         if receipt and receipt['signature'] == key(settings) and self._same_metadata(self.metadata_fields(asset['item']),receipt['metadata']) and all(Plex.artwork_path(asset['item'],kind)==path for kind,path in receipt['art'].items()):
             changes, artwork = {}, {}
         tid = key('folder-defaults',asset['id'],defaults['revision'])
