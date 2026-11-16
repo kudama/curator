@@ -1,5 +1,6 @@
 """Coordinate a supervised, idle-only restart without replaying work."""
 from contextlib import contextmanager
+import os
 import socket
 import threading
 import uuid
@@ -58,13 +59,13 @@ class ServiceRuntime:
         with self.condition:
             return {'restart_available':self.managed,'restarting':self.restart_requested,
                     'instance_id':self.instance_id,'hostname':self.hostname,
-                    'startup':'after_login' if self.managed else 'manual',
+                    'startup':('boot' if os.environ.get('CURATOR_SERVICE_STARTUP')=='boot' else 'after_login') if self.managed else 'manual',
                     'busy_reason':self.busy_reason(),'restart_error':self.restart_error}
 
     def request_restart(self):
         with self.condition:
             if not self.managed:
-                raise RestartBlocked('Restart is available when Curator runs as the managed login service.')
+                raise RestartBlocked('Restart is available when Curator runs as the managed service.')
             if self.restart_requested:
                 raise RestartBlocked('A restart is already pending.')
             if self.mutations > 1:

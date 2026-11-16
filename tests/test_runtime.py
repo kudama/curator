@@ -16,6 +16,11 @@ def service(tasks=None):
 
 
 class RestartCoordination(unittest.TestCase):
+    def test_boot_mode_is_reported_only_for_managed_service(self):
+        with patch.dict('os.environ',{'CURATOR_SERVICE_STARTUP':'boot'}):
+            self.assertEqual(ServiceRuntime(service(),True).status()['startup'],'boot')
+            self.assertEqual(ServiceRuntime(service()).status()['startup'],'manual')
+
     def test_manual_server_refuses_restart(self):
         runtime=ServiceRuntime(service())
         self.assertFalse(runtime.status()['restart_available'])

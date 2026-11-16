@@ -7,7 +7,7 @@ function updateServiceControls(){
  const control=$('restart-curator'),note=$('service-status');if(!control||!note)return;
  control.disabled=serviceRestarting||!serviceStatus?.restart_available||serviceBusy();
  if(!serviceStatus)return;
- note.textContent=!serviceStatus.restart_available?'Restart is available when Curator runs as the managed login service.':serviceBusy()?'Finish processing, publishing and library checks before restarting.':'Running on '+serviceStatus.hostname+'. Starts after login.';
+ note.textContent=!serviceStatus.restart_available?'Restart is available when Curator runs as the managed service.':serviceBusy()?'Finish processing, publishing and library checks before restarting.':'Running on '+serviceStatus.hostname+(serviceStatus.startup==='boot'?'. Starts at boot after the startup disk is unlocked.':'. Starts after login.');
 }
 async function loadServiceStatus(){
  try{serviceStatus=await api('service/status');updateServiceControls();}
