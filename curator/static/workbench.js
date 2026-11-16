@@ -189,3 +189,14 @@ function openTaskManager(id){
  for(const task of fileTasks(asset)){const row=node('section',undefined,'managed-task');row.append(node('strong',TASK_LABELS[task.kind]||task.kind),node('p',task.status.replaceAll('_',' '),'muted'),button('Review',()=>openTask(task.id),'subtle'),taskControls(task,true));detail.append(row);}
  showInspector();
 }
+
+function renderArtworkDrafts(container,library,kind,asset,tasks){
+ container.replaceChildren();
+ const drafts=tasks.filter(t=>t.library===library&&t.kind==='artwork'&&t.plan?.kind===kind&&t.plan.candidate&&(t.asset===asset||t.plan.assets?.includes(asset))&&['awaiting_review','blocked','failed','publishing'].includes(t.status));
+ if(!drafts.length)return;
+ container.append(node('p','Saved locally for review; current Plex artwork changes only after publishing.','muted'));
+ for(const draft of [...drafts].reverse()){
+  const card=node('section'),image=node('img');image.className='editor-image';image.alt='Saved '+ARTWORK_LABELS[kind].toLowerCase()+' draft';image.src='/api/folders/image?'+new URLSearchParams({photo:draft.plan.candidate});
+  card.append(image,node('p',draft.status.replaceAll('_',' ')),button('Review & publish '+ARTWORK_LABELS[kind].toLowerCase(),()=>openTask(draft.id),'subtle'));container.append(card);
+ }
+}

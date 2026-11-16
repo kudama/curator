@@ -269,6 +269,9 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.authorize_mage(data['quote'],data.get('consent'))
             elif path == '/api/mage/resume':
                 result = service.resume_mage(data['id'],data['version'])
+            elif path == '/api/cast/profile/create':
+                if set(data)-{'name','image'}:raise ValueError('Invalid new person fields')
+                result = service.create_cast_profile(data['name'],data.get('image'))
             elif path == '/api/portrait/remember':
                 result = service.remember_portrait_identity(data['asset'],data['index'])
             elif path == '/api/portrait/save':
