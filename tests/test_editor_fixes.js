@@ -33,3 +33,15 @@ test('new collections can be added directly and with Enter, including after enab
 test('smart collections stay read-only through both creation controls',async()=>{
  const h=harness();h.c.api=async()=>({choices:[{title:'Smart',smart:true}]});h.c.prompt=()=> 'Smart';vm.runInContext(collections,h.c);h.c.input=node('input');h.c.change=h.changed;const picker=h.run("collectionPicker(input,'one',[],change)");await new Promise(resolve=>setImmediate(resolve));all(picker).find(e=>e.textContent==='Add new collection').onclick();const search=all(picker).find(e=>e.type==='search');search.value='Smart';search.onkeydown({key:'Enter',preventDefault(){}});assert.deepEqual([...h.c.input.collectionPicker.values()],[]);
 });
+
+test('folder preview retains selected artwork and metadata regardless of active manager',async()=>{
+ const start=app.indexOf(' async function payload(preserve=false)',app.indexOf('async function openFolder(fid)'));
+ const source=app.slice(start,app.indexOf('\n recursive.onchange',start));
+ for(const manager of ['metadata','artwork']){
+  const h=harness();Object.assign(h.c,{folderManager:manager,fields:{studio:{value:'Shared studio'}},enabled:{studio:{checked:true}},useCast:{checked:false},images:{cover:{use:{checked:true},input:{files:[]},photo:'poster'},background:{use:{checked:true},input:{files:[]},photo:'background'},square:{use:{checked:false},input:{files:[]},photo:'square'}},portraitProfiles:[],portraitSelect:{value:''},mode:{value:'fill'},artworkMode:{value:'replace'},recursive:{checked:true},info:{defaults:null},initial:{},current:()=>({profile:'commercial'}),brandToggle:{checked:false}});
+  vm.runInContext(source,h.c);
+  for(const preserve of [false,true]){
+   const value=await h.run('payload('+preserve+')');assert.equal(value.fields.studio,'Shared studio');assert.deepEqual(Object.keys(value.artwork),['cover','background']);assert.equal(value.artwork_mode,'replace');assert.equal(value.mode,'fill');assert.equal(value.recursive,true);
+  }
+ }
+});

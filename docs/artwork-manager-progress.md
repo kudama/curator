@@ -65,3 +65,7 @@ Shared artwork has an independent replace/fill setting: a metadata rule that fil
 Imported individual backgrounds/posters remain visible as saved local candidates after saving or reopening the editor, with a direct Review & publish action. Saving a draft does not claim that Plex was updated. No rescan is required to see retained drafts.
 
 Portrait Library can create a named local person with an optional picture without requiring a Plex credit. Metadata Cast retains Add person and Remember profile. Collections, tags and labels have a visible Add new action and Enter support in their pickers; smart collections remain read-only. These changes do not publish existing drafts or alter live media automatically.
+
+### Folder preview follow-up — 2026-11-15
+
+Tracing a reported file showed its latest applied folder task contained a studio change and no artwork. The folder payload serialized only the active manager, silently omitting checked controls in the other manager. Preview and Save defaults now serialize all checked metadata and shared images together, preserving the independent artwork policy and recursive scope. Preview explicitly counts titles with artwork changes. A regression exercises both active managers and both preview/save-default payloads. This corrects the earlier incomplete UI fix; previous completed tasks are not replayed automatically.
