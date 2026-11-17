@@ -281,19 +281,52 @@ def quicktime_remux(source, output, settings):
 
 
 def frames(path, folder, media, settings):
+    folder = Path(folder)
+    if folder.is_symlink():
+        raise ValueError('Frame cache must not be a symlink')
     folder.mkdir(parents=True, exist_ok=True)
+    manifest = folder / '.manifest.json'
+    targets = [folder / f'{index}.jpg' for index in range(4)]
+    for target in [manifest, *targets]:
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError('Frame cache must contain regular files')
+    identity = dict(version=1, path=str(Path(path).resolve()), fingerprint=fingerprint(path),
+                    duration_seconds=media['duration_seconds'])
+    try:
+        valid = json.loads(manifest.read_text()) == identity
+    except (ValueError, OSError):
+        valid = False
+    if not valid:
+        for target in [manifest, *targets]:
+            target.unlink(missing_ok=True)
     result = []
     for index, fraction in enumerate((.15, .4, .65, .85)):
-        target = folder / f'{index}.jpg'
+        target = targets[index]
+        if target.exists() and not target.stat().st_size:
+            target.unlink()
         if not target.exists():
             cmd = [executable(settings, 'ffmpeg'), '-nostdin', '-n', '-ss', str(media['duration_seconds'] * fraction),
                    '-i', str(path), '-frames:v', '1', '-vf', 'scale=640:-2', str(target)]
             run = subprocess.run(cmd, capture_output=True, timeout=60)
-            if run.returncode or not target.is_file() or not target.stat().st_size:
+            if run.returncode or target.is_symlink() or not target.is_file() or not target.stat().st_size:
                 continue
         result.append(dict(file=target.name, seconds=round(media['duration_seconds'] * fraction, 1)))
     if not result:
+        manifest.unlink(missing_ok=True)
         raise ValueError('Could not extract candidate frames')
+    if fingerprint(path) != identity['fingerprint']:
+        manifest.unlink(missing_ok=True)
+        raise ValueError('Input changed during frame extraction; retry the comparison')
+    if len(result) == 4:
+        temporary = folder / f'.manifest-{uuid.uuid4().hex}.tmp'
+        try:
+            with temporary.open('x') as output:
+                json.dump(identity, output)
+            temporary.replace(manifest)
+        finally:
+            temporary.unlink(missing_ok=True)
+    else:
+        manifest.unlink(missing_ok=True)
     return result
 
 

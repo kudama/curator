@@ -54,3 +54,23 @@ class ReviewBatches(unittest.TestCase):
         self.service.tasks['1']['version']=2
         batch=self.service.publish_review_batch(batch['id'],3,background=False)
         self.assertEqual(self.service.published,['0','2']);self.assertEqual(batch['items'][1]['status'],'failed')
+
+    def test_duplicate_task_refs_raise_ValueError_no_compared_published(self):
+        refs = [{'id': '0', 'version': 1}, {'id': '0', 'version': 1}]
+        with self.assertRaises(ValueError):
+            self.service.prepare_review_batch('library', refs, background=False)
+        self.assertEqual(self.service.compared, [])
+        self.assertEqual(self.service.published, [])
+
+    def test_saved_phase_publishing_review_batch_becomes_interrupted_on_recover(self):
+        with self.store.transaction():
+            self.store.put('settings', 'review-batch:test', {
+                'id': 'review-batch:test',
+                'record_type': 'review_batch',
+                'phase': 'publishing',
+                'items': []
+            })
+        self.service.recover_review_batches()
+        batch = self.service.review_batch('review-batch:test')
+        self.assertEqual(batch['phase'], 'interrupted')
+        self.assertEqual(self.service.published, [])

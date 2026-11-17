@@ -60,3 +60,18 @@ class BackupCleanup(unittest.TestCase):
         with self.store.transaction():self.store.put('settings',receipt['id'],receipt)
         self.service.recover_backup_cleanups()
         self.assertEqual(self.service.cleanup_receipt(receipt['id'])['phase'],'interrupted');self.assertTrue(self.backup.exists())
+
+    def test_restore_collision_preserves_both_originals_and_recovery_marker(self):
+        stage=self.media/'.curator-cleanup-collision.mp4'
+        self.backup.rename(stage)
+        self.backup.write_bytes(b'new external file')
+        task=self.service.get_task('task')
+        pending=dict(original=str(self.backup),staged=str(stage),receipt='fixture')
+        with self.store.transaction():
+            self.store.put('tasks','task',dict(task,cleanup_pending=pending,cleanup_in_progress=True))
+        with self.assertRaises(OSError):
+            self.service.restore_cleanup_backup('task')
+        self.assertEqual(self.backup.read_bytes(),b'new external file')
+        self.assertEqual(stage.read_bytes(),b'original video')
+        self.assertEqual(self.source.read_bytes(),b'processed video')
+        self.assertEqual(self.service.get_task('task')['cleanup_pending'],pending)
