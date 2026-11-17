@@ -55,6 +55,23 @@ class ReviewBatches(unittest.TestCase):
         batch=self.service.publish_review_batch(batch['id'],3,background=False)
         self.assertEqual(self.service.published,['0','2']);self.assertEqual(batch['items'][1]['status'],'failed')
 
+    def test_direct_bulk_accept_confirms_once_and_prepares_before_publishing(self):
+        with self.assertRaises(ValueError):self.service.accept_selected_results(None,self.refs,3,'yes',background=False)
+        with self.assertRaises(ValueError):self.service.accept_selected_results(None,self.refs,2,'PUBLISH SELECTED WITHOUT INDIVIDUAL REVIEW',background=False)
+        self.assertEqual(self.service.compared,[]);self.assertEqual(self.service.published,[])
+        self.service.tasks['1']['library']='other';self.service.tasks['2']['version']=2
+        batch=self.service.accept_selected_results(None,self.refs,3,'PUBLISH SELECTED WITHOUT INDIVIDUAL REVIEW',background=False)
+        self.assertEqual(batch['phase'],'complete');self.assertEqual(self.service.compared,['0','1']);self.assertEqual(self.service.published,['0','1'])
+        self.assertEqual(batch['approved_count'],3);self.assertEqual(batch['items'][2]['status'],'failed')
+
+    def test_stop_during_bulk_preparation_never_starts_publication(self):
+        original=self.service.comparison
+        def stop(key):
+            original(key);self.service.stop_review_batch(next(iter(self.service.active)))
+        self.service.comparison=stop
+        result=self.service.accept_selected_results(None,self.refs,3,'PUBLISH SELECTED WITHOUT INDIVIDUAL REVIEW',background=False)
+        self.assertEqual(result['phase'],'stopped');self.assertEqual(self.service.published,[])
+
     def test_duplicate_task_refs_raise_ValueError_no_compared_published(self):
         refs = [{'id': '0', 'version': 1}, {'id': '0', 'version': 1}]
         with self.assertRaises(ValueError):

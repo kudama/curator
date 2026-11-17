@@ -4,6 +4,18 @@
 
 Group the library by **Task type** to select all matching tasks in a group, including files outside the visible scroll area. Individual checkboxes let you adjust the selection. Search/filter scope is reflected in the group; selection itself does not approve anything. Changed versions and finished/missing tasks are removed from group selection on refresh.
 
+Selected completed upscale/encoding jobs also offer **Accept & Publish Selected**
+and **Reject Selected** directly in Queue and task groups. Bulk acceptance warns
+once with the exact selected count and library scope that outputs may be
+published without individual inspection. Confirming prepares comparisons and
+runs normal per-file publication checks; no second publication popup is needed.
+Changed or failed items are reported and skipped. Bulk rejection returns eligible
+tasks to suggestions with settings retained, approval cleared and version
+advanced. Generated files stay on disk and their references remain in the audit;
+they cannot be published through the rejected approval. Individual upscale and
+encoding rejection uses the same reset behavior. Published and stale tasks are
+never reset. Multipart joins and artwork retain their separate review workflows.
+
 For upscale/optimization results, choose **Review selected**. Curator prepares existing source/output comparisons sequentially and keeps a durable batch receipt. Browse comparisons in pages of20 files. **Accept & publish N results** requires a separate confirmation for the exact prepared count. Each publication uses the existing per-task source/output/hash/original-retention checks, one at a time. Failures are reported per file. **Stop after current file** does not interrupt an installation already in progress. **Batch reviews** reopens recent receipts after closing/reloading the page. Restarted batches are interrupted and never automatically replayed; reselect remaining results deliberately.
 
 ## Output encoding

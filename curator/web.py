@@ -164,7 +164,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(self.server.service.review_batch(query['id'][0]))
             if path == '/api/review-batches':
                 query=parse_qs(urlsplit(self.path).query)
-                return self.reply({'batches':self.server.service.review_batches(query['library'][0])})
+                return self.reply({'batches':self.server.service.review_batches(None if query.get('scope')==['all'] else query['library'][0])})
             if path == '/api/cleanup':
                 query=parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.cleanup_receipt(query['id'][0]))
@@ -316,7 +316,11 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/task/review':
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
             elif path == '/api/review-batch/prepare':
-                result=service.prepare_review_batch(data['library'],data['tasks'])
+                result=service.prepare_review_batch(None if data.get('scope')=='all' else data['library'],data['tasks'])
+            elif path == '/api/review-batch/accept-selected':
+                result=service.accept_selected_results(None if data.get('scope')=='all' else data['library'],data['tasks'],data['count'],data['confirmation'])
+            elif path == '/api/review-batch/reject-selected':
+                result=service.reject_selected_results(None if data.get('scope')=='all' else data['library'],data['tasks'],data['count'])
             elif path == '/api/review-batch/publish':
                 result=service.publish_review_batch(data['id'],data['count'])
             elif path == '/api/review-batch/stop':

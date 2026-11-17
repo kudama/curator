@@ -448,7 +448,13 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 version = task['version']
                 self.cancels.discard(key)
             elif action == 'reject' and task['status'] == 'awaiting_review':
-                task['status'] = 'rejected'
+                if task['kind'] in {'upscale','optimize'}:
+                    if task.get('published'):raise ValueError('Published results cannot be reset')
+                    self.store.event(key,dict(action='result rejected and retained',version=version,output=task.get('output'),output_hash=task.get('output_hash')))
+                    task.update(status='recommendation',version=version+1,error=None)
+                    for field in ('approval','comparison_loaded','validation','progress','result','source_hash','output_hash','output','publication_error'):
+                        task.pop(field,None)
+                else:task['status'] = 'rejected'
             else:
                 raise ValueError('Action is unavailable in this state')
             task['updated'] = now()

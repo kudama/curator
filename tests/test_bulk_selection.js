@@ -50,3 +50,15 @@ test('metadata selection shows a disabled queue action with the missing-edit exp
  const controls=w.run('bulkTaskControls(state.tasks)'),action=controls.children.find(c=>c.label==='Queue selected (0)');
  assert.ok(action);assert.equal(action.disabled,true);assert.match(JSON.stringify(controls),/need metadata edits/);
 });
+test('bulk acceptance warns once with exact selection and can be cancelled without a request',async()=>{
+ const w=setup();w.tasks.splice(2);w.tasks[1].library='two';w.context.state.libraries=[{id:'one',title:'First library'},{id:'two',title:'Second library'}];
+ w.context.prepareInspector=()=>true;w.context.render=()=>{};w.context.refresh=async()=>{};let warning='',opened=0,calls=[];
+ w.context.confirm=text=>{warning=text;return false;};w.context.api=async(path,data)=>{calls.push({path,data});return {id:'batch'};};w.context.openBulkReview=()=>{opened++;};
+ await w.run("decideSelectedResults(state.tasks,'accept')");assert.equal(calls.length,0);assert.match(warning,/all 2 selected/);assert.match(warning,/First library, Second library/);assert.match(warning,/not individually inspected/);
+ w.context.confirm=()=>true;await w.run("decideSelectedResults(state.tasks,'accept')");assert.equal(calls.length,1);assert.equal(calls[0].path,'review-batch/accept-selected');assert.equal(calls[0].data.scope,'all');assert.equal(calls[0].data.count,2);assert.equal(calls[0].data.tasks[0].version,1);assert.equal(opened,1);
+});
+test('bulk rejection needs no publication popup and duplicate clicks do not submit twice',async()=>{
+ const w=setup();w.tasks.splice(2);w.context.state.libraries=[{id:'one',title:'Library'}];w.context.prepareInspector=()=>true;w.context.render=()=>{};w.context.refresh=async()=>{};w.context.openBulkReview=()=>{};w.context.confirm=()=>{throw Error('Unexpected popup');};let release,calls=0;
+ w.context.api=()=>{calls++;return new Promise(resolve=>{release=resolve;});};
+ const first=w.run("decideSelectedResults(state.tasks,'reject')");await w.run("decideSelectedResults(state.tasks,'reject')");assert.equal(calls,1);release({id:'batch'});await first;
+});
