@@ -643,12 +643,16 @@ class Validation(unittest.TestCase):
             bundle=Path(folder)/'Topaz.app'/'Contents'
             models=bundle/'Resources'/'models';models.mkdir(parents=True)
             exe=bundle/'MacOS'/'ffmpeg';exe.parent.mkdir();exe.touch();exe.chmod(0o700)
-            with patch.dict(os.environ,{},clear=True):
+            with patch.dict(os.environ,{'HOME':str(Path(folder)/'home')},clear=True):
                 env=processing_environment('upscale',{'topaz':str(exe)})
-                self.assertEqual(env['TVAI_MODEL_DIR'],str(models))
-                self.assertEqual(env['TVAI_MODEL_DATA_DIR'],str(models))
-            with patch.dict(os.environ,{'TVAI_MODEL_DIR':str(models),'TVAI_MODEL_DATA_DIR':'custom-cache'},clear=True):
-                self.assertEqual(processing_environment('upscale',{'topaz':str(exe)})['TVAI_MODEL_DATA_DIR'],'custom-cache')
+                self.assertEqual(env['TVAI_MODEL_DIR'],str(models.resolve()))
+                self.assertEqual(env['TVAI_MODEL_DATA_DIR'],str((Path(folder)/'home/Library/Caches/Curator/Topaz').resolve()))
+                self.assertTrue(Path(env['TVAI_MODEL_DATA_DIR']).is_dir())
+                self.assertFalse((models/'coreMLCache').exists())
+            with patch.dict(os.environ,{'TVAI_MODEL_DIR':str(models),'TVAI_MODEL_DATA_DIR':str(Path(folder)/'custom-cache')},clear=True):
+                self.assertEqual(processing_environment('upscale',{'topaz':str(exe)})['TVAI_MODEL_DATA_DIR'],str((Path(folder)/'custom-cache').resolve()))
+                with patch('curator.tools.tempfile.TemporaryFile',side_effect=PermissionError('private path')):
+                    with self.assertRaisesRegex(ValueError,'not writable'):processing_environment('upscale',{'topaz':str(exe)})
         self.assertIsNone(processing_environment('optimize',{}))
 
     def test_processing_error_explains_model_cache_failure_without_paths(self):
@@ -661,6 +665,8 @@ class Validation(unittest.TestCase):
             self.assertNotIn('/private',error)
             log.write_text('Model not found: prob-4')
             self.assertIn('model was not found',processing_failure(log))
+            log.write_text('filesystem error: Operation not permitted /private/app/models/coreMLCache auth_sensitive')
+            self.assertEqual(processing_failure(log),'Topaz cannot write its Core ML cache; choose a writable model data directory')
             log.write_text('unknown encoder error')
             self.assertIn('private tool log',processing_failure(log))
 
