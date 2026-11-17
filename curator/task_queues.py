@@ -120,8 +120,9 @@ class TaskQueues:
     def _release_queue_worker(self,library,kind,wake):
         with self.lock:
             if kind is None:self.active.discard(library);return
-            workers=self.queue_workers.get(kind,{})
-            workers.pop(wake,None)
+            workers=self.queue_workers.get(kind)
+            if workers is None or wake not in workers:return
+            workers.pop(wake)
             if not workers:
                 self.queue_workers.pop(kind,None);self.active.discard('queue:'+kind)
                 with self.store.transaction():self.refresh_run_receipts()

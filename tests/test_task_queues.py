@@ -65,3 +65,9 @@ class TaskTypeQueues(unittest.TestCase):
         self.service._release_queue_worker('one','upscale',old)
         self.assertIn(new,self.service.queue_workers['upscale'])
         self.assertTrue(self.service.queue_running())
+
+    def test_repeated_cleanup_does_not_reopen_the_store_after_worker_is_released(self):
+        wake=threading.Event();self.service.queue_workers['upscale']={wake:dict(library=None,wake=wake)}
+        self.service.active.add('queue:upscale');self.service._release_queue_worker(None,'upscale',wake)
+        with patch.object(self.store,'transaction',side_effect=AssertionError('Released worker must not use a closing store')):
+            self.service._release_queue_worker(None,'upscale',wake)

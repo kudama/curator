@@ -1,6 +1,6 @@
 # Workflow release validation — 2026-11-17
 
-Version 0.5.0 workflow changes passed 404 Python cases (three optional media
+Version 0.5.0 workflow changes passed 405 Python cases (three optional media
 integrations skipped), 53 JavaScript behavior cases, Python compilation, all
 three UI script parses and whitespace checks. Synthetic threaded fixtures cover
 global concurrency, lower-limit draining, source exclusion, file-operation cap,

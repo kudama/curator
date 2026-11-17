@@ -94,6 +94,8 @@ class UniversalQueue(unittest.TestCase):
     def test_migration_preserves_saved_library_order_and_pause_without_replay(self):
         self.add('a');self.add('b','two');self.add('c')
         with self.store.transaction():
+            for key,submitted in (('a','1'),('b','2'),('c','3')):
+                task=self.service.get_task(key);task['queued_at']=submitted;self.store.put('tasks',key,task)
             self.store.db.execute("DELETE FROM settings WHERE id='queue-order:global'")
             self.store.put('settings','queue-order:one',{'ids':['c','a']})
             self.store.put('settings','queue-paused:two:optimize',True)
