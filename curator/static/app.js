@@ -290,7 +290,9 @@ function recommendation(t,asset){
  const resolution=media.width&&media.height?`${media.width} × ${media.height}`:'unknown resolution';
  const mbps=media.bitrate?`${(media.bitrate/1000000).toFixed(1)} Mbps`:null;
  let title,description,next;
- if(['rename','join','group'].includes(t.kind)){
+ if(t.status==='awaiting_review'&&['upscale','optimize'].includes(t.kind)){
+  title='Ready to publish';description='Processing is complete. Compare the original and processed output below.';next='Accept & publish when you are satisfied with the result. The original is retained.';
+ }else if(['rename','join','group'].includes(t.kind)){
   title=TASK_LABELS[t.kind];description=t.evidence.note||t.reason;next=t.kind==='join'?'Approve and queue to create a separate joined output. Review every boundary before publishing.':'Approve and queue this reviewed operation, then run the library queue.';
  }else if(t.kind==='upscale'){
   title='Upscale with Topaz';description=t.evidence?.optional?`Optional Topaz processing for this ${resolution} source. The selected filter controls the output dimensions. Topaz also re-encodes the video; compare quality and file size before publishing.`:`This source is ${resolution}, below your 1080p target. Create a 1080p-or-better version while preserving its aspect ratio, then compare it with the original.`;
@@ -322,13 +324,13 @@ async function openTask(id,workspace='metadata'){
  if(['artwork','mage_generation','portrait'].includes(t.kind))return openArtworkTask(t);
  if(asset&&['metadata','home'].includes(t.kind))return openFileEditor(t,asset,workspace);
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
- let processingSelector=null;
+ let processingSelector=null,prepareComparison=null;
  detail.append(recommendation(t,asset),progressView(t));
  if(['upscale','optimize','join'].includes(t.kind)&&t.result?.size_bytes!==undefined)detail.append(sizeComparison(t.kind==='join'?{...t,source:{size:t.evidence.total_bytes}}:t,asset));
  if(['rename','join','group'].includes(t.kind))renderFilePlan(detail,t);
  if(['upscale','optimize','join','rename'].includes(t.kind)){const log=node('details'),summary=node('summary','Publication log'),entries=node('div');log.append(summary,entries);log.ontoggle=()=>{if(log.open)run(async()=>{entries.replaceChildren(node('p','Loading publication log…','muted'));const result=await api('task/publication-log?'+new URLSearchParams({id:t.id}));entries.replaceChildren(...(result.entries.length?result.entries.map(e=>node('p',new Date(e.at).toLocaleTimeString()+' · '+e.phase+(e.detail?' · '+e.detail:'')+(e.errno?' · errno '+e.errno:''),'muted')):[node('p','No recorded publication phases yet. Older attempts have no detailed log.','muted')]));});};detail.append(log);}
 
- if(t.kind==='optimize'){
+ if(t.kind==='optimize'&&['recommendation','failed','blocked','cancelled'].includes(t.status)){
   if(portraitVideo(asset))detail.append(node('p','Portrait video: landscape preset resolution limits will be adapted to portrait when you approve (for example, 1080×1920 for a 1080p preset). Original proportions are preserved.','muted'));
   if(t.tool_settings?.handbrake_geometry)detail.append(node('p','Approved portrait limits: '+t.tool_settings.handbrake_geometry.max_width+'×'+t.tool_settings.handbrake_geometry.max_height,'muted'));
   const label=node('label','HandBrake preset for this task'),select=node('select');select.disabled=true;label.append(select);
@@ -365,18 +367,34 @@ async function openTask(id,workspace='metadata'){
   if(processingSelector){processingSelector.updateQueue=()=>{approve.disabled=!processingSelector.ready;};processingSelector.updateQueue();}actions.append(approve);
  }
  if(t.status==='awaiting_review'){
-  let publishButton=null;
+  let publishButton=null,publishing=false;const reviewVersion=t.version;
   if(t.kind==='join'){
    detail.append(button('Load part-boundary comparisons',async()=>{const result=await api('files/comparison',{id:t.id});t.comparison_loaded=true;if(publishButton)publishButton.disabled=false;const grid=node('div',undefined,'comparison');for(const sample of result.samples){const section=node('section');section.append(node('h3',sample.label));for(const [i,name] of sample.files.entries()){const img=node('img');img.src='/api/files/sample?'+new URLSearchParams({id:t.id,name});img.alt=sample.label+(i?' joined output':' original');section.append(node('p',i?'Joined output':'Original'),img);}grid.append(section);}detail.append(grid);}));
   }else if(['upscale','optimize'].includes(t.kind)){
-   detail.append(button('Load source/output comparison',async()=>{await api('comparison',{id:t.id});t.comparison_loaded=true;if(publishButton)publishButton.disabled=false;const grid=node('div',undefined,'comparison');for(const side of ['source','output']){const column=node('div');column.append(node('h3',side==='source'?'Original':'Processed'));for(let n=0;n<4;n++){const img=node('img');img.src='/api/comparison/'+t.id+'/'+side+'/'+n+'.jpg';img.alt=side+' sample '+(n+1);column.append(img);}grid.append(column);}detail.append(grid);}));
+   t.comparison_loaded=false;
+   const comparison=node('section'),status=node('p','Loading source/output comparison…','muted'),images=node('div');
+   const current=()=>openedTask===t.id&&inspectorMode==='task'&&inspectorOpen()&&state.tasks.some(task=>task.id===t.id&&task.version===reviewVersion&&task.status==='awaiting_review');
+   let loading=false;
+   prepareComparison=async()=>{
+    if(loading||!current())return;loading=true;retry.hidden=true;status.textContent='Loading source/output comparison…';images.replaceChildren();
+    try{
+     await api('comparison',{id:t.id});if(!current())return;
+     const grid=node('div',undefined,'comparison'),ready=[];
+     for(const side of ['source','output']){const column=node('div');column.append(node('h3',side==='source'?'Original':'Processed'));for(let n=0;n<4;n++){const img=node('img');img.alt=side+' sample '+(n+1);ready.push(new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('A comparison image could not be loaded.'));}));img.src='/api/comparison/'+encodeURIComponent(t.id)+'/'+side+'/'+n+'.jpg';column.append(img);}grid.append(column);}
+     images.append(grid);await Promise.all(ready);if(!current())return;
+     t.comparison_loaded=true;status.textContent='Original and processed output';if(publishButton)publishButton.disabled=false;
+    }catch(error){if(current()){status.textContent='Comparison unavailable: '+error.message;retry.hidden=false;}}
+    finally{loading=false;}
+   };
+   const retry=button('Retry comparison',prepareComparison,'subtle');retry.hidden=true;comparison.append(status,images,retry);detail.append(comparison);
   }
   actions.append(button('Reject result',()=>taskAction(t,'reject')));
-  if(t.kind!=='home'){detail.append(node('p',t.kind==='join'?'Publication adds a new file and Plex item. All source parts stay in place.':'Publication keeps the original beside the video as filename-old.extension. Existing backups are never overwritten.','muted'));const publish=button('Accept & publish',async()=>{if(!confirm(t.kind==='join'?'I reviewed the parts and approve adding the joined file; retain every original part.':t.kind==='home'?'Apply the displayed result to Plex?':'I compared the source/output and approve replacement, retaining the original as filename-old.ext beside the video.'))return;for(const control of actions.querySelectorAll('button'))control.disabled=true;publish.textContent='Publishing…';try{await api('task/review',{id:t.id,version:t.version});await refresh();closeInspector(true);toast('Publishing started. Track copying and verification under Publishing in Queue.');}catch(error){await refresh();closeInspector(true);await openTask(t.id);throw error;}},'primary');publishButton=publish;publish.disabled=['upscale','optimize','join'].includes(t.kind)&&!t.comparison_loaded;actions.append(publish);}
+  if(t.kind!=='home'){detail.append(node('p',t.kind==='join'?'Publication adds a new file and Plex item. All source parts stay in place.':'Publication keeps the original beside the video as filename-old.extension. Existing backups are never overwritten.','muted'));const publish=button('Accept & publish',async()=>{if(publishing||publish.disabled)return;if(t.kind==='join'&&!confirm('I reviewed the parts and approve adding the joined file; retain every original part.'))return;const current=state.tasks.find(task=>task.id===t.id);if(!current||current.version!==reviewVersion||current.status!=='awaiting_review')throw Error('Task changed; reopen it before publishing.');publishing=true;for(const control of actions.querySelectorAll('button'))control.disabled=true;publish.textContent='Publishing…';try{await api('task/review',{id:t.id,version:reviewVersion});await refresh();if(openedTask===t.id)closeInspector(true);toast('Publishing started. Track copying and verification under Publishing in Queue.');}catch(error){await refresh();if(openedTask===t.id){closeInspector(true);await openTask(t.id);}throw error;}},'primary');publishButton=publish;publish.disabled=['upscale','optimize','join'].includes(t.kind)&&!t.comparison_loaded;actions.append(publish);}
  }
  if(needsQuickTimeRepair(t))actions.append(button('Fix QuickTime playback',async()=>{const result=await api('task/action',{id:t.id,version:t.version,action:'repair_quicktime'});await refresh();toast(result.quicktime_repair_warning||'QuickTime container repaired without re-encoding',Boolean(result.quicktime_repair_warning));},'primary'));
  actions.append(taskControls(t,true));
  showInspector();
+ if(prepareComparison)await prepareComparison();
 }
 function renderFilePlan(detail,t){
  const e=t.evidence;
