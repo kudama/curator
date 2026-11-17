@@ -22,6 +22,8 @@ from .folders import FolderWorkflows
 from .progress import EncodingProgress
 from .mage import Mage
 from .artwork import ArtworkWorkflows
+from .bulk_review import BulkReviewWorkflows
+from .backup_cleanup import BackupCleanupWorkflows
 
 
 def identifier(*values):
@@ -29,11 +31,13 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows):
+class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
         self.active = set()
+        self.recover_review_batches()
+        self.recover_backup_cleanups()
         self.cancels = set()
         self.scan_status = {}
         self.presence_status = {}
@@ -59,7 +63,8 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows):
     def save_config(self, data):
         allowed = {'plex_url', 'plex_token', 'ffprobe', 'ffmpeg', 'topaz', 'handbrake',
                    'handbrake_preset', 'handbrake_preset_import', 'topaz_filter', 'archive_root', 'vision_model',
-                   'max_mbps_1080', 'max_mbps_4k', 'branding_presets'}
+                   'max_mbps_1080', 'max_mbps_4k', 'branding_presets',
+                   'topaz_rate_control','topaz_quality','topaz_bitrate_mbps'}
         if set(data) - allowed:
             raise ValueError('Unknown configuration field')
         if any(not isinstance(v, (str, int, float)) for k, v in data.items() if k != 'branding_presets'):
@@ -70,6 +75,8 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows):
         if not data.get('plex_token'):
             data.pop('plex_token', None)
         cfg.update(data)
+        if any(key in data for key in ('topaz_rate_control','topaz_quality','topaz_bitrate_mbps')):
+            tools.topaz_encoding(cfg)
         if cfg.get('plex_url') and cfg.get('plex_token'):
             self.plex_factory(cfg['plex_url'], cfg['plex_token'])
         with self.store.transaction():
@@ -442,7 +449,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows):
             return {(a['library'],a['rating_key']) for a in members}, {a.get('local_path') for a in members if a.get('local_path')}
         keys, paths = identities(task)
         for other in self.store.all('tasks'):
-            if other['id'] == task['id'] or other['status'] not in {'running','publishing'}:continue
+            if other['id'] == task['id'] or (other['status'] not in {'running','publishing'} and not other.get('cleanup_in_progress')):continue
             other_keys, other_paths = identities(other)
             if keys & other_keys or paths & other_paths:raise ValueError('This file is reserved by running work; finish it before starting another operation on the same file')
 

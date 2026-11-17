@@ -36,7 +36,11 @@ function sizeChange(source,output){
 function sizeComparison(t,asset){
  const original=t.source?.size??asset?.technical?.size_bytes??asset?.fingerprint?.size,processed=t.result?.size_bytes;
  const box=node('section',undefined,'size-comparison');box.append(node('h3','File size'));
- const grid=node('dl');for(const [label,value] of [['Original',original],['Processed',processed]]){const pair=node('div');pair.append(node('dt',label),node('dd',formatBytes(value)));grid.append(pair);}box.append(grid,node('p',sizeChange(original,processed),'size-change'));return box;
+ const grid=node('dl');for(const [label,value] of [['Original',original],['Processed',processed]]){const pair=node('div');pair.append(node('dt',label),node('dd',formatBytes(value)));grid.append(pair);}box.append(grid,node('p',sizeChange(original,processed),'size-change'));
+ const duration=t.result?.duration_seconds||asset?.technical?.duration_seconds;
+ if(duration>0)box.append(node('p','Approximate total bitrate: '+(original*8/duration/1e6).toFixed(2)+' → '+(processed*8/duration/1e6).toFixed(2)+' Mbps','muted'));
+ if(processed>original*1.25)box.append(node('p','This output is more than 25% larger than the original. Review the size and quality before publishing.','task-error'));
+ if(t.kind==='upscale'){const settings=t.tool_settings||{};box.append(node('p',settings.topaz_rate_control==='bitrate'?'Approved bitrate target: '+settings.topaz_bitrate_mbps+' Mbps':'Approved quality setting: '+(settings.topaz_quality??65)+' (variable bitrate)','muted'));}return box;
 }
 function progressView(t){
  const box=node('div',undefined,'task-progress'),label=node('span'),bar=node('progress');box.dataset.progressTask=t.id;bar.setAttribute('aria-label','Task progress');box.append(label,bar);updateProgressView(box,t);return box;
@@ -237,7 +241,7 @@ function renderPresetSettings(){
  const old=$('add-style-preset');if(old)old.remove();const create=button('Create style',()=>add({id:'style-'+crypto.randomUUID().slice(0,12),name:'New style',details:'Natural colors and a simple composition.',background:'a complementary neutral tone',typography:'Clean readable title lettering.'}),'subtle');create.id='add-style-preset';container.after(create);
 }
 function readPresetSettings(){return [...$('preset-settings').children].filter(row=>row.querySelector('[data-enabled]').checked).map(row=>({id:row.dataset.presetId,...Object.fromEntries([...row.querySelectorAll('[data-preset-field]')].map(input=>[input.dataset.presetField,input.value]))}));}
-function openConfig(){$('config-feedback').hidden=true;renderPresetSettings();const form=$('config-form');for(const el of form.elements){if(el.name&&el.name!=='plex_token')el.value=state.config[el.name]??el.defaultValue??'';}form.elements.plex_token.value='';$('config-dialog').showModal();run(loadServiceStatus);}
+function openConfig(){$('config-feedback').hidden=true;renderPresetSettings();const form=$('config-form');for(const el of form.elements){if(el.name&&el.name!=='plex_token')el.value=state.config[el.name]??el.defaultValue??el.options?.[0]?.value??'';}form.elements.plex_token.value='';$('config-dialog').showModal();for(const control of $('encoding-controls')?.querySelectorAll('input,select')||[])control.disabled=!featureAvailable('encoding_controls');run(loadServiceStatus);}
 $('settings').onclick=openConfig;
 $('config-form').onsubmit=e=>{e.preventDefault();run(async()=>{const data=Object.fromEntries(new FormData(e.target));for(const key of ['max_mbps_1080','max_mbps_4k'])data[key]=Number(data[key]);data.branding_presets=readPresetSettings();await api('config',data);$('config-dialog').close();await refresh();toast('Workspace settings saved');});};
 $('connect').onclick=()=>run(async()=>{if(!state.config.token_configured){openConfig();return;}await api('connect',{});await refresh();toast('Plex libraries refreshed');});
@@ -421,7 +425,7 @@ async function openFileOperation(asset,kind){
 }
 let presencePending=false;
 async function syncCatalog(){if(serviceRestarting)return;if(!libraryId||presencePending||!state.config.token_configured)return;presencePending=true;try{await api('library/presence',{library:libraryId});}catch(error){if(error.message!=='Not found')throw error;}finally{presencePending=false;}}
-initWorkbench();run(async()=>{await refresh();await syncCatalog();});setInterval(()=>run(refresh),4000);setInterval(()=>run(syncCatalog),60000);
+initWorkbench();run(async()=>{await refresh();await syncCatalog();await loadServiceStatus();});setInterval(()=>run(refresh),4000);setInterval(()=>run(syncCatalog),60000);
 
 function folderValue(value){if(Array.isArray(value))return value.map(v=>typeof v==='string'?v:v.name+(v.role?' ('+v.role+')':'')+(v.photo||v.thumb?' · photo':'')).join(', ')||'(empty)';return value||'(empty)';}
 function folderDiff(row){

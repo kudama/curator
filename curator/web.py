@@ -159,6 +159,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/task/publication-log':
                 query=parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.publication_log(query['id'][0]))
+            if path == '/api/review-batch':
+                query=parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.review_batch(query['id'][0]))
+            if path == '/api/review-batches':
+                query=parse_qs(urlsplit(self.path).query)
+                return self.reply({'batches':self.server.service.review_batches(query['library'][0])})
+            if path == '/api/cleanup':
+                query=parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.cleanup_receipt(query['id'][0]))
             if path == '/api/files/suggestions':
                 query=parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.file_suggestions(query['asset'][0]))
@@ -301,6 +310,18 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.action(data['id'], data['action'], data['version'], data.get('handbrake_preset'))
             elif path == '/api/task/review':
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
+            elif path == '/api/review-batch/prepare':
+                result=service.prepare_review_batch(data['library'],data['tasks'])
+            elif path == '/api/review-batch/publish':
+                result=service.publish_review_batch(data['id'],data['count'])
+            elif path == '/api/review-batch/stop':
+                result=service.stop_review_batch(data['id'])
+            elif path == '/api/cleanup/preview':
+                result=service.cleanup_preview(data['library'])
+            elif path == '/api/cleanup/delete':
+                result=service.delete_backups(data['id'],data['tasks'],data['count'],data['confirmation'])
+            elif path == '/api/cleanup/restore':
+                result=service.restore_cleanup_backup(data['id'])
             elif path == '/api/comparison':
                 result = service.comparison(data['id'])
             elif path == '/api/playlist/preview':

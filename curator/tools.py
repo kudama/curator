@@ -230,6 +230,22 @@ def processing_environment(kind, settings):
     return env
 
 
+def topaz_encoding(settings):
+    mode=settings.get('topaz_rate_control') or 'quality'
+    if mode not in {'quality','bitrate'}:raise ValueError('Choose quality or bitrate encoding')
+    value=settings.get('topaz_quality',65) if mode=='quality' else settings.get('topaz_bitrate_mbps')
+    try:
+        if isinstance(value,bool):raise ValueError()
+        value=float(value)
+        import math
+        if not math.isfinite(value) or not (1<=value<=100 if mode=='quality' else .1<=value<=500):raise ValueError()
+    except (TypeError,ValueError):
+        raise ValueError('Topaz quality must be 1–100' if mode=='quality' else 'Enter a Topaz bitrate target between 0.1 and 500 Mbps') from None
+    if mode=='quality':return ['-q:v',format(value,'g')]
+    bitrate=round(value*1_000_000)
+    return ['-b:v',str(bitrate),'-maxrate',str(bitrate),'-bufsize',str(bitrate*2)]
+
+
 def command(kind, source, output, settings):
     if kind == 'optimize':
         preset = settings.get('handbrake_preset')
@@ -253,7 +269,7 @@ def command(kind, source, output, settings):
         apple = ['-tag:v', 'hvc1', '-movflags', '+faststart'] if Path(output).suffix.lower() in {'.mov', '.mp4', '.m4v'} else []
         return [executable(settings, 'topaz'), '-nostdin', '-n', '-i', str(source), '-map', '0:v:0',
                 '-map', '0:a?', '-map', '0:s?', '-vf', vf, '-c:v', 'hevc_videotoolbox',
-                '-allow_sw', '1', '-q:v', '65', '-c:a', 'copy', '-c:s', 'copy', *apple, str(output)]
+                '-allow_sw', '1', *topaz_encoding(settings), '-c:a', 'copy', '-c:s', 'copy', *apple, str(output)]
     raise ValueError('This task does not use a video processing tool')
 
 
