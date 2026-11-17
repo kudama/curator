@@ -18,9 +18,9 @@ class QueueWorkflows:
             self.store.put('settings',marker,dict(recovered=count,updated=now()))
         return count
 
-    def waiting_tasks(self, library, tasks=None):
+    def waiting_tasks(self, library, tasks=None, kind=None):
         rows=[t for t in (self.store.all('tasks') if tasks is None else tasks)
-              if t['library']==library and t['status']=='queued' and not t.get('deleted')]
+              if t['library']==library and t['status']=='queued' and not t.get('deleted') and (kind is None or t['kind']==kind)]
         order=self.store.get('settings','queue-order:'+library,{}).get('ids',[])
         positions={key:index for index,key in enumerate(order)}
         return sorted(rows,key=lambda t:positions.get(t['id'],len(order)))

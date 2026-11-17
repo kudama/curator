@@ -36,6 +36,7 @@ class BackupCleanup(unittest.TestCase):
         with self.store.transaction():self.store.put('settings',preview['id'],preview)
         self.service.active.add(preview['id'])
         self.assertFalse(self.service.queue_running())
+        with self.store.transaction():self.store.put('tasks','waiting',dict(id='waiting',library='library',kind='metadata',status='queued',version=1))
         with patch('curator.service.threading.Thread') as worker:
             self.service.start('library');worker.return_value.start.assert_called_once()
         self.assertTrue(self.service.queue_running())
