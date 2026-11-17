@@ -240,21 +240,39 @@ function reviewableRows(rows){return rows.filter(t=>selected.has(t.id)&&t.status
 function bulkTaskControls(rows){
  const controls=node('div',undefined,'bulk-group-actions'),count=rows.filter(t=>selected.has(t.id)).length;if(!rows.length){controls.hidden=true;return controls;}
  const select=button(count===rows.length?'Clear selection ('+count+')':'Select all '+rows.length,()=>{selectTaskRows(rows,count!==rows.length);render();},'subtle');select.disabled=Boolean(groupQueueProgress);controls.append(select);
- const queueable=rows.filter(t=>selected.has(t.id)&&canQueue(t));if(queueable.length){const action=button('Queue selected ('+queueable.length+')',()=>run(()=>queueTaskRows(queueable)),'primary');action.disabled=Boolean(groupQueueProgress);controls.append(action);}
+ const chosen=rows.filter(t=>selected.has(t.id)),needsPreset=chosen.filter(t=>t.kind==='optimize'&&canQueueWithSettings(t,{handbrake_preset:'pending-choice'}));
+ const queueable=chosen.filter(canQueue);
+ if(chosen.length){const candidates=needsPreset.length?needsPreset:queueable,action=button('Queue selected ('+candidates.length+')'+(needsPreset.length?'…':''),()=>run(()=>needsPreset.length?chooseBulkEncodingPreset(needsPreset):queueTaskRows(queueable)),'primary');action.disabled=Boolean(groupQueueProgress)||!candidates.length;controls.append(action);}
+ const emptyMetadata=chosen.filter(t=>t.kind==='metadata'&&!Object.keys(t.plan?.changes||{}).length);if(emptyMetadata.length)controls.append(node('span',emptyMetadata.length+' need metadata edits before they can be queued. Open a file to edit, or use Edit folder to apply shared changes.','muted'));
  if(groupQueueProgress?.library===libraryId){const progress=node('span',queueProgressText(),'muted');progress.setAttribute('data-group-queue-status','');progress.setAttribute('role','status');controls.append(progress);}
  const review=reviewableRows(rows);if(review.length){const action=button('Review selected ('+review.length+')'+(featureAvailable('bulk_review')?'':' · Update pending'),()=>beginBulkReview(review),'primary');action.disabled=!featureAvailable('bulk_review');controls.append(action);}
  controls.append(node('span',count+' selected · all matching tasks in this group','muted'));
  for(const control of controls.querySelectorAll('button'))control.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
  return controls;
 }
-async function queueTaskRows(rows){
+function canQueueWithSettings(task,settings={}){return canQueue(task.kind==='optimize'&&settings.handbrake_preset?{...task,plan:{...task.plan,handbrake_preset:settings.handbrake_preset}}:task);}
+async function chooseBulkEncodingPreset(rows){
+ if(!prepareInspector())return;
+ const snapshot=rows.map(t=>({...t}));inspectorMode='bulk-encoding';openedTask=null;
+ $('task-kind').textContent='OPTIMIZE ENCODING';$('task-title').textContent='Queue '+snapshot.length+' selected encodes';$('task-reason').hidden=true;
+ const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
+ detail.append(node('p','Choose one installed HandBrake preset for these selected tasks. They will wait in Queue; this does not start processing.','muted'));
+ const label=node('label','Encoding preset'),select=node('select'),note=node('p','Loading installed presets…','muted');label.append(select);detail.append(label,note);
+ const queue=button('Queue '+snapshot.length+' selected encodes',()=>run(async()=>{if(!select.value)return;queue.disabled=true;await queueTaskRows(snapshot,{handbrake_preset:select.value});closeInspector(true);}),'primary');queue.disabled=true;actions.append(queue);showInspector();
+ try{const result=await api('handbrake/presets');if(!result.available)throw Error(result.error||'HandBrakeCLI is unavailable');
+  const empty=node('option','Choose an installed preset');empty.value='';select.append(empty);
+  for(const preset of result.presets){const option=node('option',(preset.group?preset.group+' / ':'')+preset.name);option.value=preset.path;select.append(option);}
+  select.onchange=()=>{queue.disabled=!select.value;const preset=result.presets.find(p=>p.path===select.value);note.textContent=preset?.description||'Select a preset to queue the selected encodes.';};note.textContent='Select a preset to queue the selected encodes.';
+ }catch(error){note.textContent=error.message;}
+}
+async function queueTaskRows(rows,settings={}){
  if(groupQueueProgress)return;
  const snapshot=rows.map(t=>({id:t.id,version:t.version})),targetLibrary=libraryId;let queued=0;const failures=[];
  groupQueueProgress={library:targetLibrary,completed:0,total:snapshot.length};render();
  try{for(const ref of snapshot){
   const task=state.tasks.find(t=>t.id===ref.id);
-  if(!task||task.version!==ref.version||!canQueue(task))failures.push(ref.id+': task changed or is unavailable');
-  else try{await api('task/action',{...ref,action:'queue'});selected.delete(ref.id);groupSelectionVersions.delete(ref.id);queued++;}catch(error){failures.push((task.title||ref.id)+': '+error.message);}
+  if(!task||task.version!==ref.version||!canQueueWithSettings(task,settings))failures.push(ref.id+': task changed or is unavailable');
+  else try{await api('task/action',{...ref,action:'queue',...(task.kind==='optimize'?settings:{})});selected.delete(ref.id);groupSelectionVersions.delete(ref.id);queued++;}catch(error){failures.push((task.title||ref.id)+': '+error.message);}
   groupQueueProgress.completed++;document.querySelectorAll('[data-group-queue-status]').forEach(el=>{el.textContent=queueProgressText();});
  }}finally{groupQueueProgress=null;await refresh();}
  toast(queued+' queued'+(failures.length?' · '+failures.length+' failed: '+failures.slice(0,3).join('; '):' · Open Queue to start them.'),Boolean(failures.length));

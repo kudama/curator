@@ -33,3 +33,20 @@ test('queueing reports progress immediately and duplicate clicks do not submit a
  await w.run('queueTaskRows(state.tasks)');assert.equal(calls,1);
  release();await first;assert.equal(calls,2);assert.deepEqual(labels,['Queueing 1 of 2…','Queueing 2 of 2…']);
 });
+test('optimization batch passes the explicitly selected preset without changing other plans',async()=>{
+ const w=setup(),calls=[];w.tasks.splice(2);for(const t of w.tasks){t.kind='optimize';t.status='recommendation';t.plan={};}
+ w.context.canQueue=t=>t.kind==='optimize'&&Boolean(t.plan.handbrake_preset);w.context.render=()=>{};w.context.refresh=async()=>{};w.context.toast=()=>{};
+ w.context.document={querySelectorAll:()=>[],getElementById:()=>({append(){}})};w.context.button=()=>({});w.context.api=async(path,data)=>calls.push({path,data});
+ assert.equal(w.run('canQueueWithSettings(state.tasks[0])'),false);
+ assert.equal(w.run("canQueueWithSettings(state.tasks[0],{handbrake_preset:'General/HQ 1080p30'})"),true);
+ await w.run("queueTaskRows(state.tasks,{handbrake_preset:'General/HQ 1080p30'})");
+ assert.equal(calls.length,2);for(const c of calls){assert.equal(c.data.handbrake_preset,'General/HQ 1080p30');assert.equal(c.path,'task/action');}
+ assert.deepEqual(w.tasks[0].plan,{});
+});
+test('metadata selection shows a disabled queue action with the missing-edit explanation',()=>{
+ const w=setup();w.tasks.splice(1);Object.assign(w.tasks[0],{kind:'metadata',status:'recommendation',plan:{}});w.context.canQueue=t=>Boolean(Object.keys(t.plan.changes||{}).length);
+ w.context.node=(tag,text)=>({tag,text,children:[],append(...x){this.children.push(...x);},querySelectorAll(){return this.children.filter(x=>x.label);}});
+ w.context.button=label=>({label,addEventListener(){}});w.run('selectTaskRows(state.tasks,true)');
+ const controls=w.run('bulkTaskControls(state.tasks)'),action=controls.children.find(c=>c.label==='Queue selected (0)');
+ assert.ok(action);assert.equal(action.disabled,true);assert.match(JSON.stringify(controls),/need metadata edits/);
+});
