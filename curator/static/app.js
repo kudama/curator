@@ -276,7 +276,15 @@ $('export-kometa').onclick=()=>run(async()=>{const title=prompt('Collection titl
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{const dialog=b.closest('dialog');if(dialog)dialog.close();else closeInspector();});
 $('playlist').onclick=()=>run(async()=>{if(!libraryId)throw Error('Select and scan a library first');const main=prompt('Main show title, exactly as shown in Plex',"RuPaul's Drag Race");if(!main)return;const companion=prompt('Companion show title',"RuPaul's Drag Race: Untucked!");if(!companion)return;const offset=prompt('Companion season minus main-show season (adjust for Untucked numbering)','0');if(offset===null)return;const title=prompt('Playlist title',main+' + '+companion);if(!title)return;const task=await api('playlist/preview',{library:libraryId,title,main_show:main,companion_show:companion,offset:Number(offset)});await refresh();await openTask(task.id);});
 $('mcu').onclick=()=>run(async()=>{if(!libraryId)throw Error('Select a library first');const a=node('a');a.href='/api/kometa?'+new URLSearchParams({library:libraryId,mode:'mcu'});a.download='curator-mcu.yml';a.click();toast('MCU definition exported; verify movie/TV library names during Kometa setup');});
-async function taskAction(t,action,settings={}){const result=await api('task/action',{id:t.id,version:t.version,action,...settings});selected.delete(t.id);await refresh();closeInspector(true);if(action==='delete'){toast('Task deleted. Media files and retained outputs are kept.');$('toast').append(button('Undo',()=>taskAction(result,'restore_task'),'subtle'));}else if(action==='remove_queue')toast('Removed from queue.');else if(action==='cancel')toast(t.status==='running'?'Cancellation requested…':'Task cancelled.');else if(action==='restore_task')toast('Task restored; it has not been requeued.');}
+async function taskAction(t,action,settings={}){
+ const result=await api('task/action',{id:t.id,version:t.version,action,...settings});selected.delete(t.id);await refresh();const advance=openedTask===t.id;closeInspector(true);
+ if(action==='delete'){toast('Task deleted. Media files and retained outputs are kept.');$('toast').append(button('Undo',()=>taskAction(result,'restore_task'),'subtle'));}
+ else if(action==='remove_queue')toast('Removed from queue.');
+ else if(action==='cancel')toast(t.status==='running'?'Cancellation requested…':'Task cancelled.');
+ else if(action==='restore_task')toast('Task restored; it has not been requeued.');
+ else if(action==='reject'&&result.status==='recommendation'){toast('Result rejected; task returned to suggestions. Files retained.');if(typeof afterReviewDecision==='function')await afterReviewDecision(t.id,'rejected',advance);}
+}
+
 function taskControls(t,dialog=false){
  const controls=node('div',undefined,'task-controls');
  if(t.status==='queued')controls.append(button('Remove from queue',()=>taskAction(t,'remove_queue'),'subtle'));
@@ -376,23 +384,24 @@ async function openTask(id,workspace='metadata'){
    const current=()=>openedTask===t.id&&inspectorMode==='task'&&inspectorOpen()&&state.tasks.some(task=>task.id===t.id&&task.version===reviewVersion&&task.status==='awaiting_review');
    let loading=false;
    prepareComparison=async()=>{
-    if(loading||!current())return;loading=true;retry.hidden=true;status.textContent='Loading source/output comparison…';images.replaceChildren();
+    if(loading||!current())return;loading=true;retry.hidden=true;status.textContent='Loading source/output comparison…';images.replaceChildren();let imageTimer;
     try{
      await api('comparison',{id:t.id});if(!current())return;
      const grid=node('div',undefined,'comparison'),ready=[];
      for(const side of ['source','output']){const column=node('div');column.append(node('h3',side==='source'?'Original':'Processed'));for(let n=0;n<4;n++){const img=node('img');img.alt=side+' sample '+(n+1);ready.push(new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('A comparison image could not be loaded.'));}));img.src='/api/comparison/'+encodeURIComponent(t.id)+'/'+side+'/'+n+'.jpg';column.append(img);}grid.append(column);}
-     images.append(grid);await Promise.all(ready);if(!current())return;
+     images.append(grid);await Promise.race([Promise.all(ready),new Promise((resolve,reject)=>{imageTimer=setTimeout(()=>reject(Error('Comparison images timed out; retry when the connection is ready.')),30000);})]);if(!current())return;
      t.comparison_loaded=true;status.textContent='Original and processed output';if(publishButton)publishButton.disabled=false;
     }catch(error){if(current()){status.textContent='Comparison unavailable: '+error.message;retry.hidden=false;}}
-    finally{loading=false;}
+    finally{clearTimeout(imageTimer);loading=false;}
    };
    const retry=button('Retry comparison',prepareComparison,'subtle');retry.hidden=true;comparison.append(status,images,retry);detail.append(comparison);
   }
   actions.append(button('Reject result',()=>taskAction(t,'reject')));
-  if(t.kind!=='home'){detail.append(node('p',t.kind==='join'?'Publication adds a new file and Plex item. All source parts stay in place.':'Publication keeps the original beside the video as filename-old.extension. Existing backups are never overwritten.','muted'));const publish=button('Accept & publish',async()=>{if(publishing||publish.disabled)return;if(t.kind==='join'&&!confirm('I reviewed the parts and approve adding the joined file; retain every original part.'))return;const current=state.tasks.find(task=>task.id===t.id);if(!current||current.version!==reviewVersion||current.status!=='awaiting_review')throw Error('Task changed; reopen it before publishing.');publishing=true;for(const control of actions.querySelectorAll('button'))control.disabled=true;publish.textContent='Publishing…';try{await api('task/review',{id:t.id,version:reviewVersion});await refresh();if(openedTask===t.id)closeInspector(true);toast('Publishing started. Track copying and verification under Publishing in Queue.');}catch(error){await refresh();if(openedTask===t.id){closeInspector(true);await openTask(t.id);}throw error;}},'primary');publishButton=publish;publish.disabled=['upscale','optimize','join'].includes(t.kind)&&!t.comparison_loaded;actions.append(publish);}
+  if(t.kind!=='home'){detail.append(node('p',t.kind==='join'?'Publication adds a new file and Plex item. All source parts stay in place.':'Publication keeps the original beside the video as filename-old.extension. Existing backups are never overwritten.','muted'));const publish=button('Accept & publish',async()=>{if(publishing||publish.disabled)return;if(t.kind==='join'&&!confirm('I reviewed the parts and approve adding the joined file; retain every original part.'))return;const current=state.tasks.find(task=>task.id===t.id);if(!current||current.version!==reviewVersion||current.status!=='awaiting_review')throw Error('Task changed; reopen it before publishing.');publishing=true;for(const control of actions.querySelectorAll('button'))control.disabled=true;publish.textContent='Publishing…';try{await api('task/review',{id:t.id,version:reviewVersion});await refresh();const advance=openedTask===t.id;if(advance)closeInspector(true);toast('Publishing started. Track copying and verification under Publishing in Queue.');if(typeof afterReviewDecision==='function')await afterReviewDecision(t.id,'accepted',advance);}catch(error){await refresh();if(openedTask===t.id){closeInspector(true);await openTask(t.id);}throw error;}},'primary');publishButton=publish;publish.disabled=['upscale','optimize','join'].includes(t.kind)&&!t.comparison_loaded;actions.append(publish);}
  }
  if(needsQuickTimeRepair(t))actions.append(button('Fix QuickTime playback',async()=>{const result=await api('task/action',{id:t.id,version:t.version,action:'repair_quicktime'});await refresh();toast(result.quicktime_repair_warning||'QuickTime container repaired without re-encoding',Boolean(result.quicktime_repair_warning));},'primary'));
  actions.append(taskControls(t,true));
+ if(typeof decorateContinuousReview==='function')decorateContinuousReview(t,actions);
  showInspector();
  if(prepareComparison)await prepareComparison();
 }

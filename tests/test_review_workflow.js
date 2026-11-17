@@ -15,7 +15,7 @@ function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve
 function setup(kind='optimize'){
  const elements=new Map(),calls=[],images=[],task={id:'one',version:1,asset:'asset',library:'library',kind,status:'awaiting_review',plan:{},evidence:{},title:'Synthetic video'},asset={id:'asset',library:'library',item:{},technical:{}};
  let open=false;const node=(tag,text,cls)=>{const e=new Element(tag,text,cls);if(tag==='img')images.push(e);return e;};
- const context=vm.createContext({state:{tasks:[task],assets:[asset],config:{}},openedTask:null,inspectorMode:null,selectedAssetId:null,selected:new Set(),URLSearchParams,Promise,encodeURIComponent,
+ const context=vm.createContext({state:{tasks:[task],assets:[asset],config:{}},openedTask:null,inspectorMode:null,selectedAssetId:null,selected:new Set(),URLSearchParams,Promise,encodeURIComponent,setTimeout,clearTimeout,
   $:id=>{if(!elements.has(id))elements.set(id,node('div'));return elements.get(id);},node,
   button:(text,fn,cls)=>{const e=node('button',text,cls);e.onclick=fn;return e;},
   prepareInspector:()=>true,inspectorOpen:()=>open,showInspector:()=>{open=true;},closeInspector:()=>{open=false;context.openedTask=null;},

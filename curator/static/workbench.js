@@ -2,6 +2,7 @@
 // Navigation and presentation only. Editors continue to use the existing approved workflows.
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
 let queueLibrary='all';
+let reviewKind='all',currentReviewSession=null,reviewAdvanceBusy=false;
 function queueScope(){return Array.isArray(state.global_queue)?{scope:'all'}:{library:libraryId};}
 function queueMatchesLibrary(task){return !Array.isArray(state.global_queue)?task.library===libraryId:queueLibrary==='all'||task.library===queueLibrary;}
 let serviceRestarting=false,serviceStatus=null;
@@ -105,11 +106,12 @@ function initWorkbench(){
  $('collapse-folders').onclick=collapseAllFolders;
  $('queue-group').onchange=e=>{queueGrouping=e.target.value;render();};
  const queueLibraryControl=$('queue-library');if(queueLibraryControl)queueLibraryControl.onchange=e=>{queueLibrary=e.target.value;selected.clear();waitingSelection.clear();render();};
+ const reviewKindControl=$('review-kind');if(reviewKindControl)reviewKindControl.onchange=e=>{reviewKind=e.target.value;selected.clear();render();};
  $('history-status').onchange=e=>{historyStatus=e.target.value;render();};
  const restart=$('restart-curator');if(restart)restart.onclick=restartCurator;
  window.addEventListener('beforeunload',e=>{if(inspectorDirty){e.preventDefault();e.returnValue='';}});
  $('task-detail').addEventListener('input',()=>{if(inspectorMode==='file-tools')inspectorDirty=true;});
- $('task-dialog').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeInspector();}});
+ $('task-dialog').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeInspector();}else handleReviewShortcut(e);});
 }
 function fileRow(asset,scope='files'){
  const id=scope+':'+asset.id,badge=fileBadge(asset),signature=JSON.stringify([fileName(asset),asset.title,asset.item?.thumb,metaLine(asset),badge,selectedAssetId===asset.id]);
@@ -174,6 +176,58 @@ function fileOperationCards(){
  section.append(button('Resume file operations',()=>run(async()=>{await api('run',{scope:'all',kind:'file_operations'});await refresh();}),'subtle'),button('Pause after current',()=>run(async()=>{await api('queue/pause',{scope:'all',kind:'file_operations'});await refresh();}),'subtle'));
  for(const job of jobs){const card=node('article',undefined,'processing-card');card.append(node('strong',job.title),node('p',job.operation.replaceAll('_',' ')+' · '+(job.phase==='waiting'?'Waiting for file operation slot':'Running')+' · '+(state.libraries.find(lib=>lib.id===job.library)?.title||job.library),'muted'));section.append(card);}
  return [section];
+}
+function reviewInboxRows(){return state.tasks.filter(t=>t.status==='awaiting_review'&&['upscale','optimize','join'].includes(t.kind)&&queueMatchesLibrary(t)&&(reviewKind==='all'||t.kind===reviewKind)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path].join(' ').toLocaleLowerCase().includes(searchText)));}
+function savedReviewSessionId(){try{return localStorage.getItem('curator.review-session');}catch(error){return currentReviewSession?.id;}}
+function renderReviewInbox(){
+ const rows=reviewInboxRows(),controls=node('div',undefined,'bulk-group-actions');
+ if(featureAvailable('continuous_review')){
+  const start=button('Start reviewing',()=>run(()=>startContinuousReview(false)),'primary');start.disabled=!rows.some(t=>['upscale','optimize'].includes(t.kind))||reviewAdvanceBusy;controls.append(start);
+  if(savedReviewSessionId())controls.append(button('Resume review',()=>run(()=>startContinuousReview(true)),'subtle'));
+ }
+ if(rows.length)controls.append(bulkTaskControls(rows.filter(t=>['upscale','optimize'].includes(t.kind))));
+ return [controls,...rows.map(processingTaskCard)];
+}
+async function startContinuousReview(resume){
+ if(reviewAdvanceBusy||!prepareInspector())return;reviewAdvanceBusy=true;
+ try{
+  const payload=resume?{id:savedReviewSessionId()}:{library:queueLibrary==='all'?null:queueLibrary,kind:reviewKind==='all'||reviewKind==='join'?null:reviewKind,tasks:reviewInboxRows().filter(t=>['upscale','optimize'].includes(t.kind)).slice(0,5000).map(t=>({id:t.id,version:t.version}))};
+  if(resume&&!payload.id)return;
+  currentReviewSession=await api('review-session/open',payload);
+  try{localStorage.setItem('curator.review-session',currentReviewSession.id);}catch(error){}
+  await openNextReviewResult();
+ }finally{reviewAdvanceBusy=false;}
+}
+function continuousReviewTask(id){return currentReviewSession?.items[currentReviewSession.cursor]?.id===id;}
+async function openNextReviewResult(){
+ const item=currentReviewSession?.items[currentReviewSession.cursor];
+ if(!item){closeInspector(true);setScreen('review');const counts={};for(const row of currentReviewSession?.items||[])counts[row.decision]=(counts[row.decision]||0)+1;toast('Review session finished · '+Object.entries(counts).map(([key,count])=>count+' '+key).join(' · ')+'. Accepted results may still be publishing.');return;}
+ Promise.resolve(openTask(item.id)).catch(error=>{if(openedTask===item.id)toast('Could not open review: '+error.message,true);});
+}
+async function afterReviewDecision(id,decision,advance=true){
+ if(!continuousReviewTask(id)||reviewAdvanceBusy)return;reviewAdvanceBusy=true;
+ try{
+  try{currentReviewSession=await api('review-session/step',{id:currentReviewSession.id,version:currentReviewSession.version,task:id,decision});}
+  catch(error){currentReviewSession=await api('review-session/open',{id:currentReviewSession.id});toast('Review position reconciled with the task status.');}
+  if(advance)await openNextReviewResult();
+ }catch(error){toast('Decision saved on the task; resume review to recover the position. '+error.message,true);}
+ finally{reviewAdvanceBusy=false;}
+}
+function decorateContinuousReview(task,actions){
+ if(!continuousReviewTask(task.id))return;
+ $('task-kind').textContent+=' · '+(currentReviewSession.cursor+1)+' of '+currentReviewSession.items.length;
+ for(const control of actions.querySelectorAll('button')){
+  if(control.textContent==='Accept & publish')control.setAttribute('data-review-action','accepted');
+  if(control.textContent==='Reject result')control.setAttribute('data-review-action','rejected');
+ }
+ const skip=button('Skip / Next',()=>run(()=>afterReviewDecision(task.id,'skipped')),'subtle');skip.setAttribute('data-review-action','skipped');actions.append(skip);
+ $('task-detail').append(node('p','A: accept and publish · R: reject and reset · S: skip. Your review position is saved.','muted'));
+}
+function handleReviewShortcut(event){
+ if(reviewAdvanceBusy||!continuousReviewTask(openedTask)||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.target?.closest('input,textarea,select,[contenteditable="true"]'))return;
+ const decision={a:'accepted',r:'rejected',s:'skipped'}[event.key.toLowerCase()];if(!decision)return;
+ const control=$('task-buttons').querySelector('[data-review-action="'+decision+'"]');if(!control||control.disabled)return;
+ event.preventDefault();control.click();
 }
 function cleanupJobCards(history){
  return (state.cleanup_jobs||[]).filter(j=>(history?j.library===libraryId:queueMatchesLibrary(j))&&(history?(j.phase==='complete'||j.phase==='interrupted')&&historyStatusMatches({status:j.phase==='interrupted'?'blocked':j.failed?'failed':'applied'}):j.phase!=='complete')).map(job=>{
@@ -249,18 +303,19 @@ function renderWorkbench(){
  const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.hidden=screen!=='library';cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
  const batchControl=$('review-batches');if(batchControl){batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
  $('libraries').replaceChildren(...state.libraries.map(lib=>button(lib.title,()=>chooseLibrary(lib.id),lib.id===libraryId?'selected':'')));
- const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=screen!=='processing'||!Array.isArray(state.global_queue);queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
+ const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=!['processing','review'].includes(screen)||!Array.isArray(state.global_queue);queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
  document.querySelectorAll('[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===screen));
- const lib=current(),assets=libraryFiles(),tasks=state.tasks.filter(t=>screen==='processing'?queueMatchesLibrary(t):t.library===libraryId),running=tasks.filter(t=>t.status==='running'),publishing=tasks.filter(t=>t.status==='publishing'),waiting=tasks.filter(t=>t.status==='queued'),ready=tasks.filter(t=>t.status==='awaiting_review');
- $('library-title').textContent=screen==='library'?(lib?.title||'Your library'):screen==='processing'?'Queue':'History';$('library-type').textContent=screen==='library'?(lib?.profile==='home'?'HOME MOVIES':'TV & MOVIES'):(lib?.title||'WORKSPACE');
- $('library-note').textContent=screen==='library'?'Review what needs attention, one file at a time.':screen==='processing'?running.length+' processing · '+publishing.length+' publishing · '+waiting.length+' waiting · '+ready.length+' ready to review':'Completed, cancelled and resolved work. Media files stay in your library.';
+ const lib=current(),assets=libraryFiles(),tasks=state.tasks.filter(t=>['processing','review'].includes(screen)?queueMatchesLibrary(t):t.library===libraryId),running=tasks.filter(t=>t.status==='running'),publishing=tasks.filter(t=>t.status==='publishing'),waiting=tasks.filter(t=>t.status==='queued'),ready=tasks.filter(t=>t.status==='awaiting_review');
+ $('library-title').textContent=screen==='library'?(lib?.title||'Your library'):screen==='processing'?'Queue':screen==='review'?'Ready for review':'History';$('library-type').textContent=screen==='library'?(lib?.profile==='home'?'HOME MOVIES':'TV & MOVIES'):(lib?.title||'WORKSPACE');
+ $('library-note').textContent=screen==='library'?'Review what needs attention, one file at a time.':screen==='review'?'Compare processed results across libraries, then accept, reject or skip.':screen==='processing'?running.length+' processing · '+publishing.length+' publishing · '+waiting.length+' waiting · '+ready.length+' ready to review':'Completed, cancelled and resolved work. Media files stay in your library.';
  $('asset-count').textContent=assets.length;$('attention-count').textContent=assets.filter(a=>attentionTasks(a).length).length;$('completed-count').textContent=assets.filter(movieCompleted).length;
  $('finding-count').textContent=tasks.filter(t=>t.status==='recommendation').length;$('queue-count').textContent=running.length+waiting.length;$('review-count').textContent=ready.length;$('nav-processing-count').textContent=running.length+publishing.length+waiting.length+ready.length+(state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&j.phase==='deleting').length||'';
+ const reviewNav=$('nav-review');if(reviewNav){reviewNav.hidden=!featureAvailable('continuous_review');$('nav-review-count').textContent=state.tasks.filter(t=>t.status==='awaiting_review'&&['upscale','optimize','join'].includes(t.kind)).length||'';$('review-kind-control').hidden=screen!=='review';$('review-kind').value=reviewKind;}
  $('filters').hidden=screen!=='library';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===libraryView));
  $('group-by-control').hidden=screen!=='library';$('group-by').value=activeGrouping;$('history-status-control').hidden=screen!=='history';$('history-status').value=historyStatus;$('queue-group-control').hidden=screen!=='processing';$('queue-group').value=queueGrouping;renderWaitingControls();$('queue-status-control').hidden=screen!=='processing';$('queue-status').value=queueStatus;$('run').hidden=screen!=='processing';$('run').disabled=(!lib&&!Array.isArray(state.global_queue))||(!state.tasks.some(t=>t.status==='queued'&&(Array.isArray(state.global_queue)||t.library===libraryId))&&!(state.file_jobs||[]).some(j=>j.phase==='waiting'))||(!featureAvailable('task_queues')&&Boolean(state.queue_running));$('run').textContent=Array.isArray(state.global_queue)?'Run all libraries':featureAvailable('task_queues')?'Run all task queues':state.queue_running?'Queue running…':'Run queue';$('scan').hidden=screen!=='library';$('library-settings').hidden=screen!=='library';$('scan').disabled=!lib;$('library-settings').disabled=!lib;
  $('library-tools').hidden=screen!=='library';renderSelection();
  const scan=state.scans?.[libraryId];$('scan-status').textContent=scan?.running?'Scanning · '+scan.count+' files'+(scan.skipped_reserved?' · '+scan.skipped_reserved+' reserved files skipped':''):scan?.error||'';
- const content=screen==='processing'?renderProcessing():screen==='history'?renderHistory():renderFileList(workspaceFiles());$('tasks').replaceChildren(...content);$('collapse-folders').hidden=screen!=='library'||!['folder','task'].includes(activeGrouping);$('collapse-folders').textContent=activeGrouping==='task'?'Collapse all task groups':'Collapse all folders';$('collapse-folders').title=$('collapse-folders').textContent;$('collapse-folders').disabled=!content.some(group=>group.matches('details.file-group'));$('empty').hidden=content.length>0;$('empty').querySelector('h2').textContent=screen==='processing'?'The queue is empty.':screen==='history'?'No history yet.':searchText?'No matching files.':libraryView==='attention'?'No files need attention.':libraryView==='completed'?'No completed files yet.':'No scanned files yet.';$('empty').querySelector('p').textContent=screen==='library'?'Choose another view, search your library, or scan for new files.':'Browse your library to choose the next task.';
+ const content=screen==='review'?renderReviewInbox():screen==='processing'?renderProcessing():screen==='history'?renderHistory():renderFileList(workspaceFiles());$('tasks').replaceChildren(...content);$('collapse-folders').hidden=screen!=='library'||!['folder','task'].includes(activeGrouping);$('collapse-folders').textContent=activeGrouping==='task'?'Collapse all task groups':'Collapse all folders';$('collapse-folders').title=$('collapse-folders').textContent;$('collapse-folders').disabled=!content.some(group=>group.matches('details.file-group'));$('empty').hidden=screen==='review'?reviewInboxRows().length>0:content.length>0;$('empty').querySelector('h2').textContent=screen==='review'?'No results awaiting review.':screen==='processing'?'The queue is empty.':screen==='history'?'No history yet.':searchText?'No matching files.':libraryView==='attention'?'No files need attention.':libraryView==='completed'?'No completed files yet.':'No scanned files yet.';$('empty').querySelector('p').textContent=screen==='library'?'Choose another view, search your library, or scan for new files.':'Browse your library to choose the next task.';
  const globalRunning=state.tasks.filter(t=>t.status==='running'),globalPublishing=state.tasks.filter(t=>t.status==='publishing'),globalWaiting=state.tasks.filter(t=>t.status==='queued'),globalReady=state.tasks.filter(t=>t.status==='awaiting_review'),target=globalPublishing[0]||globalRunning[0]||globalWaiting[0]||globalReady[0];const activeCleanups=(state.cleanup_jobs||[]).filter(j=>j.phase==='deleting');const strip=$('processing-strip');strip.hidden=screen==='processing';strip.replaceChildren();strip.append(node('span',globalRunning.length||globalPublishing.length||globalWaiting.length?'● '+globalRunning.length+' processing · '+globalPublishing.length+' publishing · '+globalWaiting.length+' waiting':'● No active processing'));if(globalPublishing[0]||globalRunning[0])strip.append(progressView(globalPublishing[0]||globalRunning[0]));if(activeCleanups.length){strip.append(node('span',activeCleanups.length+' cleanup running'));if(!target)strip.append(button('View queue',()=>{if(activeCleanups[0].library!==libraryId&&chooseLibrary(activeCleanups[0].library)===false)return;setScreen('processing');},'subtle'));}if(target)strip.append(button('View queue',()=>{if(target.library!==libraryId&&chooseLibrary(target.library)===false)return;setScreen('processing');},'subtle'));
  document.querySelectorAll('[data-progress-task]').forEach(box=>{const task=state.tasks.find(t=>t.id===box.dataset.progressTask);if(task)updateProgressView(box,task);});
  if(inspectorMode==='overview'&&selectedAssetId&&inspectorOpen()){const a=catalogIndex().byId.get(selectedAssetId),signature=a?JSON.stringify([a.item,a.blocked,fileTasks(a).map(t=>[t.id,t.status,t.version,t.error])]):'';if(signature!==overviewSignature&&a)renderAssetOverview(a,signature);}
