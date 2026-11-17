@@ -359,6 +359,10 @@ def main():
         store.close()
         parser.exit(2, f'Curator could not listen on {host}:{args.port}: {error}. Close the other instance or try --port 8791.\n')
     print(f'Curator: http://{host}:{server.server_port}', flush=True)
+    from .build import RUNNING_BUILD
+    print('Curator version '+RUNNING_BUILD['version']+' | build '+RUNNING_BUILD['revision']+
+          (' (modified checkout)' if RUNNING_BUILD['dirty'] else '')+
+          ' | started '+RUNNING_BUILD['started_at'], flush=True)
     if args.open:
         import webbrowser
         webbrowser.open(f'http://{host}:{server.server_port}')
