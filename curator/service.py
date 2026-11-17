@@ -26,6 +26,7 @@ from .bulk_review import BulkReviewWorkflows
 from .backup_cleanup import BackupCleanupWorkflows
 from .queue_workflows import QueueWorkflows, SourceBusy
 from .task_queues import TaskQueues
+from .file_queue import FileQueueWorkflows
 
 
 def identifier(*values):
@@ -33,12 +34,15 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues):
+class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
         self.active = set()
         self.queue_workers = {}
+        self.file_workers = {}
+        self.file_errors = {}
+        self.recover_file_jobs()
         self.recover_review_batches()
         self.recover_backup_cleanups()
         self.recover_removed_queue_tasks()
@@ -95,7 +99,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         return dict(config=public, libraries=libraries, assets=self.store.all('assets'),
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=self.file_jobs(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
         with self.lock:active=tuple(self.active)
@@ -528,7 +532,11 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 task.update(status='running', updated=now())
                 self.store.put('tasks', key, task)
             if task['kind'] in FILE_KINDS:
-                self.execute_file_task(task)
+                if task['kind'] in {'rename','group'}:
+                    try:self.queue_file_operation('file_task',{'task':task['id']})
+                    except Exception:
+                        task=self.get_task(key);raise
+                else:self.execute_file_task(task)
             elif task['kind'] == 'mage_generation':
                 self.execute_mage(task)
             elif task['kind'] == 'folder_metadata':
@@ -1004,10 +1012,8 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
             task['status'] = 'publishing'
             self.store.put('tasks', key, task)
             self.store.event(key, dict(action='accept', version=version, mode=mode))
-        if background:
-            threading.Thread(target=self._finish_review, args=(task, asset, False), daemon=True).start()
-            return {**task, 'background':True}
-        return self._finish_review(task, asset)
+        self.queue_file_operation('publish',{'task':key,'version':version},background=background)
+        return {**self.get_task(key),'background':True} if background else self.get_task(key)
 
     def _finish_review(self, task, asset, propagate=True):
         key = task['id']
@@ -1095,6 +1101,9 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
             stage.unlink(missing_ok=True)
 
     def repair_quicktime(self, key, version):
+        return self.queue_file_operation('repair',{'task':key,'version':version})
+
+    def _repair_quicktime(self, key, version):
         """Retag a published HEVC output, preserving encoded media and both originals."""
         with self.operation_lock(key):
             with self.store.transaction():

@@ -34,7 +34,7 @@ class BackupCleanupWorkflows:
     def recover_backup_cleanups(self):
         with self.store.transaction():
             for record in self.store.all('settings'):
-                if isinstance(record,dict) and record.get('record_type')=='backup_cleanup' and record.get('phase')=='deleting':
+                if isinstance(record,dict) and record.get('record_type')=='backup_cleanup' and record.get('phase') in {'queued','deleting'}:
                     record.update(phase='interrupted',updated=now());self.store.put('settings',record['id'],record)
 
     def backup_candidate(self,task):
@@ -83,16 +83,13 @@ class BackupCleanupWorkflows:
         if not isinstance(ids,list) or not ids or any(not isinstance(k,str) for k in ids) or len(ids)!=len(set(ids)) or type(count) is not int or count!=len(ids) or confirmation!='DELETE RETAINED ORIGINALS':
             raise ValueError('Confirm the exact selected backup count')
         with self.lock:
-            if any(str(k).startswith('backup-cleanup:') for k in self.active):raise ValueError('Another backup cleanup is active')
             with self.store.transaction():
                 record=self.cleanup_receipt(identity)
                 if record['phase']!='preview' or set(ids)-{item['id'] for item in record['items']}:
                     raise ValueError('Cleanup selection changed; create a fresh preview')
-                record.update(phase='deleting',selected=ids,approved_count=count,approved_at=now())
+                record.update(phase='queued',selected=ids,approved_count=count,approved_at=now())
                 self.store.put('settings',identity,record)
-            self.active.add(identity)
-        if background:threading.Thread(target=self._delete_backup_batch,args=(identity,),daemon=True).start()
-        else:self._delete_backup_batch(identity)
+        self.queue_file_operation('cleanup',{'receipt':identity},background=background)
         return self.cleanup_receipt(identity)
 
     def _delete_backup_batch(self,identity):
@@ -168,6 +165,7 @@ class BackupCleanupWorkflows:
                 raise
 
     def restore_cleanup_backup(self,key,allow_active=False):
+        if not allow_active:return self.queue_file_operation('restore_cleanup',{'task':key})
         with self.operation_lock(key):
             task=self.get_task(key);pending=task.get('cleanup_pending')
             if not pending:raise ValueError('No unfinished backup cleanup')

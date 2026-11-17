@@ -1,0 +1,113 @@
+"""Durable admission for media copy/delete work; at most four I/O jobs."""
+import threading
+import uuid
+from .store import now
+
+
+class FileQueueWorkflows:
+    def file_jobs(self):
+        records=[r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record_type')=='file_operation']
+        active=[r for r in records if r['phase'] in {'waiting','running'}]
+        recent=sorted((r for r in records if r['phase'] not in {'waiting','running'}),key=lambda r:r['created'],reverse=True)[:30]
+        return sorted(active,key=lambda r:r['created'])+recent
+
+    def recover_file_jobs(self):
+        with self.store.transaction():
+            for record in self.file_jobs():
+                if record['phase'] in {'waiting','running'}:
+                    record.update(phase='interrupted',error='Restarted: inspect retained files before explicit recovery',updated=now())
+                    self.store.put('settings',record['id'],record)
+
+    def file_queue_paused(self):
+        return bool(self.store.get('settings',self.pause_key(None,'file_operations'),False))
+
+    def queue_file_operation(self,operation,payload,background=False):
+        if operation not in {'publish','cleanup','restore_cleanup','repair','file_task','restore_rename'}:
+            raise ValueError('Unsupported file operation')
+        task=self.get_task(payload['task']) if 'task' in payload else None
+        job=dict(id='file-operation:'+uuid.uuid4().hex,record_type='file_operation',operation=operation,payload=payload,
+                 library=task['library'] if task else self.cleanup_receipt(payload['receipt'])['library'],
+                 title=task.get('title',operation) if task else 'Clean up originals',phase='waiting',synchronous=not background,created=now(),updated=now())
+        with self.store.transaction():self.store.put('settings',job['id'],job)
+        self.start_file_queue()
+        if background:return job
+        while True:
+            with self.lock:current=self.store.get('settings',job['id'])
+            if current['phase'] not in {'waiting','running'}:break
+            threading.Event().wait(.05)
+        if current['phase']!='complete':
+            with self.lock:error=self.file_errors.pop(job['id'],None)
+            if error is not None:raise error
+            raise ValueError(current.get('error','File operation needs inspection'))
+        if operation=='cleanup':return self.cleanup_receipt(payload['receipt'])
+        return self.get_task(payload['task'])
+
+    def start_file_queue(self,resume=False):
+        threads=[]
+        with self.lock:
+            if resume:
+                with self.store.transaction():self.store.put('settings',self.pause_key(None,'file_operations'),False)
+            waiting=sum(j['phase']=='waiting' for j in self.file_jobs())
+            if self.file_queue_paused() or not waiting:return
+            for _ in range(min(waiting,max(0,self.queue_limits().get('file_operations',4)-len(self.file_workers)))):
+                wake=threading.Event();self.file_workers[wake]=True;threads.append(wake)
+            if self.file_workers:self.active.add('file-queue')
+        for wake in threads:threading.Thread(target=self._run_file_queue,args=(wake,),daemon=True).start()
+
+    def _run_file_queue(self,wake):
+        try:
+            while True:
+                with self.lock:
+                    limit=self.queue_limits().get('file_operations',4)
+                    if wake not in self.file_workers or list(self.file_workers).index(wake)>=limit or self.file_queue_paused():
+                        self._release_file_worker(wake);return
+                    with self.store.transaction():
+                        jobs=self.file_jobs();waiting=[j for j in jobs if j['phase']=='waiting']
+                        if not waiting:self._release_file_worker(wake);return
+                        if sum(j['phase']=='running' for j in jobs)>=limit:job=None
+                        else:
+                            job=waiting[0];job.update(phase='running',updated=now());self.store.put('settings',job['id'],job)
+                if job is None:wake.wait(.1);wake.clear();continue
+                try:
+                    self._execute_file_operation(job)
+                    job.update(phase='complete',updated=now())
+                except Exception as error:
+                    job.update(phase='failed',updated=now(),error=str(error)[:300] if isinstance(error,ValueError) else 'File operation failed; inspect retained files')
+                    if job.get('synchronous'):
+                        with self.lock:self.file_errors[job['id']]=error
+                    if job['operation']=='publish':
+                        task=self.get_task(job['payload']['task'])
+                        if task['status']=='publishing':self._save(task,status='blocked',error=job['error'])
+                with self.lock:
+                    with self.store.transaction():self.store.put('settings',job['id'],job)
+                    if not any(j['phase']=='waiting' for j in self.file_jobs()):
+                        self._release_file_worker(wake);return
+        finally:
+            self._release_file_worker(wake)
+
+    def _release_file_worker(self,wake):
+        with self.lock:
+            self.file_workers.pop(wake,None)
+            if not self.file_workers:self.active.discard('file-queue')
+
+    def _execute_file_operation(self,job):
+        payload=job['payload'];operation=job['operation']
+        if operation=='publish':
+            task=self.get_task(payload['task'])
+            if task['version']!=payload['version'] or task['status']!='publishing':raise ValueError('Publication task changed while waiting')
+            asset=self.asset(task,check=task['kind'] not in {'artwork','portrait'})
+            result=self._finish_review(task,asset,False)
+            if result['status']!='applied':raise ValueError(result.get('error','Publication needs inspection'))
+        elif operation=='cleanup':
+            identity=payload['receipt']
+            with self.lock:
+                with self.store.transaction():
+                    record=self.cleanup_receipt(identity)
+                    if record['phase']!='queued':raise ValueError('Cleanup receipt changed while waiting')
+                    record.update(phase='deleting',updated=now());self.store.put('settings',identity,record)
+                self.active.add(identity)
+            self._delete_backup_batch(identity)
+        elif operation=='restore_cleanup':self.restore_cleanup_backup(payload['task'],allow_active=True)
+        elif operation=='repair':self._repair_quicktime(payload['task'],payload['version'])
+        elif operation=='restore_rename':self._restore_rename(payload['task'],payload['version'])
+        elif operation=='file_task':self.execute_file_task(self.get_task(payload['task']))

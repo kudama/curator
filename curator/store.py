@@ -93,5 +93,6 @@ class Store:
             raise ValueError('Invalid record type')
 
     def close(self):
-        self.db.close()
-        self.instance_lock.close()
+        with self.lock:
+            self.db.close()
+            self.instance_lock.close()
