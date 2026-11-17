@@ -108,3 +108,9 @@
 #queue-group-control,#queue-status-control{margin:0;font-size:12px}
 #queue-group,#queue-status{height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
 .view-options:has(#queue-group-control:not([hidden]))>button,#queue-actions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+
+/* Keep History's status field aligned with its actions too. */
+.view-options:has(#history-status-control:not([hidden])){align-items:flex-end}
+#history-status-control{margin:0;font-size:12px;min-width:160px}
+#history-status{height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
+.view-options:has(#history-status-control:not([hidden]))>button{height:40px;display:inline-flex;align-items:center;justify-content:center}
