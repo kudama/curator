@@ -63,7 +63,7 @@ class ServiceRuntime:
                     'instance_id':self.instance_id,'hostname':self.hostname,
                     'startup':('boot' if os.environ.get('CURATOR_SERVICE_STARTUP')=='boot' else 'after_login') if self.managed else 'manual',
                     'busy_reason':self.busy_reason(),'restart_error':self.restart_error,
-                    'build':dict(self.build),'capabilities':['bulk_review','backup_cleanup','encoding_controls','queue_order','task_queues','universal_queue']}
+                    'build':dict(self.build),'capabilities':['bulk_review','backup_cleanup','encoding_controls','queue_order','task_queues','universal_queue','bulk_decisions']}
 
     def request_restart(self):
         with self.condition:

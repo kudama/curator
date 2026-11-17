@@ -311,7 +311,7 @@ function renderArtworkDrafts(container,library,kind,asset,tasks){
  }
 }
 
-const groupSelectionVersions=new Map();let currentReviewBatch=null,batchPage=0,batchPoll=null,batchSignature='',groupQueueProgress=null;
+const groupSelectionVersions=new Map();let currentReviewBatch=null,batchPage=0,batchPoll=null,batchSignature='',groupQueueProgress=null,bulkDecisionBusy=false;
 function pruneGroupSelection(){
  const tasks=new Map(state.tasks.map(t=>[t.id,t]));
  for(const [id,version] of groupSelectionVersions){const task=tasks.get(id);if(!task||task.deleted||task.version!==version||!['recommendation','blocked','failed','awaiting_review'].includes(task.status)){selected.delete(id);groupSelectionVersions.delete(id);}}
@@ -328,6 +328,7 @@ function bulkTaskControls(rows){
  const emptyMetadata=chosen.filter(t=>t.kind==='metadata'&&!Object.keys(t.plan?.changes||{}).length);if(emptyMetadata.length)controls.append(node('span',emptyMetadata.length+' need metadata edits before they can be queued. Open a file to edit, or use Edit folder to apply shared changes.','muted'));
  if(groupQueueProgress?.library===libraryId){const progress=node('span',queueProgressText(),'muted');progress.setAttribute('data-group-queue-status','');progress.setAttribute('role','status');controls.append(progress);}
  const review=reviewableRows(rows);if(review.length){const action=button('Review selected ('+review.length+')'+(featureAvailable('bulk_review')?'':' · Update pending'),()=>beginBulkReview(review),'primary');action.disabled=!featureAvailable('bulk_review');controls.append(action);}
+ if(review.length&&featureAvailable('bulk_decisions'))for(const [action,label] of [['accept','Accept & Publish Selected'],['reject','Reject Selected']]){const control=button(label+' ('+review.length+')',()=>decideSelectedResults(review,action),action==='accept'?'primary':'subtle');control.disabled=bulkDecisionBusy;controls.append(control);}
  controls.append(node('span',count+' selected · all matching tasks in this group','muted'));
  for(const control of controls.querySelectorAll('button'))control.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
  return controls;
@@ -369,12 +370,24 @@ function selectableTaskFile(asset,group){
 }
 async function beginBulkReview(rows){
  if(!prepareInspector())return;
- const batch=await api('review-batch/prepare',{library:libraryId,tasks:rows.map(t=>({id:t.id,version:t.version}))});
+ const batch=await api('review-batch/prepare',{...reviewRowsScope(rows),tasks:rows.map(t=>({id:t.id,version:t.version}))});
  batchPage=0;openBulkReview(batch);
+}
+function reviewRowsScope(rows){const libraries=new Set(rows.map(t=>t.library));return libraries.size===1?{library:rows[0].library}:{scope:'all'};}
+async function decideSelectedResults(rows,action){
+ if(bulkDecisionBusy||!rows.length||!prepareInspector())return;
+ const tasks=rows.map(t=>({id:t.id,version:t.version})),count=tasks.length;
+ const libraries=[...new Set(rows.map(t=>t.library))].map(id=>state.libraries.find(lib=>lib.id===id)?.title||id).join(', ');
+ if(action==='accept'&&!confirm('Accept & publish all '+count+' selected results from '+libraries+'? You may publish outputs you have not individually inspected and replace the library videos with unwanted results. Originals will be retained. Changed or failed tasks will be skipped.'))return;
+ bulkDecisionBusy=true;render();
+ try{
+  const batch=await api('review-batch/'+(action==='accept'?'accept-selected':'reject-selected'),{...reviewRowsScope(rows),tasks,count,...(action==='accept'?{confirmation:'PUBLISH SELECTED WITHOUT INDIVIDUAL REVIEW'}:{})});
+  for(const ref of tasks){selected.delete(ref.id);groupSelectionVersions.delete(ref.id);}await refresh();batchPage=0;openBulkReview(batch);
+ }finally{bulkDecisionBusy=false;render();}
 }
 async function showReviewBatches(){
  if(!libraryId||!prepareInspector())return;
- const result=await api('review-batches?'+new URLSearchParams({library:libraryId}));
+ const result=await api('review-batches?'+new URLSearchParams(screen==='processing'&&Array.isArray(state.global_queue)?{scope:'all'}:{library:libraryId}));
  inspectorMode='batch-list';openedTask=null;$('task-kind').textContent='BATCH REVIEWS';$('task-title').textContent='Saved review batches';$('task-reason').hidden=true;
  const detail=$('task-detail');detail.replaceChildren();$('task-buttons').replaceChildren();
  for(const batch of result.batches)detail.append(button(batch.count+' results · '+batch.phase+' · '+new Date(batch.created).toLocaleString(),async()=>{batchPage=0;openBulkReview(await api('review-batch?'+new URLSearchParams({id:batch.id})));},'subtle'));
@@ -392,7 +405,7 @@ function renderBulkReview(batch){
  $('task-kind').textContent='BATCH VIDEO REVIEW';$('task-title').textContent=batch.items.length+' selected results';$('task-reason').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  const status=node('p',batchSummary(batch),'muted');status.id='bulk-review-summary';detail.append(status);
- detail.append(node('p','Preparing comparisons does not publish. Review the selected results before confirming publication. Originals are retained beside published videos.','muted'));
+ detail.append(node('p',batch.automatic_publish?'Bulk acceptance confirmed. Comparisons and publication checks run before each installation; changed or failed tasks are skipped. Originals are retained.':batch.phase==='rejecting'?'Rejected results return to suggestions; their media and generated files are retained.':'Preparing comparisons does not publish. Review the selected results before confirming publication. Originals are retained beside published videos.','muted'));
  for(const item of items){
   const task=state.tasks.find(t=>t.id===item.id),card=node('section',undefined,'bulk-review-card');card.append(node('h3',task?.title||item.id),node('p',item.error||item.status,'muted'));
   if(item.status==='prepared'){
@@ -404,8 +417,8 @@ function renderBulkReview(batch){
  const previous=button('Previous',()=>{batchPage--;batchSignature='';renderBulkReview(currentReviewBatch);},'subtle');previous.disabled=!batchPage;
  const next=button('Next',()=>{batchPage++;batchSignature='';renderBulkReview(currentReviewBatch);},'subtle');next.disabled=batchPage+1>=pages;
  pager.append(previous,node('span','Page '+(batchPage+1)+' of '+pages),next);detail.append(pager);
- if(['preparing','publishing'].includes(batch.phase))actions.append(button('Stop after current file',async()=>{await api('review-batch/stop',{id:batch.id});toast('Stopping after the current file finishes.');},'subtle'));
- if(batch.phase==='ready'){
+ if(['preparing','publishing','rejecting'].includes(batch.phase))actions.append(button('Stop after current file',async()=>{await api('review-batch/stop',{id:batch.id});toast('Stopping after the current file finishes.');},'subtle'));
+ if(batch.phase==='ready'&&!batch.automatic_publish){
   const count=batch.items.filter(item=>item.status==='prepared').length;
   if(count)actions.append(button('Accept & publish '+count+' results',async()=>{
    if(!confirm('I reviewed these '+count+' prepared comparisons and approve publishing them, retaining every original as filename-old.ext. Changed or failed tasks will be skipped.'))return;
