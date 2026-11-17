@@ -18,6 +18,14 @@ FFmpeg and ffprobe are required for video analysis. The tools must be installed 
 
 Ollama analysis is optional. It expects a local server at `127.0.0.1:11434` and an installed vision model matching Settings. Missing analysis leaves frames available for manual review; it does not authorize metadata writes.
 
+## Topaz model downloads and writable cache
+
+Install/license Topaz and finish downloading the enhancement models before retrying an upscale. A successful GUI preview or export is useful evidence, but Curator's background worker has a separate environment.
+
+Curator reads model metadata from the installed Topaz bundle and uses `~/Library/Caches/Curator/Topaz` for writable model data and Core ML compilation. It creates the cache when needed and never changes application-bundle permissions. Explicit `TVAI_MODEL_DIR` and `TVAI_MODEL_DATA_DIR` environment overrides are preserved; the data directory must be writable by the service account.
+
+If downloads fail, inspect the actual Topaz download result and outbound VPN/filtering settings. A generic unauthenticated model-host HTTP 403 does not by itself establish a vendor outage. On Foundry, the operator reported NordVPN blocked downloads on November 16, 2026. After downloads, a synthetic Proteus 2× frame succeeded with the writable cache; representative real-file output validation remains a separate acceptance check.
+
 ## Blocked publication or interruption
 
 Wait for active work to finish before stopping or updating Curator. Interrupted jobs become blocked on restart. Inspect the task's phase, error, publication log, and retained paths before retrying. Do not manually edit the runtime database.

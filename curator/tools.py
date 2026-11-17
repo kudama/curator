@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
 import shutil
 import uuid
 from pathlib import Path
@@ -198,6 +199,8 @@ def processing_failure(log):
         with Path(log).open('rb') as stream:
             stream.seek(max(0, stream.seek(0, 2) - 32768))
             tail = stream.read().decode('utf-8', errors='replace').lower()
+        if 'coremlcache' in tail and any(message in tail for message in ('operation not permitted','permission denied')):
+            return 'Topaz cannot write its Core ML cache; choose a writable model data directory'
         if 'mlmodel error' in tail and 'model is not found' in tail:
             return 'Topaz Core ML model cache is unavailable; preview the same enhancement in Topaz, then retry'
         if 'model not found:' in tail:
@@ -213,11 +216,17 @@ def processing_environment(kind, settings):
     # Topaz GUI supplies these variables; a standalone local web app does not inherit them.
     env = os.environ.copy()
     bundled = Path(executable(settings, 'topaz')).parent.parent / 'Resources' / 'models'
-    models = Path(env.get('TVAI_MODEL_DIR') or bundled)
+    models = Path(env.get('TVAI_MODEL_DIR') or bundled).expanduser().resolve()
     if not models.is_dir():
         raise ValueError('Topaz model folder unavailable; verify the Topaz FFmpeg app path and installed models')
-    env.setdefault('TVAI_MODEL_DIR', str(models))
-    env.setdefault('TVAI_MODEL_DATA_DIR', str(models))
+    data = Path(env.get('TVAI_MODEL_DATA_DIR') or Path.home()/'Library'/'Caches'/'Curator'/'Topaz').expanduser().resolve()
+    try:
+        data.mkdir(mode=0o700,parents=True,exist_ok=True)
+        with tempfile.TemporaryFile(dir=data):pass
+    except OSError:
+        raise ValueError('Topaz model data directory is not writable; choose a writable cache location') from None
+    env['TVAI_MODEL_DIR'] = str(models)
+    env['TVAI_MODEL_DATA_DIR'] = str(data)
     return env
 
 
