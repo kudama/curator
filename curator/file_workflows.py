@@ -448,6 +448,9 @@ class FileWorkflows:
             raise ValueError('Rename failed at '+phase+': '+detail+(f' (errno {number})' if number else '')+'. '+('Some names need manual recovery; inspect the retained receipt.' if failures else 'Original filenames restored; inspect Plex before trying again.')) from None
 
     def restore_rename(self, key, version):
+        return self.queue_file_operation('restore_rename',{'task':key,'version':version})
+
+    def _restore_rename(self, key, version):
         with self.operation_lock(key):
             task=self.get_task(key)
             if task['kind']!='rename' or task['status']!='blocked' or task['version']!=version or not task.get('rename_started'):
