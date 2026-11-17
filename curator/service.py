@@ -28,6 +28,9 @@ from .queue_workflows import QueueWorkflows, SourceBusy
 from .task_queues import TaskQueues
 from .file_queue import FileQueueWorkflows
 from .review_sessions import ReviewSessions
+from .run_readiness import RunReadiness
+from .recovery import RecoveryWorkflows
+from .runs import RunSummaries
 
 
 def identifier(*values):
@@ -35,7 +38,7 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions):
+class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
@@ -48,6 +51,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         self.recover_backup_cleanups()
         self.recover_removed_queue_tasks()
         self.migrate_universal_queue()
+        self.recover_run_receipts()
         self.cancels = set()
         self.scan_status = {}
         self.presence_status = {}
@@ -100,7 +104,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         return dict(config=public, libraries=libraries, assets=self.store.all('assets'),
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=self.file_jobs(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=self.file_jobs(),processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
         with self.lock:active=tuple(self.active)
@@ -492,7 +496,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         if task['kind'] == 'inspect':
             raise ValueError('Resolve this inspection finding and rescan first')
         if task['kind'] in {'upscale', 'optimize'}:
-            task['tool_settings'] = self.config()
+            task['tool_settings'] = {**self.config(),**self.processing_defaults().get(task['library'],{}).get(task['kind'],{})}
             # Do not persist an unrelated Plex credential into processing plans.
             task['tool_settings'].pop('plex_token', None)
             if task['kind'] == 'optimize':
@@ -503,21 +507,24 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         if task['kind'] == 'metadata' and not task['plan'].get('changes'):
             raise ValueError('Preview/edit metadata changes before queueing')
         task.update(status='queued', approval=version, source=asset['fingerprint'],
-                    metadata_before=self.metadata_fields(asset['item']), error=None)
+                    metadata_before=self.metadata_fields(asset['item']), error=None,preflight_retry_count=0,retry_at=None)
         return task
 
     def _save(self, task, **values):
         task.update(values, updated=now())
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
+            if values.get('status') in {'awaiting_review','applied','blocked','failed','cancelled'}:self.refresh_run_receipts()
 
     def _execute(self, key, queue_head=False, queue_kind=None, queue_library=None, queue_wake=None):
         task = self.get_task(key)
+        side_effects_started=False;started=None
         try:
             with self.lock,self.store.transaction():
                 task = self.get_task(key)
                 if task['status'] != 'queued':
                     return
+                if (task.get('retry_at') or 0)>time.time():return 'retry_wait'
                 if queue_wake is not None:
                     workers=self.queue_workers.get(queue_kind,{})
                     if queue_wake not in workers or list(workers).index(queue_wake)>=self.queue_limit(queue_kind):return
@@ -536,8 +543,9 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 asset = self.asset(task,check=task['kind']!='mage_generation')
                 if task['kind']!='mage_generation' and asset['fingerprint'] != task.get('source'):
                     raise ValueError('Source changed since queue approval')
-                task.update(status='running', updated=now())
+                task.update(status='running', updated=now(),retry_at=None,error=None)
                 self.store.put('tasks', key, task)
+            side_effects_started=True;started=time.monotonic()
             if task['kind'] in FILE_KINDS:
                 if task['kind'] in {'rename','group'}:
                     try:self.queue_file_operation('file_task',{'task':task['id']})
@@ -567,8 +575,12 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 self._save(task, status='applied', result=result)
             else:
                 self._process(task, asset)
+            self._save(self.get_task(key),processing_seconds=time.monotonic()-started)
         except Exception as e:
+            if self.schedule_preflight_retry(task,e,side_effects_started):return 'retry_scheduled'
             reason = str(e) if isinstance(e, ValueError) else 'Operation failed; inspect configuration/output before retry'
+            if not side_effects_started and isinstance(e,OSError):
+                reason='Source access failed: '+(os.strerror(e.errno) if e.errno else 'read timeout')+('; automatic retries exhausted' if task.get('preflight_retry_count',0)>=2 else '')
             self._save(task, status='cancelled' if key in self.cancels else 'blocked', error=reason[:300])
 
     @staticmethod

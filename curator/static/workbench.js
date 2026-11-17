@@ -3,6 +3,7 @@
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
 let queueLibrary='all';
 let reviewKind='all',currentReviewSession=null,reviewAdvanceBusy=false;
+let runStartBusy=false,notificationBaseline=false;const notifiedRuns=new Set();
 function queueScope(){return Array.isArray(state.global_queue)?{scope:'all'}:{library:libraryId};}
 function queueMatchesLibrary(task){return !Array.isArray(state.global_queue)?task.library===libraryId:queueLibrary==='all'||task.library===queueLibrary;}
 let serviceRestarting=false,serviceStatus=null;
@@ -14,7 +15,7 @@ function updateServiceControls(){
  note.textContent=!serviceStatus.restart_available?'Restart is available when Curator runs as the managed service.':serviceBusy()?'Finish processing, publishing and library checks before restarting.':'Running on '+serviceStatus.hostname+(serviceStatus.startup==='boot'?'. Starts at boot after the startup disk is unlocked.':'. Starts after login.');
 }
 async function loadServiceStatus(){
- try{serviceStatus=await api('service/status');const build=serviceStatus.build,label=$('build-identity');if(label&&build){label.textContent='v'+build.version+' · '+(build.revision==='unknown'?'build unknown':build.revision.slice(0,8))+(build.dirty?' · modified':'');label.title='Running process started '+build.started_at+'; build '+build.revision;}updateServiceControls();updateFeatureControls();}
+ try{serviceStatus=await api('service/status');const build=serviceStatus.build,label=$('build-identity');if(label&&build){label.textContent='v'+build.version+' · '+(build.revision==='unknown'?'build unknown':build.revision.slice(0,8))+(build.dirty?' · modified':'');label.title='Running process started '+build.started_at+'; build '+build.revision;}updateServiceControls();updateFeatureControls();if(typeof render==='function')render();}
  catch(error){$('service-status').textContent='Service controls are unavailable in this running instance.';$('restart-curator').disabled=true;}
 }
 async function serviceFetch(path,options={}){
@@ -61,7 +62,7 @@ function prepareInspector(){
  if(inspectorDirty&&!confirm('Discard unsaved changes in the review panel?'))return false;
  inspectorDirty=false;overviewSignature='';return true;
 }
-function showInspector(){$('task-dialog').hidden=false;$('inspector-empty').hidden=true;$('task-title').tabIndex=-1;$('task-title').focus({preventScroll:true});}
+function showInspector(){$('task-dialog').hidden=false;$('inspector-empty').hidden=true;const body=$('task-dialog').querySelector('.task-scroll');if(body)body.scrollTop=0;$('task-title').tabIndex=-1;$('task-title').focus({preventScroll:true});}
 function closeInspector(force=false){if(!force&&!prepareInspector())return;inspectorDirty=false;openedTask=null;inspectorMode=null;$('task-dialog').hidden=true;$('inspector-empty').hidden=false;document.querySelector('.workbench').classList.remove('review-wide');$('inspector-expand').setAttribute('aria-label','Expand review panel');$('inspector-expand').title='Expand review panel';document.querySelector('.file-entry[aria-pressed="true"]')?.focus({preventScroll:true});}
 function fileName(asset){return (asset.plex_path||asset.local_path||'').split('/').pop()||asset.title;}
 function matchesSearch(asset){return !searchText||[fileName(asset),asset.title,asset.plex_path].join(' ').toLocaleLowerCase().includes(searchText);}
@@ -158,13 +159,13 @@ function processingTaskCard(task){
 
  if(task.status==='awaiting_review'&&['upscale','optimize'].includes(task.kind)){const check=node('input');check.type='checkbox';check.checked=selected.has(task.id);check.setAttribute('aria-label','Select '+(asset?fileName(asset):task.title));check.onchange=()=>{selectTaskRows([task],check.checked);render();};main.append(check);}
  main.append(thumbnail(asset||{}));const text=node('div',undefined,'processing-card-text');text.append(node('strong',asset?fileName(asset):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+(task.cancel_requested?'Cancelling…':taskStatusLabel(task.status)),'muted'));
- if(Array.isArray(state.global_queue))text.append(node('p',state.libraries.find(lib=>lib.id===task.library)?.title||task.library,'muted'));if(task.error)text.append(node('p',task.error,'task-error'));if(['running','publishing'].includes(task.status))text.append(progressView(task));
+ if(Array.isArray(state.global_queue))text.append(node('p',state.libraries.find(lib=>lib.id===task.library)?.title||task.library,'muted'));if(task.error)text.append(node('p',task.error,'task-error'));if(task.recovery_hint)text.append(node('p',task.recovery_hint,'muted'));if(['running','publishing'].includes(task.status))text.append(progressView(task));
  if(task.status==='awaiting_review'&&task.result?.size_bytes)text.append(node('p',formatBytes(task.source?.size??asset?.fingerprint?.size)+' → '+formatBytes(task.result.size_bytes),'muted'));
  main.append(text);const actions=node('div',undefined,'processing-card-actions');actions.append(button(task.status==='awaiting_review'?(['upscale','optimize','join'].includes(task.kind)?'Compare & publish':'Review suggestions'):['blocked','failed'].includes(task.status)?'Inspect':'Details',()=>openTask(task.id),task.status==='awaiting_review'?'primary':'subtle'),taskControls(task));main.append(actions);card.append(main);return card;
 }
 function renderProcessing(){
  const snapshot=waitingSnapshot(),positions=new Map(snapshot.map((r,i)=>[r.id,i])),byId=new Map(state.tasks.map(t=>[t.id,t])),typeCounts=new Map();taskQueuePositions=new Map();for(const row of snapshot){const kind=byId.get(row.id)?.kind,index=(typeCounts.get(kind)||0)+1;typeCounts.set(kind,index);taskQueuePositions.set(row.id,index);}
- const tasks=state.tasks.filter(t=>queueMatchesLibrary(t)&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status)&&(queueStatus==='all'||t.status===queueStatus)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));
+ const tasks=state.tasks.filter(t=>queueMatchesLibrary(t)&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status)&&(queueStatus==='all'||(queueStatus==='attention'?['failed','blocked'].includes(t.status):t.status===queueStatus))&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));
  const groups=[['Publishing',['publishing']],['Processing',['running']],['Waiting',['queued']],['Ready to publish / review',['awaiting_review']],['Needs attention',['failed','blocked']]];
  const sections=queueGrouping==='task'?[...new Set(tasks.map(t=>t.kind))].map(kind=>[TASK_LABELS[kind]||kind,null,kind]):groups;
  return [...fileOperationCards(),...cleanupJobCards(false),...sections.flatMap(([title,statuses,kind])=>{const rows=tasks.filter(t=>kind?t.kind===kind:statuses.includes(t.status));if(!rows.length)return [];const section=rememberGroup(node('details',undefined,'processing-group collapsible-group'),libraryId+':processing:'+title),heading=node('summary',undefined,'processing-group-heading');heading.append(node('h2',title+' ('+rows.length+')'));if(kind)heading.append(taskQueueControls(kind));const waiting=rows.filter(t=>t.status==='queued');if(waiting.length)heading.append(waitingGroupControls(waiting));const review=rows.filter(t=>t.status==='awaiting_review'&&['upscale','optimize'].includes(t.kind));if(review.length)heading.append(bulkTaskControls(review));section.append(heading,...rows.map(processingTaskCard));return [section];})];
@@ -264,12 +265,61 @@ function renderWaitingControls(){
  const enabled=featureAvailable('queue_order')&&!queueChangeBusy;
  if(featureAvailable('task_queues'))container.append(button('Pause all after current',()=>run(async()=>{await api('queue/pause',queueScope());await refresh();toast('Queues will pause after their current jobs finish.');}),'subtle'));
  if(Array.isArray(state.global_queue))container.append(button('Processing limits',showQueueLimits,'subtle'));
+ if(featureAvailable('unattended_runs')){
+  const failed=state.tasks.filter(t=>queueMatchesLibrary(t)&&safeFailedRetry(t));
+  const retry=button('Retry failed jobs ('+failed.length+')',()=>run(async()=>{retry.disabled=true;try{const result=await api('recovery/retry-failed',{tasks:failed.slice(0,5000).map(t=>({id:t.id,version:t.version}))});await refresh();toast(result.queued+' requeued; inspect other failures, then Run when ready.');}finally{retry.disabled=false;}}),'subtle');retry.disabled=!failed.length;container.append(retry);
+ }
  const add=(label,fn,disabled=false)=>{const control=button(label,()=>run(fn),'subtle');control.disabled=!enabled||disabled;container.append(control);};
  add(waitingSelection.size===visibleIds.length&&visibleIds.length?'Clear waiting selection':'Select all waiting ('+visibleIds.length+')',()=>{const clear=waitingSelection.size===visibleIds.length;waitingSelection.clear();if(!clear)for(const id of visibleIds)waitingSelection.add(id);render();},!visibleIds.length);
  for(const edge of ['top','bottom'])add('Move selected to '+edge,()=>changeWaitingQueue({order:moveWaitingOrder(ids,waitingSelection,edge)}),!waitingSelection.size);
  add('Remove selected ('+waitingSelection.size+')',()=>{const remove=ids.filter(id=>waitingSelection.has(id));if(confirm('Return '+remove.length+' waiting jobs to suggestions? Saved settings, media and outputs stay unchanged.'))return changeWaitingQueue({remove});},!waitingSelection.size);
  add('Empty waiting queue ('+ids.length+')'+(Array.isArray(state.global_queue)?' · all libraries':''),()=>{if(confirm('Return all '+ids.length+' waiting jobs '+(Array.isArray(state.global_queue)?'across all libraries':'in this library')+' to suggestions? Running jobs, media and outputs stay unchanged.'))return changeWaitingQueue({remove:ids});},!ids.length);
  if(!featureAvailable('queue_order'))container.append(node('span','Reordering becomes available after the idle backend update.','muted'));
+}
+function safeFailedRetry(task){return ['blocked','failed'].includes(task.status)&&['upscale','optimize','home','metadata'].includes(task.kind)&&!task.deleted&&!['output','published','publication_error','rename_started','file_move_pending','cleanup_pending','provider'].some(key=>task[key]);}
+async function showRunReadiness(){
+ if(runStartBusy||!prepareInspector())return;runStartBusy=true;
+ inspectorMode='run-readiness';openedTask=null;$('task-kind').textContent='UNATTENDED PROCESSING';$('task-title').textContent='Ready to leave running?';$('task-reason').hidden=true;
+ const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren(node('p','Checking queued sources, tools and storage…','muted'));actions.replaceChildren();showInspector();
+ try{
+  const snapshot=await api('run/readiness',queueScope());if(inspectorMode!=='run-readiness')return;
+  detail.replaceChildren(node('p',snapshot.waiting+' waiting · '+snapshot.running+' processing · '+snapshot.file_waiting+' file operations waiting'));
+  detail.append(node('p','Shared limits: '+Object.entries({upscale:1,optimize:1,file_operations:4,...snapshot.limits}).map(([kind,count])=>(kind==='file_operations'?'File copy / delete':TASK_LABELS[kind]||kind)+': '+count).join(' · '),'muted'));
+  detail.append(node('p',snapshot.processing_eta_seconds==null?'Processing estimate unavailable until comparable jobs have been measured.':'Approximate processing time: '+formatRunDuration(snapshot.processing_eta_seconds),'muted'),node('p',snapshot.estimate_note,'muted'));
+  for(const volume of snapshot.volumes)detail.append(node('p',volume.locations.join(' / ')+': '+formatBytes(volume.free_bytes)+' free · '+formatBytes(volume.estimated_extra_bytes)+' estimated extra'+(volume.unknown_jobs?' · '+volume.unknown_jobs+' output-size estimates unknown':'')+(volume.low_space?' · LOW SPACE':''),volume.low_space?'error':'muted'));
+  if(snapshot.issues.length){detail.append(node('h3',snapshot.issues.length+' jobs or locations need attention'));for(const issue of snapshot.issues.slice(0,20))detail.append(node('p',(issue.title?issue.title+': ':'')+issue.message,'error'));detail.append(node('p','Affected jobs are checked again and held if unavailable; unrelated eligible work can continue.','muted'));}
+  const start=button('Start unattended run',()=>run(async()=>{if(start.disabled)return;start.disabled=true;try{await api('run',queueScope());closeInspector(true);await refresh();toast('Run started with shared limits. Its summary remains in Queue.');}catch(error){start.disabled=false;throw error;}}),'primary');start.disabled=!snapshot.waiting&&!snapshot.file_waiting;actions.append(start);
+ }catch(error){if(inspectorMode==='run-readiness'){detail.replaceChildren(node('p','Could not check readiness: '+error.message,'error'));actions.append(button('Retry checks',()=>run(showRunReadiness),'subtle'));}}
+ finally{runStartBusy=false;}
+}
+function formatRunDuration(seconds){const minutes=Math.max(1,Math.round(seconds/60));return minutes<60?minutes+' min':Math.floor(minutes/60)+' hr '+minutes%60+' min';}
+function summaryText(summary){const labels={ready:'ready for review',published:'published',accepted:'accepted / publishing',completed:'completed',failed:'failed or blocked',remaining:'remaining',changed:'changed',cancelled:'cancelled',reset:'reset',deleted:'deleted'};return Object.entries(labels).filter(([key])=>summary.counts[key]).map(([key,label])=>summary.counts[key]+' '+label).join(' · ')||'No remaining work';}
+function renderRunSummaries(){
+ const container=$('run-summaries');if(!container)return;container.hidden=screen!=='processing'||!featureAvailable('unattended_runs');container.replaceChildren();
+ const summaries=state.run_summaries||[];
+ if(!container.hidden){
+  container.append(node('h2','Run summaries'),button('Enable browser notifications',()=>run(enableRunNotifications),'subtle'));
+  for(const summary of summaries.slice(0,5)){const row=node('section');row.append(node('strong',summary.title+' ('+summary.counts.total+' jobs) · '+summary.phase.replaceAll('_',' ')),node('p',summaryText(summary),'muted'));if(summary.counts.ready)row.append(button('Open review inbox',()=>{queueLibrary='all';setScreen('review');},'subtle'));if(summary.counts.failed||summary.counts.changed)row.append(button('Open needs attention',()=>{queueLibrary='all';queueStatus='attention';setScreen('processing');},'subtle'));container.append(row);}
+ }
+ if(Array.isArray(state.run_summaries))notifyRunChanges(summaries);
+}
+function notifyRunChanges(summaries){
+ if(!notificationBaseline){try{for(const id of JSON.parse(localStorage.getItem('curator.notified-runs')||'[]'))notifiedRuns.add(id);}catch(error){}for(const summary of summaries)if(['complete','needs_attention','interrupted'].includes(summary.phase))notifiedRuns.add(summary.id);notificationBaseline=true;return;}
+ for(const summary of summaries){
+  if(!['complete','needs_attention','interrupted'].includes(summary.phase)||notifiedRuns.has(summary.id))continue;
+  notifiedRuns.add(summary.id);
+  try{if(localStorage.getItem('curator.run-notifications')==='enabled'&&typeof Notification!=='undefined'&&Notification.permission==='granted'){
+   const otherWork=(state.tasks||[]).some(t=>['queued','running','publishing'].includes(t.status))||(state.file_jobs||[]).some(j=>['waiting','running'].includes(j.phase));
+   const notification=new Notification(summary.phase==='complete'?'Curator batch finished':'Curator needs attention',{body:summaryText(summary)+(otherWork?'. Processing or publication remains in Queue.':''),tag:summary.id});notification.onclick=()=>{window.focus();queueLibrary='all';setScreen(summary.counts.ready?'review':'processing');};
+  }}catch(error){}
+ }
+ try{localStorage.setItem('curator.notified-runs',JSON.stringify([...notifiedRuns].slice(-1000)));}catch(error){}
+}
+async function enableRunNotifications(){
+ if(typeof Notification==='undefined'||!window.isSecureContext){toast('Browser notifications are unavailable here. Durable summaries remain in Queue.');return;}
+ const permission=await Notification.requestPermission();
+ try{localStorage.setItem('curator.run-notifications',permission==='granted'?'enabled':'disabled');}catch(error){}
+ toast(permission==='granted'?'Run notifications enabled while this browser is open.':'Notifications were not enabled. Run summaries remain in Queue.');
 }
 function renderHistory(){
  return [...cleanupJobCards(true),...state.tasks.filter(t=>t.library===libraryId&&historyStatusMatches(t)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+taskStatusLabel(task.status)+' · '+new Date(task.updated||task.created).toLocaleString(),'muted'));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
@@ -286,7 +336,7 @@ function taskQueueControls(kind){
  start.disabled=!info?.waiting||info?.busy_elsewhere||Boolean(info?.active&&!info?.paused);
  const pause=button(info?.paused?(info.active?'Pausing after current…':'Paused'):'Pause after current',async()=>{await api('queue/pause',{...queueScope(),kind});await refresh();},'subtle');pause.disabled=!info||info.paused;
  if(info?.limit)box.append(node('span',info.running+' running · limit '+info.limit,'muted'));
- box.append(start,pause);if(info?.waiting_for_source)box.append(node('span','Waiting for another job on this file','muted'));
+ box.append(start,pause);if(info?.waiting_for_retry)box.append(node('span','Waiting for temporary file-access retry','muted'));if(info?.waiting_for_source)box.append(node('span','Waiting for another job on this file','muted'));
  for(const control of box.querySelectorAll('button'))control.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();});return box;
 }
 function showQueueLimits(){
@@ -303,10 +353,12 @@ function renderWorkbench(){
  const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.hidden=screen!=='library';cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
  const batchControl=$('review-batches');if(batchControl){batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
  $('libraries').replaceChildren(...state.libraries.map(lib=>button(lib.title,()=>chooseLibrary(lib.id),lib.id===libraryId?'selected':'')));
- const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=!['processing','review'].includes(screen)||!Array.isArray(state.global_queue);queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
+ const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=!['processing','review'].includes(screen)||!Array.isArray(state.global_queue);const signature=JSON.stringify(state.libraries.map(lib=>[lib.id,lib.title]));if(queueFilter.dataset.libraries!==signature){queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}queueFilter.dataset.libraries=signature;}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
  document.querySelectorAll('[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===screen));
+ const searchLabel=screen==='library'?'Search files in this library':screen==='review'?'Search review results':screen==='processing'?'Search queued jobs':'Search history';$('file-search').setAttribute('aria-label',searchLabel);$('file-search').placeholder=searchLabel;
+ renderRunSummaries();
  const lib=current(),assets=libraryFiles(),tasks=state.tasks.filter(t=>['processing','review'].includes(screen)?queueMatchesLibrary(t):t.library===libraryId),running=tasks.filter(t=>t.status==='running'),publishing=tasks.filter(t=>t.status==='publishing'),waiting=tasks.filter(t=>t.status==='queued'),ready=tasks.filter(t=>t.status==='awaiting_review');
- $('library-title').textContent=screen==='library'?(lib?.title||'Your library'):screen==='processing'?'Queue':screen==='review'?'Ready for review':'History';$('library-type').textContent=screen==='library'?(lib?.profile==='home'?'HOME MOVIES':'TV & MOVIES'):(lib?.title||'WORKSPACE');
+ $('library-title').textContent=screen==='library'?(lib?.title||'Your library'):screen==='processing'?'Queue':screen==='review'?'Ready for review':'History';$('library-type').textContent=screen==='library'?(lib?.profile==='home'?'HOME MOVIES':'TV & MOVIES'):['processing','review'].includes(screen)&&Array.isArray(state.global_queue)?(queueLibrary==='all'?'ALL LIBRARIES':state.libraries.find(row=>row.id===queueLibrary)?.title||'ALL LIBRARIES'):(lib?.title||'WORKSPACE');
  $('library-note').textContent=screen==='library'?'Review what needs attention, one file at a time.':screen==='review'?'Compare processed results across libraries, then accept, reject or skip.':screen==='processing'?running.length+' processing · '+publishing.length+' publishing · '+waiting.length+' waiting · '+ready.length+' ready to review':'Completed, cancelled and resolved work. Media files stay in your library.';
  $('asset-count').textContent=assets.length;$('attention-count').textContent=assets.filter(a=>attentionTasks(a).length).length;$('completed-count').textContent=assets.filter(movieCompleted).length;
  $('finding-count').textContent=tasks.filter(t=>t.status==='recommendation').length;$('queue-count').textContent=running.length+waiting.length;$('review-count').textContent=ready.length;$('nav-processing-count').textContent=running.length+publishing.length+waiting.length+ready.length+(state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&j.phase==='deleting').length||'';
@@ -379,7 +431,7 @@ function bulkTaskControls(rows){
  const select=button(count===rows.length?'Clear selection ('+count+')':'Select all '+rows.length,()=>{selectTaskRows(rows,count!==rows.length);render();},'subtle');select.disabled=Boolean(groupQueueProgress);controls.append(select);
  const chosen=rows.filter(t=>selected.has(t.id)),needsPreset=chosen.filter(t=>t.kind==='optimize'&&canQueueWithSettings(t,{handbrake_preset:'pending-choice'}));
  const queueable=chosen.filter(canQueue);
- if(chosen.length){const candidates=needsPreset.length?needsPreset:queueable,action=button('Queue selected ('+candidates.length+')'+(needsPreset.length?'…':''),()=>run(()=>needsPreset.length?chooseBulkEncodingPreset(needsPreset):queueTaskRows(queueable)),'primary');action.disabled=Boolean(groupQueueProgress)||!candidates.length;controls.append(action);}
+ if(chosen.some(t=>t.status!=='awaiting_review')){const candidates=needsPreset.length?needsPreset:queueable,action=button('Queue selected ('+candidates.length+')'+(needsPreset.length?'…':''),()=>run(()=>needsPreset.length?chooseBulkEncodingPreset(needsPreset):queueTaskRows(queueable)),'primary');action.disabled=Boolean(groupQueueProgress)||!candidates.length;controls.append(action);}
  const emptyMetadata=chosen.filter(t=>t.kind==='metadata'&&!Object.keys(t.plan?.changes||{}).length);if(emptyMetadata.length)controls.append(node('span',emptyMetadata.length+' need metadata edits before they can be queued. Open a file to edit, or use Edit folder to apply shared changes.','muted'));
  if(groupQueueProgress?.library===libraryId){const progress=node('span',queueProgressText(),'muted');progress.setAttribute('data-group-queue-status','');progress.setAttribute('role','status');controls.append(progress);}
  const review=reviewableRows(rows);if(review.length){const action=button('Review selected ('+review.length+')'+(featureAvailable('bulk_review')?'':' · Update pending'),()=>beginBulkReview(review),'primary');action.disabled=!featureAvailable('bulk_review');controls.append(action);}
@@ -396,23 +448,27 @@ async function chooseBulkEncodingPreset(rows){
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  detail.append(node('p','Choose one installed HandBrake preset for these selected tasks. They will wait in Queue; this does not start processing.','muted'));
  const label=node('label','Encoding preset'),select=node('select'),note=node('p','Loading installed presets…','muted');label.append(select);detail.append(label,note);
- const queue=button('Queue '+snapshot.length+' selected encodes',()=>run(async()=>{if(!select.value)return;queue.disabled=true;await queueTaskRows(snapshot,{handbrake_preset:select.value});closeInspector(true);}),'primary');queue.disabled=true;actions.append(queue);showInspector();
+ const remember=node('input');remember.type='checkbox';remember.checked=featureAvailable('unattended_runs');if(featureAvailable('unattended_runs')){const saved=node('label',undefined,'checkbox-label');saved.append(remember,document.createTextNode(' Remember preset for these libraries'));detail.append(saved);}
+ const queue=button('Queue '+snapshot.length+' selected encodes',()=>run(async()=>{if(!select.value)return;queue.disabled=true;await queueTaskRows(snapshot,{handbrake_preset:select.value,remember_preset:remember.checked});closeInspector(true);}),'primary');queue.disabled=true;actions.append(queue);showInspector();
  try{const result=await api('handbrake/presets');if(!result.available)throw Error(result.error||'HandBrakeCLI is unavailable');
   const empty=node('option','Choose an installed preset');empty.value='';select.append(empty);
   for(const preset of result.presets){const option=node('option',(preset.group?preset.group+' / ':'')+preset.name);option.value=preset.path;select.append(option);}
-  select.onchange=()=>{queue.disabled=!select.value;const preset=result.presets.find(p=>p.path===select.value);note.textContent=preset?.description||'Select a preset to queue the selected encodes.';};note.textContent='Select a preset to queue the selected encodes.';
+  const saved=[...new Set(snapshot.map(t=>state.processing_defaults?.[t.library]?.optimize?.handbrake_preset).filter(Boolean))],preferred=saved.length===1?saved[0]:state.config?.handbrake_preset;
+  const match=result.presets.find(p=>p.path===preferred)||(result.presets.filter(p=>p.name===preferred).length===1?result.presets.find(p=>p.name===preferred):null);if(match)select.value=match.path;
+  select.onchange=()=>{queue.disabled=!select.value;const preset=result.presets.find(p=>p.path===select.value);note.textContent=preset?.description||'Select a preset to queue the selected encodes.';};select.onchange();
  }catch(error){note.textContent=error.message;}
 }
 async function queueTaskRows(rows,settings={}){
  if(groupQueueProgress)return;
- const snapshot=rows.map(t=>({id:t.id,version:t.version})),targetLibrary=libraryId;let queued=0;const failures=[];
+ const snapshot=rows.map(t=>({id:t.id,version:t.version})),targetLibrary=libraryId;let queued=0;const failures=[],queuedLibraries=new Set();
  groupQueueProgress={library:targetLibrary,completed:0,total:snapshot.length};render();
  try{for(const ref of snapshot){
   const task=state.tasks.find(t=>t.id===ref.id);
   if(!task||task.version!==ref.version||!canQueueWithSettings(task,settings))failures.push(ref.id+': task changed or is unavailable');
-  else try{await api('task/action',{...ref,action:'queue',...(task.kind==='optimize'?settings:{})});selected.delete(ref.id);groupSelectionVersions.delete(ref.id);queued++;}catch(error){failures.push((task.title||ref.id)+': '+error.message);}
+  else try{await api('task/action',{...ref,action:'queue',...(task.kind==='optimize'&&settings.handbrake_preset?{handbrake_preset:settings.handbrake_preset}:{})});selected.delete(ref.id);groupSelectionVersions.delete(ref.id);queued++;queuedLibraries.add(task.library);}catch(error){failures.push((task.title||ref.id)+': '+error.message);}
   groupQueueProgress.completed++;document.querySelectorAll('[data-group-queue-status]').forEach(el=>{el.textContent=queueProgressText();});
- }}finally{groupQueueProgress=null;await refresh();}
+ }if(settings.remember_preset&&settings.handbrake_preset)for(const library of queuedLibraries){try{await api('processing-defaults',{library,kind:'optimize',values:{handbrake_preset:settings.handbrake_preset}});}catch(error){failures.push('Queued, but a library preset could not be remembered');}}
+ }finally{groupQueueProgress=null;await refresh();}
  toast(queued+' queued'+(failures.length?' · '+failures.length+' failed: '+failures.slice(0,3).join('; '):' · Open Queue to start them.'),Boolean(failures.length));
  if(queued)document.getElementById('toast').append(button('View queue',()=>{if(targetLibrary!==libraryId&&chooseLibrary(targetLibrary)===false)return;setScreen('processing');},'subtle'));
 }

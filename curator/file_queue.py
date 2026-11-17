@@ -79,7 +79,8 @@ class FileQueueWorkflows:
                         task=self.get_task(job['payload']['task'])
                         if task['status']=='publishing':self._save(task,status='blocked',error=job['error'])
                 with self.lock:
-                    with self.store.transaction():self.store.put('settings',job['id'],job)
+                    with self.store.transaction():
+                        self.store.put('settings',job['id'],job);self.refresh_run_receipts()
                     if not any(j['phase']=='waiting' for j in self.file_jobs()):
                         self._release_file_worker(wake);return
         finally:

@@ -80,7 +80,7 @@ function portraitVideo(asset){
  const rotation=Number((video.side_data_list||[]).find(r=>r.rotation!==undefined)?.rotation??video.tags?.rotate??0);
  if(Math.abs(rotation)%180===90)[width,height]=[height,width];return height>width;
 }
-function canQueue(t){return taskAvailable(t)&&!catalogIndex().byId.get(t.asset)?.availability_error&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','folder_metadata','artwork','mage_generation','portrait'].includes(t.kind)&&(t.kind!=='metadata'||Object.keys(t.plan.changes||{}).length>0)&&(t.kind!=='optimize'||Boolean(t.plan.handbrake_preset))&&(t.kind!=='upscale'||Boolean(state.config.topaz_filter))&&!catalogIndex().byId.get(t.asset)?.blocked;}
+function canQueue(t){return taskAvailable(t)&&!catalogIndex().byId.get(t.asset)?.availability_error&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','folder_metadata','artwork','mage_generation','portrait'].includes(t.kind)&&(t.kind!=='metadata'||Object.keys(t.plan.changes||{}).length>0)&&(t.kind!=='optimize'||Boolean(t.plan.handbrake_preset))&&(t.kind!=='upscale'||Boolean((state.processing_defaults?.[t.library]?.upscale?.topaz_filter??state.config.topaz_filter)))&&!catalogIndex().byId.get(t.asset)?.blocked;}
 function selectionVisible(){return ['all','recommendation'].includes(filter)||$('library-tools').open;}
 function renderSelection(){
  const rows=visible(),chosen=rows.filter(t=>selected.has(t.id)),eligible=chosen.filter(canQueue);
@@ -265,7 +265,7 @@ async function openLibrarySettings(){
 }
 $('library-form').onsubmit=e=>{e.preventDefault();run(async()=>{const form=e.target;const mappings=[...$('mapping-rows').querySelectorAll('.mapping-row')].map(row=>({plex_root:row.querySelector('[name="plex_root"]').value,local_root:localPath(row.querySelector('[name="local_root"]').value)})).filter(x=>x.local_root);await api('library',{id:libraryId,settings:{profile:form.elements.profile.value,mappings,themes:form.elements.themes.value.split(',').map(x=>x.trim()).filter(Boolean)}});$('library-dialog').close();await refresh();toast('Library settings saved');});};
 $('scan').onclick=()=>run(async()=>{await api('scan',{library:libraryId});toast('Library scan started');await refresh();});
-$('run').onclick=()=>run(async()=>{await api('run',queueScope());await refresh();toast('Task queues started with shared processing limits.');});
+$('run').onclick=()=>run(async()=>{if(featureAvailable('unattended_runs'))return showRunReadiness();await api('run',queueScope());await refresh();toast('Task queues started with shared processing limits.');});
 $('filters').onclick=e=>{const tab=e.target.closest('[data-view]');if(tab){libraryView=tab.dataset.view;filter=libraryView==='completed'?'completed':'all';selected.clear();render();}};
 $('group-by').onchange=e=>{activeGrouping=e.target.value;render();};
 $('queue-status').onchange=e=>{queueStatus=e.target.value;selected.clear();render();};
@@ -277,7 +277,7 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{const dialog
 $('playlist').onclick=()=>run(async()=>{if(!libraryId)throw Error('Select and scan a library first');const main=prompt('Main show title, exactly as shown in Plex',"RuPaul's Drag Race");if(!main)return;const companion=prompt('Companion show title',"RuPaul's Drag Race: Untucked!");if(!companion)return;const offset=prompt('Companion season minus main-show season (adjust for Untucked numbering)','0');if(offset===null)return;const title=prompt('Playlist title',main+' + '+companion);if(!title)return;const task=await api('playlist/preview',{library:libraryId,title,main_show:main,companion_show:companion,offset:Number(offset)});await refresh();await openTask(task.id);});
 $('mcu').onclick=()=>run(async()=>{if(!libraryId)throw Error('Select a library first');const a=node('a');a.href='/api/kometa?'+new URLSearchParams({library:libraryId,mode:'mcu'});a.download='curator-mcu.yml';a.click();toast('MCU definition exported; verify movie/TV library names during Kometa setup');});
 async function taskAction(t,action,settings={}){
- const result=await api('task/action',{id:t.id,version:t.version,action,...settings});selected.delete(t.id);await refresh();const advance=openedTask===t.id;closeInspector(true);
+ const result=await api('task/action',{id:t.id,version:t.version,action,...settings});if(action==='queue'&&t.kind==='optimize'&&settings.remember_preset){try{await api('processing-defaults',{library:t.library,kind:'optimize',values:{handbrake_preset:settings.handbrake_preset}});}catch(error){toast('Queued, but the library default could not be remembered.',true);}}selected.delete(t.id);await refresh();const advance=openedTask===t.id;closeInspector(true);
  if(action==='delete'){toast('Task deleted. Media files and retained outputs are kept.');$('toast').append(button('Undo',()=>taskAction(result,'restore_task'),'subtle'));}
  else if(action==='remove_queue')toast('Removed from queue.');
  else if(action==='cancel')toast(t.status==='running'?'Cancellation requested…':'Task cancelled.');
@@ -304,7 +304,7 @@ function recommendation(t,asset){
   title=TASK_LABELS[t.kind];description=t.evidence.note||t.reason;next=t.kind==='join'?'Approve and queue to create a separate joined output. Review every boundary before publishing.':'Approve and queue this reviewed operation, then run the library queue.';
  }else if(t.kind==='upscale'){
   title='Upscale with Topaz';description=t.evidence?.optional?`Optional Topaz processing for this ${resolution} source. The selected filter controls the output dimensions. Topaz also re-encodes the video; compare quality and file size before publishing.`:`This source is ${resolution}, below your 1080p target. Create a 1080p-or-better version while preserving its aspect ratio, then compare it with the original.`;
-  next=state.config.topaz_filter?'Approve and queue the upscale, then run this library’s queue. Review the comparison before publishing.':'Configure a Topaz upscale filter in Settings, then approve and queue this task.';
+  next=(state.processing_defaults?.[t.library]?.upscale?.topaz_filter??state.config.topaz_filter)?'Approve and queue the upscale, then run this library’s queue. Review the comparison before publishing.':'Configure a Topaz upscale filter in Settings, then approve and queue this task.';
  }else if(t.kind==='optimize'){
   title='Optimize the encoding with HandBrake';description=`Review this ${resolution} ${media.codec||'video'} encoding${mbps?' at '+mbps:''}. Its bitrate exceeds your review threshold; a more efficient encode may reduce its size.`;
   next=t.plan.handbrake_preset?`Task preset: ${t.plan.handbrake_preset}. Approve and queue this encode, then review the output.`:'Choose an installed preset below, then Approve & queue to save the choice and queue this task. Actual savings and quality must be checked on the output.';
@@ -332,7 +332,9 @@ async function openTask(id,workspace='metadata'){
  if(['artwork','mage_generation','portrait'].includes(t.kind))return openArtworkTask(t);
  if(asset&&['metadata','home'].includes(t.kind))return openFileEditor(t,asset,workspace);
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
+ const processedReview=t.status==='awaiting_review'&&['upscale','optimize'].includes(t.kind);if(processedReview)$('task-reason').hidden=true;
  let processingSelector=null,prepareComparison=null;
+ if(t.kind==='upscale'&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&featureAvailable('unattended_runs')){const saved=state.processing_defaults?.[t.library]?.upscale;detail.append(node('p',saved?'Uses remembered upscale settings for this library.':'Uses workspace upscale settings.','muted'),button(saved?'Use current workspace settings for this library':'Remember current upscale settings for this library',()=>run(async()=>{const values=Object.fromEntries(['topaz_filter','topaz_rate_control','topaz_quality','topaz_bitrate_mbps'].filter(key=>state.config[key]!==undefined).map(key=>[key,state.config[key]]));await api('processing-defaults',{library:t.library,kind:'upscale',values});await refresh();await openTask(t.id);}), 'subtle'));}
  detail.append(recommendation(t,asset),progressView(t));
  if(['upscale','optimize','join'].includes(t.kind)&&t.result?.size_bytes!==undefined)detail.append(sizeComparison(t.kind==='join'?{...t,source:{size:t.evidence.total_bytes}}:t,asset));
  if(['rename','join','group'].includes(t.kind))renderFilePlan(detail,t);
@@ -354,12 +356,12 @@ async function openTask(id,workspace='metadata'){
     if(!data.available)throw Error(data.error||'HandBrakeCLI is unavailable');
     options=data.presets;select.replaceChildren();const empty=node('option','Choose an installed preset');empty.value='';select.append(empty);
     const groups=new Map();for(const preset of options){const key=preset.group||'Custom';if(!groups.has(key)){const group=node('optgroup');group.label=key;groups.set(key,group);select.append(group);}const option=node('option',preset.name);option.value=preset.path;groups.get(key).append(option);}
-    const preferred=t.plan.handbrake_preset||state.config.handbrake_preset;const selected=options.find(x=>x.path===preferred)||(options.filter(x=>x.name===preferred).length===1?options.find(x=>x.name===preferred):null);
+    const preferred=t.plan.handbrake_preset||state.processing_defaults?.[t.library]?.optimize?.handbrake_preset||state.config.handbrake_preset;const selected=options.find(x=>x.path===preferred)||(options.filter(x=>x.name===preferred).length===1?options.find(x=>x.name===preferred):null);
     select.value=selected?.path||'';select.disabled=!['recommendation','failed','blocked','cancelled'].includes(t.status);
     status.textContent=`${options.length} presets found · ${data.executable}`+(data.warning?' · '+data.warning:'');updateChoice();
    }catch(error){select.replaceChildren();status.textContent=error.message==='Not found'?'Restart Curator to enable task preset discovery.':error.message;description.textContent='The HandBrake application and HandBrakeCLI are separate. Configure the CLI path in Settings if needed.';}
   };
-  const controls=node('div',undefined,'cover-prompt-actions');controls.append(button('Refresh preset list',load));detail.append(label,status,description,controls);load();
+  const controls=node('div',undefined,'cover-prompt-actions');controls.append(button('Refresh preset list',load));detail.append(label,status,description,controls);if(featureAvailable('unattended_runs')){const rememberLabel=node('label',undefined,'checkbox-label'),remember=node('input');remember.type='checkbox';remember.checked=true;rememberLabel.append(remember,document.createTextNode(' Remember preset for this library'));detail.append(rememberLabel);processingSelector.remember=()=>remember.checked;}load();
  }
  if(t.kind==='playlist'){detail.append(node('h3','Proposed order'),jsonBlock(t.evidence));}
  if(t.provenance)detail.append(node('p','Evidence: '+t.provenance.join(' · '),'muted'));
@@ -371,7 +373,7 @@ async function openTask(id,workspace='metadata'){
  if(t.kind==='join'&&['blocked','awaiting_review'].includes(t.status)&&t.output&&!t.validation?.length)actions.append(button('Refresh metadata preview',async()=>{await api('task/action',{id:t.id,version:t.version,action:'refresh_join_metadata'});await refresh();closeInspector(true);await openTask(t.id);},'subtle'));
  if(t.kind==='join'&&t.status==='blocked'&&t.output&&!t.validation?.length)actions.append(button(t.published?'Resume Plex verification':'Return joined output to review',async()=>{await api('task/action',{id:t.id,version:t.version,action:'resume_join'});await refresh();closeInspector(true);await openTask(t.id);},'primary'));
  if(!(t.kind==='rename'&&t.rename_started)&&!(t.kind==='join'&&t.output)&&!resumable&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','metadata'].includes(t.kind)){
-  const approve=button(t.kind==='home'?'Queue local AI analysis':'Approve & queue',()=>taskAction(t,'queue',processingSelector?{handbrake_preset:processingSelector.value()}:{}),'primary');
+  const approve=button(t.kind==='home'?'Queue local AI analysis':'Approve & queue',()=>taskAction(t,'queue',processingSelector?{handbrake_preset:processingSelector.value(),remember_preset:processingSelector.remember?.()}:{}),'primary');
   if(processingSelector){processingSelector.updateQueue=()=>{approve.disabled=!processingSelector.ready;};processingSelector.updateQueue();}actions.append(approve);
  }
  if(t.status==='awaiting_review'){
@@ -390,17 +392,17 @@ async function openTask(id,workspace='metadata'){
      const grid=node('div',undefined,'comparison'),ready=[];
      for(const side of ['source','output']){const column=node('div');column.append(node('h3',side==='source'?'Original':'Processed'));for(let n=0;n<4;n++){const img=node('img');img.alt=side+' sample '+(n+1);ready.push(new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('A comparison image could not be loaded.'));}));img.src='/api/comparison/'+encodeURIComponent(t.id)+'/'+side+'/'+n+'.jpg';column.append(img);}grid.append(column);}
      images.append(grid);await Promise.race([Promise.all(ready),new Promise((resolve,reject)=>{imageTimer=setTimeout(()=>reject(Error('Comparison images timed out; retry when the connection is ready.')),30000);})]);if(!current())return;
-     t.comparison_loaded=true;status.textContent='Original and processed output';if(publishButton)publishButton.disabled=false;
+     t.comparison_loaded=true;status.textContent=t.source?.size!=null&&t.result?.size_bytes!=null?'Original → Processed · '+formatBytes(t.source.size)+' → '+formatBytes(t.result.size_bytes):'Original and processed output';if(publishButton)publishButton.disabled=false;
     }catch(error){if(current()){status.textContent='Comparison unavailable: '+error.message;retry.hidden=false;}}
     finally{clearTimeout(imageTimer);loading=false;}
    };
-   const retry=button('Retry comparison',prepareComparison,'subtle');retry.hidden=true;comparison.append(status,images,retry);detail.append(comparison);
+   const retry=button('Retry comparison',prepareComparison,'subtle');retry.hidden=true;comparison.append(status,images,retry);detail.prepend(comparison);
   }
   actions.append(button('Reject result',()=>taskAction(t,'reject')));
   if(t.kind!=='home'){detail.append(node('p',t.kind==='join'?'Publication adds a new file and Plex item. All source parts stay in place.':'Publication keeps the original beside the video as filename-old.extension. Existing backups are never overwritten.','muted'));const publish=button('Accept & publish',async()=>{if(publishing||publish.disabled)return;if(t.kind==='join'&&!confirm('I reviewed the parts and approve adding the joined file; retain every original part.'))return;const current=state.tasks.find(task=>task.id===t.id);if(!current||current.version!==reviewVersion||current.status!=='awaiting_review')throw Error('Task changed; reopen it before publishing.');publishing=true;for(const control of actions.querySelectorAll('button'))control.disabled=true;publish.textContent='Publishing…';try{await api('task/review',{id:t.id,version:reviewVersion});await refresh();const advance=openedTask===t.id;if(advance)closeInspector(true);toast('Publishing started. Track copying and verification under Publishing in Queue.');if(typeof afterReviewDecision==='function')await afterReviewDecision(t.id,'accepted',advance);}catch(error){await refresh();if(openedTask===t.id){closeInspector(true);await openTask(t.id);}throw error;}},'primary');publishButton=publish;publish.disabled=['upscale','optimize','join'].includes(t.kind)&&!t.comparison_loaded;actions.append(publish);}
  }
  if(needsQuickTimeRepair(t))actions.append(button('Fix QuickTime playback',async()=>{const result=await api('task/action',{id:t.id,version:t.version,action:'repair_quicktime'});await refresh();toast(result.quicktime_repair_warning||'QuickTime container repaired without re-encoding',Boolean(result.quicktime_repair_warning));},'primary'));
- actions.append(taskControls(t,true));
+ if(!processedReview)actions.append(taskControls(t,true));
  if(typeof decorateContinuousReview==='function')decorateContinuousReview(t,actions);
  showInspector();
  if(prepareComparison)await prepareComparison();

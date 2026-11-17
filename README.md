@@ -16,8 +16,9 @@ Curator started as a tool for my own Plex library and home-movie workflow, so it
 - Searchable Collections, Tags / genres, and Labels from the selected Plex library; draft new names inline. Smart collections are read-only.
 - Folder metadata previews, fill/merge/replace modes, shared artwork/cast, and reusable folder defaults.
 - Multiple Plex storage roots with independent mappings to Mac-mounted folders.
-- HandBrake encoding and optional Topaz upscaling, progress and approximate encode ETA, cancellation, and durable task history.
-- Separate Processing, Review, and Publishing stages; output comparison before replacement.
+- Shared queues across libraries, per-type concurrency, safe pause, and a four-job copy/delete limit.
+- HandBrake encoding and optional Topaz upscaling, remembered defaults, unattended-run readiness, progress/estimates, recovery guidance, and durable summaries.
+- Separate Processing, Review, and Publishing stages; automatic comparisons, continuous review with saved position, and selected-result accept/reject actions.
 - Multipart video joins with reviewed ordering, chapter markers, and metadata choices; reviewed file renaming.
 - Local home-movie analysis through optional Ollama, manual artwork prompts/import, playlist ordering, and Kometa definition export.
 
@@ -41,8 +42,8 @@ Curator opens at http://127.0.0.1:8790. The default is a local application. Opti
 1. In **Settings**, enter your Plex server root URL (for example, `http://plex-server:32400`) and token. Use a server you administer. Plex documents [how to find your token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). Use the direct server URL; redirects are refused to protect the token.
 2. Refresh libraries and select one. In **Library settings**, map every Plex media location to its corresponding mounted Mac folder.
 3. Choose the commercial or home-movie profile. Scan the library to analyze files.
-4. Review proposals in the workbench. Save metadata explicitly, or approve selected processing tasks and run them from **Processing**.
-5. Compare processed output, then **Accept & publish**. Copying, verification, and Plex refresh appear under **Publishing**.
+4. Review proposals in the workbench. Save metadata explicitly, or approve selected processing tasks. In **Queue**, choose **Run all libraries**, review readiness and start the run.
+5. Open **Ready for review**. Comparisons load automatically; **Accept & publish** queues publication and continuous review advances to the next result. Copying, verification, and Plex refresh remain visible in Queue. Bulk acceptance warns before publishing selected results without individual inspection; rejection resets eligible jobs to suggestions.
 
 For example, a Plex root `/srv/media/Home Movies` might map to `/Volumes/Media/Home Movies`. These are examples, not required paths. Library browsing and metadata editing do not require all video tools; probing and processing require configured executables.
 
@@ -90,6 +91,8 @@ Node is only used for optional developer syntax checks. Tests use synthetic data
 For optional service use after login on a separate Mac, see [Foundry single-host deployment](docs/foundry-deployment.md). The default local installation is unchanged.
 
 See [troubleshooting and recovery](docs/troubleshooting.md), [architecture](docs/architecture.md), [validation](docs/validation.md), [release review](docs/release-readiness.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Report reproducible bugs in [GitHub Issues](https://github.com/kudama/curator/issues), using synthetic media and sanitized details.
+
+Workflow details: [shared task queues](docs/task-queues.md), [file operations](docs/file-operation-queue.md), [continuous review](docs/continuous-review.md), and [unattended runs](docs/unattended-runs.md).
 
 MIT licensed. Curator is independent of Plex, HandBrake, Topaz, Ollama, Mage, and Kometa.
 

@@ -274,6 +274,12 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.pause_queues(None if data.get('scope')=='all' else data['library'],data.get('kind'))
             elif path == '/api/queue/limits':
                 result=service.set_queue_limits(data['limits'])
+            elif path == '/api/processing-defaults':
+                result=service.save_processing_defaults(data['library'],data['kind'],data['values'])
+            elif path == '/api/run/readiness':
+                result=service.run_readiness(None if data.get('scope')=='all' else data['library'])
+            elif path == '/api/recovery/retry-failed':
+                result=service.retry_failed_results(data['tasks'])
             elif path == '/api/task/edit':
                 result = service.edit_task(data['id'], data['plan'], data['version'])
             elif path == '/api/artwork/candidates':
