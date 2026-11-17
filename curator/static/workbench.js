@@ -187,7 +187,7 @@ function dropWaitingOrder(ids,id,target){
 async function changeWaitingQueue(change){
  if(queueChangeBusy)return;
  const expected=waitingSnapshot().map(r=>({...r}));queueChangeBusy=true;render();
- try{await api('queue/change',{library:libraryId,expected,...change});waitingSelection.clear();}
+ try{await api('queue/change',{library:libraryId,expected,...change});waitingSelection.clear();if(change.remove)toast(change.remove.length+' returned to suggestions. Saved settings are retained.');}
  finally{queueChangeBusy=false;await refresh();}
 }
 function renderWaitingControls(){
@@ -197,8 +197,8 @@ function renderWaitingControls(){
  const add=(label,fn,disabled=false)=>{const control=button(label,()=>run(fn),'subtle');control.disabled=!enabled||disabled;container.append(control);};
  add(waitingSelection.size===ids.length&&ids.length?'Clear waiting selection':'Select all waiting ('+ids.length+')',()=>{const clear=waitingSelection.size===ids.length;waitingSelection.clear();if(!clear)for(const id of ids)waitingSelection.add(id);render();},!ids.length);
  for(const edge of ['top','bottom'])add('Move selected to '+edge,()=>changeWaitingQueue({order:moveWaitingOrder(ids,waitingSelection,edge)}),!waitingSelection.size);
- add('Remove selected ('+waitingSelection.size+')',()=>{const remove=ids.filter(id=>waitingSelection.has(id));if(confirm('Remove '+remove.length+' waiting jobs from the queue? Media and outputs stay unchanged.'))return changeWaitingQueue({remove});},!waitingSelection.size);
- add('Empty waiting queue ('+ids.length+')',()=>{if(confirm('Remove all '+ids.length+' waiting jobs in this library? Running jobs, media and outputs stay unchanged.'))return changeWaitingQueue({remove:ids});},!ids.length);
+ add('Remove selected ('+waitingSelection.size+')',()=>{const remove=ids.filter(id=>waitingSelection.has(id));if(confirm('Return '+remove.length+' waiting jobs to suggestions? Saved settings, media and outputs stay unchanged.'))return changeWaitingQueue({remove});},!waitingSelection.size);
+ add('Empty waiting queue ('+ids.length+')',()=>{if(confirm('Return all '+ids.length+' waiting jobs in this library to suggestions? Running jobs, media and outputs stay unchanged.'))return changeWaitingQueue({remove:ids});},!ids.length);
  if(!featureAvailable('queue_order'))container.append(node('span','Reordering becomes available after the idle backend update.','muted'));
 }
 function renderHistory(){

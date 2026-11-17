@@ -72,6 +72,11 @@ class Store:
     def event(self, task, data):
         self.db.execute('INSERT INTO events(at,task,data) VALUES(?,?,?)', (now(), task, json.dumps(data)))
 
+    def latest_task_actions(self):
+        with self.lock:
+            rows=self.db.execute('SELECT task,data FROM events WHERE id IN (SELECT MAX(id) FROM events GROUP BY task)').fetchall()
+        return {key:json.loads(data).get('action') for key,data in rows}
+
     def publication_log(self, task):
         with self.lock:
             rows=self.db.execute('SELECT at,data FROM events WHERE task=? ORDER BY id DESC LIMIT 200',(str(task),)).fetchall()

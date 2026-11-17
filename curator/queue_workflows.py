@@ -3,6 +3,21 @@ from .store import now
 
 
 class QueueWorkflows:
+    def recover_removed_queue_tasks(self):
+        marker='queue-removal-suggestions-v1'
+        with self.store.transaction():
+            if self.store.get('settings',marker):return 0
+            actions=self.store.latest_task_actions();count=0
+            for task in self.store.all('tasks'):
+                if task.get('deleted') or task['status']!='cancelled' or actions.get(task['id']) not in {'remove_queue','remove from waiting queue'}:continue
+                task.update(status='recommendation',version=task['version']+1,updated=now(),error=None)
+                task.pop('approval',None)
+                self.store.put('tasks',task['id'],task)
+                self.store.event(task['id'],dict(action='removed queue task returned to suggestions'))
+                count+=1
+            self.store.put('settings',marker,dict(recovered=count,updated=now()))
+        return count
+
     def waiting_tasks(self, library, tasks=None):
         rows=[t for t in (self.store.all('tasks') if tasks is None else tasks)
               if t['library']==library and t['status']=='queued' and not t.get('deleted')]
@@ -33,7 +48,7 @@ class QueueWorkflows:
                 removed=set(remove);result=[key for key in ids if key not in removed]
                 for task in waiting:
                     if task['id'] not in removed:continue
-                    task.update(status='cancelled',version=task['version']+1,updated=now())
+                    task.update(status='recommendation',version=task['version']+1,updated=now(),error=None)
                     task.pop('approval',None)
                     self.store.put('tasks',task['id'],task)
                     self.store.event(task['id'],dict(action='remove from waiting queue'))

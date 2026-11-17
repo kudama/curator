@@ -39,6 +39,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         self.active = set()
         self.recover_review_batches()
         self.recover_backup_cleanups()
+        self.recover_removed_queue_tasks()
         self.cancels = set()
         self.scan_status = {}
         self.presence_status = {}
@@ -403,7 +404,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 task.pop('approval',None)
             elif action == 'remove_queue':
                 if task['status']!='queued':raise ValueError('This task is no longer waiting in the queue; refresh first')
-                task.update(status='cancelled',version=version+1)
+                task.update(status='recommendation',version=version+1,error=None)
                 task.pop('approval',None)
                 self.cancels.discard(key)
             elif action == 'resume_join':
