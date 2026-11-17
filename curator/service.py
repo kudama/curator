@@ -89,7 +89,10 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         return dict(config=public, libraries=self.store.all('libraries'), assets=self.store.all('assets'),
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in self.store.all('tasks') if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=bool(self.active))
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in self.store.all('tasks') if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs())
+
+    def queue_running(self):
+        return any(not str(key).startswith(('backup-cleanup:','review-batch:')) for key in self.active)
 
     def connect(self):
         rows = self.client().libraries()
@@ -488,7 +491,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
     def start(self, library):
         self.library(library)
         with self.lock:
-            if self.active:
+            if self.queue_running():
                 raise ValueError('Another queue is running; wait or cancel it first')
             self.active.add(library)
         threading.Thread(target=self._run, args=(library,), daemon=True).start()

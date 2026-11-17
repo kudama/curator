@@ -1,4 +1,5 @@
 from pathlib import Path
+import errno
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,7 +19,7 @@ class BackupCleanup(unittest.TestCase):
                        source_hash=tools.digest(self.backup),output_hash=tools.digest(self.source))
         with self.store.transaction():
             self.store.put('libraries','library',dict(id='library',mappings=[dict(plex_root='/media',local_root=str(self.media))]))
-            self.store.put('assets','asset',dict(id='asset',library='library',local_path=str(self.source),plex_path='/media/movie.mp4',title='Synthetic movie'))
+            self.store.put('assets','asset',dict(id='asset',library='library',local_path=str(self.source),plex_path='/media/movie.mp4',rating_key='one',title='Synthetic movie'))
             self.store.put('tasks','task',self.task)
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def preview(self):return self.service.cleanup_preview('library')
@@ -28,12 +29,47 @@ class BackupCleanup(unittest.TestCase):
         self.assertTrue(self.backup.exists())
         with self.assertRaises(ValueError):self.service.delete_backups(preview['id'],['task'],1,'yes',background=False)
         self.assertTrue(self.backup.exists());self.assertEqual(self.source.read_bytes(),b'processed video')
+
+    def test_cleanup_is_visible_without_claiming_the_video_queue(self):
+        preview=self.preview();self.assertEqual(self.service.cleanup_jobs(),[])
+        preview.update(phase='deleting',selected=['task'],current={'title':'Synthetic movie','phase':'Verifying'})
+        with self.store.transaction():self.store.put('settings',preview['id'],preview)
+        self.service.active.add(preview['id'])
+        self.assertFalse(self.service.queue_running())
+        with patch('curator.service.threading.Thread') as worker:
+            self.service.start('library');worker.return_value.start.assert_called_once()
+        self.assertTrue(self.service.queue_running())
+        job=self.service.cleanup_jobs()[0]
+        self.assertEqual((job['total'],job['completed'],job['current']['title']),(1,0,'Synthetic movie'))
+        self.assertNotIn('items',job)
+
+    def test_cleanup_reserves_same_source_but_allows_unrelated_source(self):
+        task=dict(self.task,cleanup_in_progress=True)
+        with self.store.transaction():self.store.put('tasks','task',task)
+        with self.assertRaises(ValueError):self.service.check_busy_sources(dict(id='other',asset='asset'))
+        with self.store.transaction():self.store.put('assets','unrelated',dict(id='unrelated',library='library',local_path=str(self.media/'other.mp4'),rating_key='two'))
+        self.service.check_busy_sources(dict(id='other',asset='unrelated'))
     def test_deletes_only_receipt_backed_original_and_audits_outcome(self):
         unrelated=self.media/'other-old.mp4';unrelated.write_bytes(b'keep')
         result=self.delete(self.preview());self.assertEqual(result['items'][0]['status'],'deleted')
         self.assertFalse(self.backup.exists());self.assertTrue(unrelated.exists());self.assertEqual(self.source.read_bytes(),b'processed video')
         task=self.service.get_task('task');self.assertTrue(task['archive_deleted']);self.assertIsNone(task['cleanup_pending'])
         with self.assertRaises(ValueError):self.delete(result)
+
+    def test_nas_without_exclusive_rename_uses_verified_recovery_copy(self):
+        with patch('curator.backup_cleanup.exclusive_move',side_effect=OSError(errno.ENOTSUP,'Not supported')):
+            result=self.delete(self.preview())
+        self.assertEqual(result['items'][0]['status'],'deleted')
+        self.assertFalse(self.backup.exists());self.assertEqual(self.source.read_bytes(),b'processed video')
+        self.assertFalse(list(self.media.glob('.curator-cleanup-*')))
+
+    def test_nas_recovery_copy_failure_keeps_original_and_staging(self):
+        with patch('curator.backup_cleanup.exclusive_move',side_effect=OSError(errno.ENOTSUP,'Not supported')),patch('curator.backup_cleanup.shutil.copyfileobj',side_effect=OSError('Copy interrupted')):
+            result=self.delete(self.preview())
+        self.assertEqual(result['items'][0]['status'],'failed')
+        self.assertEqual(self.backup.read_bytes(),b'original video')
+        self.assertEqual(self.source.read_bytes(),b'processed video')
+        self.assertTrue(self.service.get_task('task')['cleanup_pending'])
     def test_changed_source_or_backup_is_preserved(self):
         for which in ('source','backup'):
             with self.subTest(which=which):

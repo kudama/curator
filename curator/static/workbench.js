@@ -2,7 +2,7 @@
 // Navigation and presentation only. Editors continue to use the existing approved workflows.
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
 let serviceRestarting=false,serviceStatus=null;
-function serviceBusy(){return Boolean(state.queue_running||(state.tasks||[]).some(t=>['running','publishing'].includes(t.status))||Object.values(state.scans||{}).some(s=>s.running)||Object.values(state.presence||{}).some(s=>s.running));}
+function serviceBusy(){return Boolean(state.queue_running||(state.cleanup_jobs||[]).some(j=>j.phase==='deleting')||(state.tasks||[]).some(t=>['running','publishing'].includes(t.status))||Object.values(state.scans||{}).some(s=>s.running)||Object.values(state.presence||{}).some(s=>s.running));}
 function updateServiceControls(){
  const control=$('restart-curator'),note=$('service-status');if(!control||!note)return;
  control.disabled=serviceRestarting||!serviceStatus?.restart_available||serviceBusy();
@@ -146,14 +146,23 @@ function processingTaskCard(task){
 function renderProcessing(){
  const tasks=state.tasks.filter(t=>t.library===libraryId&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status)&&(queueStatus==='all'||t.status===queueStatus)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText)));
  const groups=[['Publishing',['publishing']],['Processing',['running']],['Waiting',['queued']],['Ready to publish / review',['awaiting_review']],['Needs attention',['failed','blocked']]];
- return groups.flatMap(([title,statuses])=>{const rows=tasks.filter(t=>statuses.includes(t.status));if(!rows.length)return [];const section=rememberGroup(node('details',undefined,'processing-group collapsible-group'),libraryId+':processing:'+title),heading=node('summary',undefined,'processing-group-heading');heading.append(node('h2',title+' ('+rows.length+')'));if(statuses.includes('awaiting_review'))heading.append(bulkTaskControls(rows.filter(t=>['upscale','optimize'].includes(t.kind))));section.append(heading,...rows.map(processingTaskCard));return [section];});
+ return [...cleanupJobCards(false),...groups.flatMap(([title,statuses])=>{const rows=tasks.filter(t=>statuses.includes(t.status));if(!rows.length)return [];const section=rememberGroup(node('details',undefined,'processing-group collapsible-group'),libraryId+':processing:'+title),heading=node('summary',undefined,'processing-group-heading');heading.append(node('h2',title+' ('+rows.length+')'));if(statuses.includes('awaiting_review'))heading.append(bulkTaskControls(rows.filter(t=>['upscale','optimize'].includes(t.kind))));section.append(heading,...rows.map(processingTaskCard));return [section];})];
+}
+function cleanupJobCards(history){
+ return (state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&(history?j.phase==='complete':j.phase!=='complete')).map(job=>{
+  const card=node('article',undefined,'processing-card'),text=node('div',undefined,'processing-card-text');
+  text.append(node('strong','Clean up originals'),node('p',(job.phase==='deleting'?'Processing':job.phase==='complete'?(job.failed?'Finished with failures':'Completed'):'Interrupted')+' · '+job.completed+' of '+job.total+' checked · '+job.deleted+' deleted · '+job.failed+' failed','muted'));
+  if(job.phase==='deleting'&&job.current)text.append(node('p',job.current.phase+' · '+job.current.title,'muted'));
+  const progress=node('progress');progress.max=job.total||1;progress.value=job.completed;text.append(progress);
+  card.append(text,button('Details',async()=>{if(!prepareInspector())return;openBackupCleanup(await api('cleanup?'+new URLSearchParams({id:job.id})));},'subtle'));return card;
+ });
 }
 function renderHistory(){
- return state.tasks.filter(t=>t.library===libraryId&&HISTORY_TASK_STATES.has(t.status)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+taskStatusLabel(task.status)+' · '+new Date(task.updated||task.created).toLocaleString(),'muted'));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;});
+ return [...cleanupJobCards(true),...state.tasks.filter(t=>t.library===libraryId&&HISTORY_TASK_STATES.has(t.status)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+taskStatusLabel(task.status)+' · '+new Date(task.updated||task.created).toLocaleString(),'muted'));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
 }
 function renderWorkbench(){
  if(typeof pruneGroupSelection==='function')pruneGroupSelection();
- const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
+ const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.hidden=screen!=='library';cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
  const batchControl=$('review-batches');if(batchControl){batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
  $('libraries').replaceChildren(...state.libraries.map(lib=>button(lib.title,()=>chooseLibrary(lib.id),lib.id===libraryId?'selected':'')));
  document.querySelectorAll('[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===screen));
@@ -161,14 +170,14 @@ function renderWorkbench(){
  $('library-title').textContent=screen==='library'?(lib?.title||'Your library'):screen==='processing'?'Queue':'History';$('library-type').textContent=screen==='library'?(lib?.profile==='home'?'HOME MOVIES':'TV & MOVIES'):(lib?.title||'WORKSPACE');
  $('library-note').textContent=screen==='library'?'Review what needs attention, one file at a time.':screen==='processing'?running.length+' processing · '+publishing.length+' publishing · '+waiting.length+' waiting · '+ready.length+' ready to review':'Completed, cancelled and resolved work. Media files stay in your library.';
  $('asset-count').textContent=assets.length;$('attention-count').textContent=assets.filter(a=>attentionTasks(a).length).length;$('completed-count').textContent=assets.filter(movieCompleted).length;
- $('finding-count').textContent=tasks.filter(t=>t.status==='recommendation').length;$('queue-count').textContent=running.length+waiting.length;$('review-count').textContent=ready.length;$('nav-processing-count').textContent=running.length+publishing.length+waiting.length+ready.length||'';
+ $('finding-count').textContent=tasks.filter(t=>t.status==='recommendation').length;$('queue-count').textContent=running.length+waiting.length;$('review-count').textContent=ready.length;$('nav-processing-count').textContent=running.length+publishing.length+waiting.length+ready.length+(state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&j.phase==='deleting').length||'';
  $('filters').hidden=screen!=='library';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===libraryView));
  $('group-by-control').hidden=screen!=='library';$('group-by').value=activeGrouping;$('folder-choice-label').hidden=screen!=='library';$('queue-status-control').hidden=screen!=='processing';$('queue-status').value=queueStatus;$('run').hidden=screen!=='processing';$('run').disabled=!lib||!waiting.length||Boolean(state.queue_running);$('run').textContent=state.queue_running?'Queue running…':'Run queue';$('scan').hidden=screen!=='library';$('library-settings').hidden=screen!=='library';$('scan').disabled=!lib;$('library-settings').disabled=!lib;
  const folders=(state.folders||[]).filter(f=>f.library===libraryId),chooser=$('folder-choice'),folderSignature=JSON.stringify(folders.map(f=>[f.id,f.path,f.count,f.mapped]));if(chooser.dataset.signature!==folderSignature){chooser.dataset.signature=folderSignature;chooser.replaceChildren(node('option','Folder metadata…'));chooser.options[0].value='';for(const folder of folders){const option=node('option',folderLabel(folder)+' ('+folder.count+')'+(folder.mapped===false?' · Mac path needed':''));option.value=folder.id;chooser.append(option);}}chooser.disabled=!folders.length;
  $('library-tools').hidden=screen!=='library';renderSelection();
  const scan=state.scans?.[libraryId];$('scan-status').textContent=scan?.running?'Scanning · '+scan.count+' files'+(scan.skipped_reserved?' · '+scan.skipped_reserved+' reserved files skipped':''):scan?.error||'';
  const content=screen==='processing'?renderProcessing():screen==='history'?renderHistory():renderFileList(workspaceFiles());$('tasks').replaceChildren(...content);$('collapse-folders').hidden=screen!=='library'||activeGrouping!=='folder';$('collapse-folders').disabled=!content.some(group=>group.matches('details.file-group'));$('empty').hidden=content.length>0;$('empty').querySelector('h2').textContent=screen==='processing'?'The queue is empty.':screen==='history'?'No history yet.':searchText?'No matching files.':libraryView==='attention'?'No files need attention.':libraryView==='completed'?'No completed files yet.':'No scanned files yet.';$('empty').querySelector('p').textContent=screen==='library'?'Choose another view, search your library, or scan for new files.':'Browse your library to choose the next task.';
- const globalRunning=state.tasks.filter(t=>t.status==='running'),globalPublishing=state.tasks.filter(t=>t.status==='publishing'),globalWaiting=state.tasks.filter(t=>t.status==='queued'),globalReady=state.tasks.filter(t=>t.status==='awaiting_review'),target=globalPublishing[0]||globalRunning[0]||globalWaiting[0]||globalReady[0];const strip=$('processing-strip');strip.hidden=screen==='processing';strip.replaceChildren();strip.append(node('span',globalRunning.length||globalPublishing.length||globalWaiting.length?'● '+globalRunning.length+' processing · '+globalPublishing.length+' publishing · '+globalWaiting.length+' waiting':'● No active processing'));if(globalPublishing[0]||globalRunning[0])strip.append(progressView(globalPublishing[0]||globalRunning[0]));if(target)strip.append(button('View queue',()=>{if(target.library!==libraryId&&chooseLibrary(target.library)===false)return;setScreen('processing');},'subtle'));
+ const globalRunning=state.tasks.filter(t=>t.status==='running'),globalPublishing=state.tasks.filter(t=>t.status==='publishing'),globalWaiting=state.tasks.filter(t=>t.status==='queued'),globalReady=state.tasks.filter(t=>t.status==='awaiting_review'),target=globalPublishing[0]||globalRunning[0]||globalWaiting[0]||globalReady[0];const activeCleanups=(state.cleanup_jobs||[]).filter(j=>j.phase==='deleting');const strip=$('processing-strip');strip.hidden=screen==='processing';strip.replaceChildren();strip.append(node('span',globalRunning.length||globalPublishing.length||globalWaiting.length?'● '+globalRunning.length+' processing · '+globalPublishing.length+' publishing · '+globalWaiting.length+' waiting':'● No active processing'));if(globalPublishing[0]||globalRunning[0])strip.append(progressView(globalPublishing[0]||globalRunning[0]));if(activeCleanups.length){strip.append(node('span',activeCleanups.length+' cleanup running'));if(!target)strip.append(button('View queue',()=>{if(activeCleanups[0].library!==libraryId&&chooseLibrary(activeCleanups[0].library)===false)return;setScreen('processing');},'subtle'));}if(target)strip.append(button('View queue',()=>{if(target.library!==libraryId&&chooseLibrary(target.library)===false)return;setScreen('processing');},'subtle'));
  document.querySelectorAll('[data-progress-task]').forEach(box=>{const task=state.tasks.find(t=>t.id===box.dataset.progressTask);if(task)updateProgressView(box,task);});
  if(inspectorMode==='overview'&&selectedAssetId&&inspectorOpen()){const a=catalogIndex().byId.get(selectedAssetId),signature=a?JSON.stringify([a.item,a.blocked,fileTasks(a).map(t=>[t.id,t.status,t.version,t.error])]):'';if(signature!==overviewSignature&&a)renderAssetOverview(a,signature);}
  if(fileRowCache.size>10000)fileRowCache.clear();
@@ -228,10 +237,18 @@ function reviewableRows(rows){return rows.filter(t=>selected.has(t.id)&&t.status
 function bulkTaskControls(rows){
  const controls=node('div',undefined,'bulk-group-actions'),count=rows.filter(t=>selected.has(t.id)).length;if(!rows.length){controls.hidden=true;return controls;}
  controls.append(button(count===rows.length?'Clear selection ('+count+')':'Select all '+rows.length,()=>{selectTaskRows(rows,count!==rows.length);render();},'subtle'));
+ const queueable=rows.filter(t=>selected.has(t.id)&&canQueue(t));if(queueable.length)controls.append(button('Queue selected ('+queueable.length+')',()=>run(()=>queueTaskRows(queueable)),'primary'));
  const review=reviewableRows(rows);if(review.length){const action=button('Review selected ('+review.length+')'+(featureAvailable('bulk_review')?'':' · Update pending'),()=>beginBulkReview(review),'primary');action.disabled=!featureAvailable('bulk_review');controls.append(action);}
  controls.append(node('span',count+' selected · all matching tasks in this group','muted'));
  for(const control of controls.querySelectorAll('button'))control.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
  return controls;
+}
+async function queueTaskRows(rows){
+ const snapshot=rows.map(t=>({id:t.id,version:t.version}));let queued=0,failed=0;
+ for(const ref of snapshot){const task=state.tasks.find(t=>t.id===ref.id);if(!task||task.version!==ref.version||!canQueue(task)){failed++;continue;}
+  try{await api('task/action',{...ref,action:'queue'});selected.delete(ref.id);groupSelectionVersions.delete(ref.id);queued++;}catch(error){failed++;}
+ }
+ await refresh();toast(queued+' queued'+(failed?' · '+failed+' could not be queued; inspect remaining selections':''),Boolean(failed));
 }
 function selectableTaskFile(asset,group){
  const rows=attentionTasks(asset).filter(t=>t.kind===group.id&&!t.deleted),wrapper=node('div',undefined,'bulk-file-row');
@@ -308,7 +325,9 @@ function renderBackupCleanup(){
  const receipt=currentCleanup,detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  const selectedRows=receipt.items.filter(row=>cleanupSelected.has(row.id)),bytes=selectedRows.reduce((sum,row)=>sum+row.bytes,0);
  detail.append(node('p','Only originals recorded by completed, verified publications are offered. Files are reverified before deletion. This permanently removes selected backups; the published videos stay in place.','muted'));
- detail.append(node('p',receipt.phase+' · '+receipt.items.filter(row=>row.status==='deleted').length+' deleted · '+receipt.items.filter(row=>row.status==='failed').length+' failed','muted'));
+ const failed=receipt.items.filter(row=>row.status==='failed').length;
+ detail.append(node('p',(receipt.phase==='complete'&&failed?'Finished with failures':receipt.phase)+' · '+receipt.items.filter(row=>row.status==='deleted').length+' deleted · '+failed+' failed','muted'));
+ if(receipt.phase==='deleting'&&receipt.current)detail.append(node('p',receipt.current.phase+' · '+receipt.current.title,'muted'));
  if(receipt.phase==='preview'){
   detail.append(button(cleanupSelected.size===receipt.items.length?'Clear selection':'Select all '+receipt.items.length,()=>{const clear=cleanupSelected.size===receipt.items.length;cleanupSelected.clear();if(!clear)for(const row of receipt.items)cleanupSelected.add(row.id);renderBackupCleanup();},'subtle'));
  }
