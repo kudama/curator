@@ -124,6 +124,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/api/service/status':
                 return self.reply(self.server.runtime.status())
+            if path == '/api/review-session':
+                query=parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.review_session(query['id'][0]))
             if path == '/api/library/metadata-choices':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.library_metadata_choices(query['library'][0], query['field'][0]))
@@ -317,6 +320,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
             elif path == '/api/review-batch/prepare':
                 result=service.prepare_review_batch(None if data.get('scope')=='all' else data['library'],data['tasks'])
+            elif path == '/api/review-session/open':
+                result=service.open_review_session(data.get('id'),data.get('library'),data.get('kind'),data.get('tasks'))
+            elif path == '/api/review-session/step':
+                result=service.step_review_session(data['id'],data['version'],data['task'],data['decision'])
             elif path == '/api/review-batch/accept-selected':
                 result=service.accept_selected_results(None if data.get('scope')=='all' else data['library'],data['tasks'],data['count'],data['confirmation'])
             elif path == '/api/review-batch/reject-selected':

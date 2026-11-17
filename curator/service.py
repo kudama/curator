@@ -27,6 +27,7 @@ from .backup_cleanup import BackupCleanupWorkflows
 from .queue_workflows import QueueWorkflows, SourceBusy
 from .task_queues import TaskQueues
 from .file_queue import FileQueueWorkflows
+from .review_sessions import ReviewSessions
 
 
 def identifier(*values):
@@ -34,7 +35,7 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows):
+class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
