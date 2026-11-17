@@ -3,9 +3,11 @@ from pathlib import Path
 import stat
 import threading
 import uuid
+import os
+import shutil
 from . import tools
 from .paths import map_path
-from .file_workflows import exclusive_move
+from .file_workflows import exclusive_move, UNSUPPORTED_MOVE
 from .store import now
 
 
@@ -16,6 +18,19 @@ def file_identity(path):
 
 
 class BackupCleanupWorkflows:
+    def cleanup_jobs(self):
+        records=[r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record_type')=='backup_cleanup' and r.get('phase')!='preview']
+        active=[r for r in records if r.get('phase')=='deleting']
+        recent=sorted((r for r in records if r.get('phase')!='deleting'),key=lambda r:r['created'],reverse=True)[:30]
+        jobs=[]
+        for record in active+recent:
+            rows=[r for r in record['items'] if r['id'] in record.get('selected',[])]
+            deleted=sum(r['status']=='deleted' for r in rows);failed=sum(r['status']=='failed' for r in rows)
+            jobs.append(dict(id=record['id'],library=record['library'],phase=record['phase'],created=record['created'],
+                updated=record.get('updated',record['created']),total=len(rows),completed=deleted+failed,
+                deleted=deleted,failed=failed,current=record.get('current')))
+        return jobs
+
     def recover_backup_cleanups(self):
         with self.store.transaction():
             for record in self.store.all('settings'):
@@ -85,12 +100,15 @@ class BackupCleanupWorkflows:
             record=self.cleanup_receipt(identity)
             for row in record['items']:
                 if row['id'] not in record['selected']:continue
+                record['current']=dict(title=row['title'],phase='Verifying original and replacement')
+                with self.store.transaction():self.store.put('settings',identity,record)
                 try:self._delete_one_backup(row,identity);row['status']='deleted'
                 except Exception as error:
-                    row.update(status='failed',error=str(error)[:300] if isinstance(error,ValueError) else 'Cleanup failed; retained files require inspection')
+                    message=str(error)[:300] if isinstance(error,ValueError) else ('Filesystem error '+str(error.errno)+': '+str(error.strerror) if isinstance(error,OSError) else 'Cleanup failed; retained files require inspection')
+                    row.update(status='failed',error=message)
                 with self.store.transaction():
                     record['updated']=now();self.store.put('settings',identity,record)
-            record.update(phase='complete',updated=now())
+            record.update(phase='complete',current=None,updated=now())
             with self.store.transaction():self.store.put('settings',identity,record)
         except Exception:
             with self.store.transaction():
@@ -114,12 +132,25 @@ class BackupCleanupWorkflows:
                     raise ValueError('Original or published replacement changed; backup preserved')
                 if file_identity(source)!=row['source_identity'] or file_identity(backup)!=row['backup_identity']:
                     raise ValueError('File changed during verification; backup preserved')
-                exclusive_move(backup,stage)
+                copied=False
+                try:exclusive_move(backup,stage)
+                except OSError as error:
+                    if error.errno not in UNSUPPORTED_MOVE:raise
+                    # SMB may not support either no-overwrite rename or hard links.
+                    # Keep the original until an exclusive recovery copy is verified.
+                    with backup.open('rb') as original,stage.open('xb') as recovery:
+                        shutil.copyfileobj(original,recovery,1024*1024)
+                        recovery.flush();os.fsync(recovery.fileno())
+                    copied=True
                 if tools.digest(stage)!=task['source_hash'] or tools.digest(source)!=task['output_hash']:
                     raise ValueError('Files changed during cleanup; retained original requires recovery')
                 staged=file_identity(stage)
-                if file_identity(source)!=row['source_identity'] or staged!=row['backup_identity']:
+                if file_identity(source)!=row['source_identity'] or (not copied and staged!=row['backup_identity']):
                     raise ValueError('File identity changed; retained original requires recovery')
+                if copied:
+                    if file_identity(backup)!=row['backup_identity'] or tools.digest(backup)!=task['source_hash']:
+                        raise ValueError('Original changed during recovery copy; both files preserved')
+                    backup.unlink()
                 stage.unlink()
                 with self.store.transaction():
                     latest=self.get_task(task['id']);latest.update(archive_deleted=True,cleanup_in_progress=False,cleanup_pending=None,
@@ -147,7 +178,19 @@ class BackupCleanupWorkflows:
             if stage.exists() or stage.is_symlink():
                 file_identity(stage)
                 if tools.digest(stage)!=task['source_hash']:raise ValueError('Staged original changed; inspect it before recovery')
-                exclusive_move(stage,original)
+                if original.exists() or original.is_symlink():
+                    file_identity(original)
+                    if tools.digest(original)!=task['source_hash']:raise FileExistsError('Original path contains a different file; both files preserved')
+                    stage.unlink()  # A verified recovery copy whose original was never removed.
+                else:
+                    try:exclusive_move(stage,original)
+                    except OSError as error:
+                        if error.errno not in UNSUPPORTED_MOVE:raise
+                        with stage.open('rb') as recovery,original.open('xb') as output:
+                            shutil.copyfileobj(recovery,output,1024*1024)
+                            output.flush();os.fsync(output.fileno())
+                        if tools.digest(original)!=task['source_hash']:raise ValueError('Recovery copy did not verify; staging retained')
+                        stage.unlink()
             elif not original.is_file() or original.is_symlink():
                 raise ValueError('Retained original unavailable; inspect cleanup receipt before recovery')
             if tools.digest(original)!=task['source_hash']:raise ValueError('Restored original differs from its receipt')

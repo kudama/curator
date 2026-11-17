@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import subprocess
 
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 
 
 def capture_build(root=None):
