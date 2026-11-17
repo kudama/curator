@@ -24,12 +24,8 @@ from .mage import Mage
 from .artwork import ArtworkWorkflows
 from .bulk_review import BulkReviewWorkflows
 from .backup_cleanup import BackupCleanupWorkflows
-from .queue_workflows import QueueWorkflows
+from .queue_workflows import QueueWorkflows, SourceBusy
 from .task_queues import TaskQueues
-
-
-class SourceBusy(ValueError):
-    pass
 
 
 def identifier(*values):
@@ -46,6 +42,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         self.recover_review_batches()
         self.recover_backup_cleanups()
         self.recover_removed_queue_tasks()
+        self.migrate_universal_queue()
         self.cancels = set()
         self.scan_status = {}
         self.presence_status = {}
@@ -98,7 +95,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         return dict(config=public, libraries=libraries, assets=self.store.all('assets'),
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},task_queues=self.task_queues(tasks,libraries))
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
         with self.lock:active=tuple(self.active)
@@ -503,16 +500,22 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
 
-    def _execute(self, key, queue_head=False, queue_kind=None):
+    def _execute(self, key, queue_head=False, queue_kind=None, queue_library=None, queue_wake=None):
         task = self.get_task(key)
         try:
-            with self.store.transaction():
+            with self.lock,self.store.transaction():
                 task = self.get_task(key)
                 if task['status'] != 'queued':
                     return
+                if queue_wake is not None:
+                    workers=self.queue_workers.get(queue_kind,{})
+                    if queue_wake not in workers or list(workers).index(queue_wake)>=self.queue_limit(queue_kind):return
+                    if sum(t['kind']==queue_kind and t['status']=='running' for t in self.store.all('tasks'))>=self.queue_limit(queue_kind):return 'capacity_busy'
                 if queue_kind is not None and self.store.get('settings',self.pause_key(task['library'],queue_kind),False):return
-                if queue_head and self.waiting_tasks(task['library'],kind=queue_kind)[0]['id']!=key:
-                    return  # A reorder won the race before this job was claimed.
+                if queue_head:
+                    head=self.next_waiting(queue_library,queue_kind) if queue_kind is not None else next(iter(self.waiting_tasks(task['library'])),None)
+                    if head is None and queue_kind is not None:return 'source_busy'
+                    if not head or head['id']!=key:return
                 if task.get('approval') != task['version'] or key in self.cancels:
                     raise ValueError('Approval changed or job cancelled')
                 try:self.check_busy_sources(task)
