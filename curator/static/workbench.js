@@ -10,7 +10,7 @@ function updateServiceControls(){
  note.textContent=!serviceStatus.restart_available?'Restart is available when Curator runs as the managed service.':serviceBusy()?'Finish processing, publishing and library checks before restarting.':'Running on '+serviceStatus.hostname+(serviceStatus.startup==='boot'?'. Starts at boot after the startup disk is unlocked.':'. Starts after login.');
 }
 async function loadServiceStatus(){
- try{serviceStatus=await api('service/status');updateServiceControls();}
+ try{serviceStatus=await api('service/status');const build=serviceStatus.build,label=$('build-identity');if(label&&build){label.textContent='v'+build.version+' · '+(build.revision==='unknown'?'build unknown':build.revision.slice(0,8))+(build.dirty?' · modified':'');label.title='Running process started '+build.started_at+'; build '+build.revision;}updateServiceControls();}
  catch(error){$('service-status').textContent='Service controls are unavailable in this running instance.';$('restart-curator').disabled=true;}
 }
 async function serviceFetch(path,options={}){

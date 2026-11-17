@@ -4,6 +4,7 @@ import os
 import socket
 import threading
 import uuid
+from .build import RUNNING_BUILD
 
 
 RESTART_EXIT_CODE = 75
@@ -23,6 +24,7 @@ class ServiceRuntime:
         self.managed = managed
         self.instance_id = uuid.uuid4().hex
         self.hostname = socket.gethostname()
+        self.build = dict(RUNNING_BUILD)
         self.condition = threading.Condition()
         self.requests = 0
         self.mutations = 0
@@ -60,7 +62,8 @@ class ServiceRuntime:
             return {'restart_available':self.managed,'restarting':self.restart_requested,
                     'instance_id':self.instance_id,'hostname':self.hostname,
                     'startup':('boot' if os.environ.get('CURATOR_SERVICE_STARTUP')=='boot' else 'after_login') if self.managed else 'manual',
-                    'busy_reason':self.busy_reason(),'restart_error':self.restart_error}
+                    'busy_reason':self.busy_reason(),'restart_error':self.restart_error,
+                    'build':dict(self.build)}
 
     def request_restart(self):
         with self.condition:
