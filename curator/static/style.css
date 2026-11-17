@@ -102,3 +102,9 @@
 #queue-actions{flex-basis:100%;margin-top:.3rem}#queue-group-control{min-width:135px}#queue-group{width:100%}
 
 .view-options{flex-wrap:wrap}
+
+/* Queue fields and actions share a baseline and control height. */
+.view-options:has(#queue-group-control:not([hidden])){align-items:flex-end}
+#queue-group-control,#queue-status-control{margin:0;font-size:12px}
+#queue-group,#queue-status{height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
+.view-options:has(#queue-group-control:not([hidden]))>button,#queue-actions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
