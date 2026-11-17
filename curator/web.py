@@ -266,8 +266,9 @@ class Handler(BaseHTTPRequestHandler):
                 service.scan(data['library'])
                 result = {'started': True}
             elif path == '/api/run':
-                service.start(data['library'])
-                result = {'started': True}
+                result=service.start(data['library'],data.get('kind'))
+            elif path == '/api/queue/pause':
+                result=service.pause_queues(data['library'],data.get('kind'))
             elif path == '/api/task/edit':
                 result = service.edit_task(data['id'], data['plan'], data['version'])
             elif path == '/api/artwork/candidates':

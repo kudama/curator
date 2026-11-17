@@ -265,7 +265,7 @@ async function openLibrarySettings(){
 }
 $('library-form').onsubmit=e=>{e.preventDefault();run(async()=>{const form=e.target;const mappings=[...$('mapping-rows').querySelectorAll('.mapping-row')].map(row=>({plex_root:row.querySelector('[name="plex_root"]').value,local_root:localPath(row.querySelector('[name="local_root"]').value)})).filter(x=>x.local_root);await api('library',{id:libraryId,settings:{profile:form.elements.profile.value,mappings,themes:form.elements.themes.value.split(',').map(x=>x.trim()).filter(Boolean)}});$('library-dialog').close();await refresh();toast('Library settings saved');});};
 $('scan').onclick=()=>run(async()=>{await api('scan',{library:libraryId});toast('Library scan started');await refresh();});
-$('run').onclick=()=>run(async()=>{await api('run',{library:libraryId});toast('Queue started');});
+$('run').onclick=()=>run(async()=>{await api('run',{library:libraryId});toast('Task queues started; one job per task type.');});
 $('filters').onclick=e=>{const tab=e.target.closest('[data-view]');if(tab){libraryView=tab.dataset.view;filter=libraryView==='completed'?'completed':'all';selected.clear();render();}};
 $('group-by').onchange=e=>{activeGrouping=e.target.value;render();};
 $('queue-status').onchange=e=>{queueStatus=e.target.value;selected.clear();render();};
