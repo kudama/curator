@@ -308,6 +308,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.apply_cast(data['id'], data['version'], data['cast'])
             elif path == '/api/task/action':
                 result = service.action(data['id'], data['action'], data['version'], data.get('handbrake_preset'))
+            elif path == '/api/queue/change':
+                result=service.change_queue(data['library'],data['expected'],order=data.get('order'),remove=data.get('remove'))
             elif path == '/api/task/review':
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
             elif path == '/api/review-batch/prepare':

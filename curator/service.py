@@ -24,6 +24,7 @@ from .mage import Mage
 from .artwork import ArtworkWorkflows
 from .bulk_review import BulkReviewWorkflows
 from .backup_cleanup import BackupCleanupWorkflows
+from .queue_workflows import QueueWorkflows
 
 
 def identifier(*values):
@@ -31,7 +32,7 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows):
+class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
@@ -83,13 +84,14 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
             self.store.put('settings', 'config', cfg)
 
     def state(self):
+        tasks=self.store.all('tasks');libraries=self.store.all('libraries')
         cfg = self.config()
         public = {k: v for k, v in cfg.items() if k != 'plex_token'}
         public['token_configured'] = bool(cfg.get('plex_token'))
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
-        return dict(config=public, libraries=self.store.all('libraries'), assets=self.store.all('assets'),
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in self.store.all('tasks') if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs())
+        return dict(config=public, libraries=libraries, assets=self.store.all('assets'),
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running'} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries})
 
     def queue_running(self):
         return any(not str(key).startswith(('backup-cleanup:','review-batch:')) for key in self.active)
@@ -498,10 +500,10 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
 
     def _run(self, library):
         try:
-            for item in self.store.all('tasks'):
-                if item['library'] != library or item['status'] != 'queued':
-                    continue
-                self._execute(item['id'])
+            while True:
+                waiting=self.waiting_tasks(library)
+                if not waiting:break
+                self._execute(waiting[0]['id'],queue_head=True)
         finally:
             with self.lock:
                 self.active.discard(library)
@@ -511,13 +513,15 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
 
-    def _execute(self, key):
+    def _execute(self, key, queue_head=False):
         task = self.get_task(key)
         try:
             with self.store.transaction():
                 task = self.get_task(key)
                 if task['status'] != 'queued':
                     return
+                if queue_head and self.waiting_tasks(task['library'])[0]['id']!=key:
+                    return  # A reorder won the race before this job was claimed.
                 if task.get('approval') != task['version'] or key in self.cancels:
                     raise ValueError('Approval changed or job cancelled')
                 self.check_busy_sources(task)
