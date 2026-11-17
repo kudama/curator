@@ -21,3 +21,14 @@ test('empty queue requires confirmation and submits only the library waiting sna
  w.context.confirm=()=>true;await empty.fn();assert.equal(w.calls.length,1);assert.equal(w.calls[0].path,'queue/change');
  assert.equal(w.calls[0].data.remove.join(','),'a,b');assert.equal(w.calls[0].data.expected.map(x=>x.id+':'+x.version).join(','),'a:1,b:2');
 });
+test('universal waiting actions use the full cross-library snapshot with explicit scope',async()=>{
+ const w=setup();w.context.state.global_queue=[{id:'a',version:1},{id:'other',version:1},{id:'b',version:2}];
+ w.run('renderWaitingControls()');const empty=w.controls.children.find(c=>c.label?.startsWith('Empty waiting queue'));let warning='';
+ w.context.confirm=text=>{warning=text;return true;};await empty.fn();assert.match(warning,/across all libraries/);
+ assert.equal(w.calls[0].data.scope,'all');assert.equal(w.calls[0].data.remove.join(','),'a,other,b');assert.equal(w.calls[0].data.library,undefined);
+});
+test('queue library selection filters presentation without changing global operation scope',()=>{
+ const w=setup();w.context.state.global_queue=[];assert.equal(w.run("queueMatchesLibrary({library:'two'})"),true);
+ w.run("queueLibrary='two'");assert.equal(w.run("queueMatchesLibrary({library:'one'})"),false);assert.equal(w.run("queueMatchesLibrary({library:'two'})"),true);
+ assert.equal(w.run('queueScope().scope'),'all');
+});

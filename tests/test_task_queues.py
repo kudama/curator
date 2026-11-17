@@ -15,7 +15,7 @@ class TaskTypeQueues(unittest.TestCase):
         with self.store.transaction():
             for lib in ('one','two'):self.store.put('libraries',lib,dict(id=lib))
             for key,kind,lib in [('u1','upscale','one'),('u2','upscale','one'),('o1','optimize','one'),('o2','optimize','one'),('other','upscale','two')]:
-                self.store.put('tasks',key,dict(id=key,kind=kind,library=lib,status='queued',version=1,approval=1))
+                self.store.put('tasks',key,dict(id=key,asset=key,kind=kind,library=lib,status='queued',version=1,approval=1))
 
     def wait(self,predicate):
         end=time.monotonic()+5
@@ -61,7 +61,7 @@ class TaskTypeQueues(unittest.TestCase):
 
     def test_old_worker_cleanup_cannot_remove_its_resumed_replacement(self):
         old=threading.Event();new=threading.Event()
-        self.service.queue_workers['upscale']=dict(library='one',wake=new);self.service.active.add('queue:upscale')
+        self.service.queue_workers['upscale']={new:dict(library='one',wake=new)};self.service.active.add('queue:upscale')
         self.service._release_queue_worker('one','upscale',old)
-        self.assertIs(self.service.queue_workers['upscale']['wake'],new)
+        self.assertIn(new,self.service.queue_workers['upscale'])
         self.assertTrue(self.service.queue_running())

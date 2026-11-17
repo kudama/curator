@@ -66,6 +66,12 @@ class Store:
 
     def put(self, table, key, value):
         self._table(table)
+        if table=='tasks' and value.get('status')=='queued' and self.get('tasks',key,{}).get('status')!='queued':
+            order=self.get('settings','queue-order:global')
+            if order is not None:
+                queued={t['id'] for t in self.all('tasks') if t['status']=='queued' and not t.get('deleted')}
+                ids=[identity for identity in order['ids'] if identity in queued and identity!=str(key)]+[str(key)]
+                self.put('settings','queue-order:global',dict(ids=ids,updated=now()))
         self.db.execute(f'INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
                         (str(key), json.dumps(value, allow_nan=False)))
 

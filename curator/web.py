@@ -266,9 +266,11 @@ class Handler(BaseHTTPRequestHandler):
                 service.scan(data['library'])
                 result = {'started': True}
             elif path == '/api/run':
-                result=service.start(data['library'],data.get('kind'))
+                result=service.start(None if data.get('scope')=='all' else data['library'],data.get('kind'))
             elif path == '/api/queue/pause':
-                result=service.pause_queues(data['library'],data.get('kind'))
+                result=service.pause_queues(None if data.get('scope')=='all' else data['library'],data.get('kind'))
+            elif path == '/api/queue/limits':
+                result=service.set_queue_limits(data['limits'])
             elif path == '/api/task/edit':
                 result = service.edit_task(data['id'], data['plan'], data['version'])
             elif path == '/api/artwork/candidates':
@@ -310,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/task/action':
                 result = service.action(data['id'], data['action'], data['version'], data.get('handbrake_preset'))
             elif path == '/api/queue/change':
-                result=service.change_queue(data['library'],data['expected'],order=data.get('order'),remove=data.get('remove'))
+                result=service.change_queue(None if data.get('scope')=='all' else data['library'],data['expected'],order=data.get('order'),remove=data.get('remove'))
             elif path == '/api/task/review':
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
             elif path == '/api/review-batch/prepare':

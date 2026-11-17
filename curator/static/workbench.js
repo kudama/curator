@@ -1,6 +1,9 @@
 'use strict';
 // Navigation and presentation only. Editors continue to use the existing approved workflows.
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
+let queueLibrary='all';
+function queueScope(){return Array.isArray(state.global_queue)?{scope:'all'}:{library:libraryId};}
+function queueMatchesLibrary(task){return !Array.isArray(state.global_queue)?task.library===libraryId:queueLibrary==='all'||task.library===queueLibrary;}
 let serviceRestarting=false,serviceStatus=null;
 function serviceBusy(){return Boolean(state.queue_running||(state.cleanup_jobs||[]).some(j=>j.phase==='deleting')||(state.tasks||[]).some(t=>['running','publishing'].includes(t.status))||Object.values(state.scans||{}).some(s=>s.running)||Object.values(state.presence||{}).some(s=>s.running));}
 function updateServiceControls(){
@@ -101,6 +104,7 @@ function initWorkbench(){
  $('file-search').oninput=e=>{searchText=e.target.value.trim().toLocaleLowerCase();render();};
  $('collapse-folders').onclick=collapseAllFolders;
  $('queue-group').onchange=e=>{queueGrouping=e.target.value;render();};
+ const queueLibraryControl=$('queue-library');if(queueLibraryControl)queueLibraryControl.onchange=e=>{queueLibrary=e.target.value;selected.clear();waitingSelection.clear();render();};
  $('history-status').onchange=e=>{historyStatus=e.target.value;render();};
  const restart=$('restart-curator');if(restart)restart.onclick=restartCurator;
  window.addEventListener('beforeunload',e=>{if(inspectorDirty){e.preventDefault();e.returnValue='';}});
@@ -142,7 +146,7 @@ function renderFileList(files){
   if(group.folder){const edit=button(group.folder.mapped===false?'Set Mac path':'Edit folder',()=>group.folder.mapped===false?openLibrarySettings():openFolder(group.folder.id),'subtle');edit.addEventListener('click',e=>{e.stopPropagation();e.preventDefault();});head.append(edit);}section.append(head,...group.files.map(a=>activeGrouping==='task'?selectableTaskFile(a,group):fileRow(a,group.id)));if(!group.files.length)section.append(node('p',group.folder?.mapped===false?'Set the Mac path to scan files in this location.':'No scanned files directly in this folder.','empty-folder-note'));return section;});
 }
 let historyStatus='all',queueGrouping='task',queueChangeBusy=false,queueDragging=false;const waitingSelection=new Set();let taskQueuePositions=new Map();
-function waitingSnapshot(){return state.queue_orders?.[libraryId]||state.tasks.filter(t=>t.library===libraryId&&t.status==='queued').map(t=>({id:t.id,version:t.version}));}
+function waitingSnapshot(){return state.global_queue||state.queue_orders?.[libraryId]||state.tasks.filter(t=>t.library===libraryId&&t.status==='queued').map(t=>({id:t.id,version:t.version}));}
 function processingTaskCard(task){
  const asset=catalogIndex().byId.get(task.asset),card=node('article',undefined,'processing-card'),main=node('div',undefined,'processing-card-main');
  if(task.status==='queued'){const check=node('input');check.type='checkbox';check.checked=waitingSelection.has(task.id);check.disabled=queueChangeBusy||!featureAvailable('queue_order');check.setAttribute('aria-label','Select waiting job '+(asset?fileName(asset):task.title));check.onchange=()=>{check.checked?waitingSelection.add(task.id):waitingSelection.delete(task.id);render();};main.append(check);const position=taskQueuePositions.get(task.id)||1;const textPosition=node('span',(TASK_LABELS[task.kind]||task.kind)+' #'+position,'muted');main.append(textPosition);if(featureAvailable('queue_order')){card.dataset.waitingId=task.id;card.title='Drag the arrow handle onto another waiting job to move before it';const handle=button('↕',()=>{},'subtle');handle.setAttribute('aria-label','Drag waiting job '+(asset?fileName(asset):task.title));handle.style.touchAction='none';handle.disabled=queueChangeBusy;main.append(handle);let origin=null;
@@ -152,19 +156,19 @@ function processingTaskCard(task){
 
  if(task.status==='awaiting_review'&&['upscale','optimize'].includes(task.kind)){const check=node('input');check.type='checkbox';check.checked=selected.has(task.id);check.setAttribute('aria-label','Select '+(asset?fileName(asset):task.title));check.onchange=()=>{selectTaskRows([task],check.checked);render();};main.append(check);}
  main.append(thumbnail(asset||{}));const text=node('div',undefined,'processing-card-text');text.append(node('strong',asset?fileName(asset):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+(task.cancel_requested?'Cancelling…':taskStatusLabel(task.status)),'muted'));
- if(task.error)text.append(node('p',task.error,'task-error'));if(['running','publishing'].includes(task.status))text.append(progressView(task));
+ if(Array.isArray(state.global_queue))text.append(node('p',state.libraries.find(lib=>lib.id===task.library)?.title||task.library,'muted'));if(task.error)text.append(node('p',task.error,'task-error'));if(['running','publishing'].includes(task.status))text.append(progressView(task));
  if(task.status==='awaiting_review'&&task.result?.size_bytes)text.append(node('p',formatBytes(task.source?.size??asset?.fingerprint?.size)+' → '+formatBytes(task.result.size_bytes),'muted'));
  main.append(text);const actions=node('div',undefined,'processing-card-actions');actions.append(button(task.status==='awaiting_review'?(['upscale','optimize','join'].includes(task.kind)?'Compare & publish':'Review suggestions'):['blocked','failed'].includes(task.status)?'Inspect':'Details',()=>openTask(task.id),task.status==='awaiting_review'?'primary':'subtle'),taskControls(task));main.append(actions);card.append(main);return card;
 }
 function renderProcessing(){
  const snapshot=waitingSnapshot(),positions=new Map(snapshot.map((r,i)=>[r.id,i])),byId=new Map(state.tasks.map(t=>[t.id,t])),typeCounts=new Map();taskQueuePositions=new Map();for(const row of snapshot){const kind=byId.get(row.id)?.kind,index=(typeCounts.get(kind)||0)+1;typeCounts.set(kind,index);taskQueuePositions.set(row.id,index);}
- const tasks=state.tasks.filter(t=>t.library===libraryId&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status)&&(queueStatus==='all'||t.status===queueStatus)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));
+ const tasks=state.tasks.filter(t=>queueMatchesLibrary(t)&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status)&&(queueStatus==='all'||t.status===queueStatus)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['publishing','running','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));
  const groups=[['Publishing',['publishing']],['Processing',['running']],['Waiting',['queued']],['Ready to publish / review',['awaiting_review']],['Needs attention',['failed','blocked']]];
  const sections=queueGrouping==='task'?[...new Set(tasks.map(t=>t.kind))].map(kind=>[TASK_LABELS[kind]||kind,null,kind]):groups;
  return [...cleanupJobCards(false),...sections.flatMap(([title,statuses,kind])=>{const rows=tasks.filter(t=>kind?t.kind===kind:statuses.includes(t.status));if(!rows.length)return [];const section=rememberGroup(node('details',undefined,'processing-group collapsible-group'),libraryId+':processing:'+title),heading=node('summary',undefined,'processing-group-heading');heading.append(node('h2',title+' ('+rows.length+')'));if(kind)heading.append(taskQueueControls(kind));const waiting=rows.filter(t=>t.status==='queued');if(waiting.length)heading.append(waitingGroupControls(waiting));const review=rows.filter(t=>t.status==='awaiting_review'&&['upscale','optimize'].includes(t.kind));if(review.length)heading.append(bulkTaskControls(review));section.append(heading,...rows.map(processingTaskCard));return [section];})];
 }
 function cleanupJobCards(history){
- return (state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&(history?(j.phase==='complete'||j.phase==='interrupted')&&historyStatusMatches({status:j.phase==='interrupted'?'blocked':j.failed?'failed':'applied'}):j.phase!=='complete')).map(job=>{
+ return (state.cleanup_jobs||[]).filter(j=>(history?j.library===libraryId:queueMatchesLibrary(j))&&(history?(j.phase==='complete'||j.phase==='interrupted')&&historyStatusMatches({status:j.phase==='interrupted'?'blocked':j.failed?'failed':'applied'}):j.phase!=='complete')).map(job=>{
   const card=node('article',undefined,'processing-card'),text=node('div',undefined,'processing-card-text');
   text.append(node('strong','Clean up originals'),node('p',(job.phase==='deleting'?'Processing':job.phase==='complete'?(job.failed?'Finished with failures':'Completed'):'Interrupted')+' · '+job.completed+' of '+job.total+' checked · '+job.deleted+' deleted · '+job.failed+' failed','muted'));
   if(job.phase==='deleting'&&job.current)text.append(node('p',job.current.phase+' · '+job.current.title,'muted'));
@@ -188,19 +192,21 @@ function dropWaitingOrder(ids,id,target){
 async function changeWaitingQueue(change){
  if(queueChangeBusy)return;
  const expected=waitingSnapshot().map(r=>({...r}));queueChangeBusy=true;render();
- try{await api('queue/change',{library:libraryId,expected,...change});waitingSelection.clear();if(change.remove)toast(change.remove.length+' returned to suggestions. Saved settings are retained.');}
+ try{await api('queue/change',{...queueScope(),expected,...change});waitingSelection.clear();if(change.remove)toast(change.remove.length+' returned to suggestions. Saved settings are retained.');}
  finally{queueChangeBusy=false;await refresh();}
 }
 function renderWaitingControls(){
  const container=$('queue-actions');if(!container)return;container.hidden=screen!=='processing';container.replaceChildren();if(container.hidden)return;
  const ids=waitingSnapshot().map(r=>r.id),available=new Set(ids);for(const id of waitingSelection)if(!available.has(id))waitingSelection.delete(id);
+ const visibleIds=ids.filter(id=>queueMatchesLibrary(state.tasks.find(t=>t.id===id)||{}));
  const enabled=featureAvailable('queue_order')&&!queueChangeBusy;
- if(featureAvailable('task_queues'))container.append(button('Pause all after current',()=>run(async()=>{await api('queue/pause',{library:libraryId});await refresh();toast('Queues will pause after their current jobs finish.');}),'subtle'));
+ if(featureAvailable('task_queues'))container.append(button('Pause all after current',()=>run(async()=>{await api('queue/pause',queueScope());await refresh();toast('Queues will pause after their current jobs finish.');}),'subtle'));
+ if(Array.isArray(state.global_queue))container.append(button('Processing limits',showQueueLimits,'subtle'));
  const add=(label,fn,disabled=false)=>{const control=button(label,()=>run(fn),'subtle');control.disabled=!enabled||disabled;container.append(control);};
- add(waitingSelection.size===ids.length&&ids.length?'Clear waiting selection':'Select all waiting ('+ids.length+')',()=>{const clear=waitingSelection.size===ids.length;waitingSelection.clear();if(!clear)for(const id of ids)waitingSelection.add(id);render();},!ids.length);
+ add(waitingSelection.size===visibleIds.length&&visibleIds.length?'Clear waiting selection':'Select all waiting ('+visibleIds.length+')',()=>{const clear=waitingSelection.size===visibleIds.length;waitingSelection.clear();if(!clear)for(const id of visibleIds)waitingSelection.add(id);render();},!visibleIds.length);
  for(const edge of ['top','bottom'])add('Move selected to '+edge,()=>changeWaitingQueue({order:moveWaitingOrder(ids,waitingSelection,edge)}),!waitingSelection.size);
  add('Remove selected ('+waitingSelection.size+')',()=>{const remove=ids.filter(id=>waitingSelection.has(id));if(confirm('Return '+remove.length+' waiting jobs to suggestions? Saved settings, media and outputs stay unchanged.'))return changeWaitingQueue({remove});},!waitingSelection.size);
- add('Empty waiting queue ('+ids.length+')',()=>{if(confirm('Return all '+ids.length+' waiting jobs in this library to suggestions? Running jobs, media and outputs stay unchanged.'))return changeWaitingQueue({remove:ids});},!ids.length);
+ add('Empty waiting queue ('+ids.length+')'+(Array.isArray(state.global_queue)?' · all libraries':''),()=>{if(confirm('Return all '+ids.length+' waiting jobs '+(Array.isArray(state.global_queue)?'across all libraries':'in this library')+' to suggestions? Running jobs, media and outputs stay unchanged.'))return changeWaitingQueue({remove:ids});},!ids.length);
  if(!featureAvailable('queue_order'))container.append(node('span','Reordering becomes available after the idle backend update.','muted'));
 }
 function renderHistory(){
@@ -212,13 +218,22 @@ function historyStatusMatches(task){
  return historyStatus==='all'||(historyStatus==='completed'?['applied','resolved'].includes(task.status):task.status===historyStatus);
 }
 function taskQueueControls(kind){
- const box=node('div',undefined,'bulk-group-actions'),info=(state.task_queues||[]).find(q=>q.library===libraryId&&q.kind===kind);
+ const box=node('div',undefined,'bulk-group-actions'),info=(state.task_queues||[]).find(q=>(q.library===null||q.library===libraryId)&&q.kind===kind);
  if(!featureAvailable('task_queues'))return box;
- const start=button(info?.paused?'Resume queue':'Run queue',async()=>{const result=await api('run',{library:libraryId,kind});await refresh();toast(result.busy?.length?'This task type is running in another library.':'Task-type queue running.');},'subtle');
+ const start=button(info?.paused?'Resume queue':'Run queue',async()=>{const result=await api('run',{...queueScope(),kind});await refresh();toast(result.busy?.length?'This task type is running in another library.':'Task-type queue running.');},'subtle');
  start.disabled=!info?.waiting||info?.busy_elsewhere||Boolean(info?.active&&!info?.paused);
- const pause=button(info?.paused?(info.active?'Pausing after current…':'Paused'):'Pause after current',async()=>{await api('queue/pause',{library:libraryId,kind});await refresh();},'subtle');pause.disabled=!info||info.paused;
+ const pause=button(info?.paused?(info.active?'Pausing after current…':'Paused'):'Pause after current',async()=>{await api('queue/pause',{...queueScope(),kind});await refresh();},'subtle');pause.disabled=!info||info.paused;
+ if(info?.limit)box.append(node('span',info.running+' running · limit '+info.limit,'muted'));
  box.append(start,pause);if(info?.waiting_for_source)box.append(node('span','Waiting for another job on this file','muted'));
  for(const control of box.querySelectorAll('button'))control.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();});return box;
+}
+function showQueueLimits(){
+ if(!prepareInspector())return;inspectorMode='queue-limits';openedTask=null;$('task-kind').textContent='PROCESSING';$('task-title').textContent='Shared processing limits';$('task-reason').hidden=true;
+ const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
+ detail.append(node('p','Limits apply across all libraries. Lowering a limit lets current jobs finish. Run or Resume fills additional slots after an increase.','muted'));
+ const inputs=new Map(),kinds=new Set(['upscale','optimize',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>t.kind)]);
+ for(const kind of kinds){const label=node('label',TASK_LABELS[kind]||kind),input=node('input');input.type='number';input.min=1;input.max=8;input.step=1;input.value=state.queue_limits?.[kind]||1;label.append(input);detail.append(label);inputs.set(kind,input);}
+ actions.append(button('Save limits',()=>run(async()=>{const limits=Object.fromEntries([...inputs].map(([kind,input])=>[kind,Number(input.value)]));await api('queue/limits',{limits});closeInspector(true);await refresh();toast('Shared processing limits saved.');}),'primary'));showInspector();
 }
 function renderWorkbench(){
  if(queueDragging)return;
@@ -226,14 +241,15 @@ function renderWorkbench(){
  const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.hidden=screen!=='library';cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
  const batchControl=$('review-batches');if(batchControl){batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
  $('libraries').replaceChildren(...state.libraries.map(lib=>button(lib.title,()=>chooseLibrary(lib.id),lib.id===libraryId?'selected':'')));
+ const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=screen!=='processing'||!Array.isArray(state.global_queue);queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
  document.querySelectorAll('[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===screen));
- const lib=current(),assets=libraryFiles(),tasks=state.tasks.filter(t=>t.library===libraryId),running=tasks.filter(t=>t.status==='running'),publishing=tasks.filter(t=>t.status==='publishing'),waiting=tasks.filter(t=>t.status==='queued'),ready=tasks.filter(t=>t.status==='awaiting_review');
+ const lib=current(),assets=libraryFiles(),tasks=state.tasks.filter(t=>screen==='processing'?queueMatchesLibrary(t):t.library===libraryId),running=tasks.filter(t=>t.status==='running'),publishing=tasks.filter(t=>t.status==='publishing'),waiting=tasks.filter(t=>t.status==='queued'),ready=tasks.filter(t=>t.status==='awaiting_review');
  $('library-title').textContent=screen==='library'?(lib?.title||'Your library'):screen==='processing'?'Queue':'History';$('library-type').textContent=screen==='library'?(lib?.profile==='home'?'HOME MOVIES':'TV & MOVIES'):(lib?.title||'WORKSPACE');
  $('library-note').textContent=screen==='library'?'Review what needs attention, one file at a time.':screen==='processing'?running.length+' processing · '+publishing.length+' publishing · '+waiting.length+' waiting · '+ready.length+' ready to review':'Completed, cancelled and resolved work. Media files stay in your library.';
  $('asset-count').textContent=assets.length;$('attention-count').textContent=assets.filter(a=>attentionTasks(a).length).length;$('completed-count').textContent=assets.filter(movieCompleted).length;
  $('finding-count').textContent=tasks.filter(t=>t.status==='recommendation').length;$('queue-count').textContent=running.length+waiting.length;$('review-count').textContent=ready.length;$('nav-processing-count').textContent=running.length+publishing.length+waiting.length+ready.length+(state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&j.phase==='deleting').length||'';
  $('filters').hidden=screen!=='library';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===libraryView));
- $('group-by-control').hidden=screen!=='library';$('group-by').value=activeGrouping;$('history-status-control').hidden=screen!=='history';$('history-status').value=historyStatus;$('queue-group-control').hidden=screen!=='processing';$('queue-group').value=queueGrouping;renderWaitingControls();$('queue-status-control').hidden=screen!=='processing';$('queue-status').value=queueStatus;$('run').hidden=screen!=='processing';$('run').disabled=!lib||!waiting.length||(!featureAvailable('task_queues')&&Boolean(state.queue_running));$('run').textContent=featureAvailable('task_queues')?'Run all task queues':state.queue_running?'Queue running…':'Run queue';$('scan').hidden=screen!=='library';$('library-settings').hidden=screen!=='library';$('scan').disabled=!lib;$('library-settings').disabled=!lib;
+ $('group-by-control').hidden=screen!=='library';$('group-by').value=activeGrouping;$('history-status-control').hidden=screen!=='history';$('history-status').value=historyStatus;$('queue-group-control').hidden=screen!=='processing';$('queue-group').value=queueGrouping;renderWaitingControls();$('queue-status-control').hidden=screen!=='processing';$('queue-status').value=queueStatus;$('run').hidden=screen!=='processing';$('run').disabled=(!lib&&!Array.isArray(state.global_queue))||!state.tasks.some(t=>t.status==='queued'&&(Array.isArray(state.global_queue)||t.library===libraryId))||(!featureAvailable('task_queues')&&Boolean(state.queue_running));$('run').textContent=Array.isArray(state.global_queue)?'Run all libraries':featureAvailable('task_queues')?'Run all task queues':state.queue_running?'Queue running…':'Run queue';$('scan').hidden=screen!=='library';$('library-settings').hidden=screen!=='library';$('scan').disabled=!lib;$('library-settings').disabled=!lib;
  $('library-tools').hidden=screen!=='library';renderSelection();
  const scan=state.scans?.[libraryId];$('scan-status').textContent=scan?.running?'Scanning · '+scan.count+' files'+(scan.skipped_reserved?' · '+scan.skipped_reserved+' reserved files skipped':''):scan?.error||'';
  const content=screen==='processing'?renderProcessing():screen==='history'?renderHistory():renderFileList(workspaceFiles());$('tasks').replaceChildren(...content);$('collapse-folders').hidden=screen!=='library'||!['folder','task'].includes(activeGrouping);$('collapse-folders').textContent=activeGrouping==='task'?'Collapse all task groups':'Collapse all folders';$('collapse-folders').title=$('collapse-folders').textContent;$('collapse-folders').disabled=!content.some(group=>group.matches('details.file-group'));$('empty').hidden=content.length>0;$('empty').querySelector('h2').textContent=screen==='processing'?'The queue is empty.':screen==='history'?'No history yet.':searchText?'No matching files.':libraryView==='attention'?'No files need attention.':libraryView==='completed'?'No completed files yet.':'No scanned files yet.';$('empty').querySelector('p').textContent=screen==='library'?'Choose another view, search your library, or scan for new files.':'Browse your library to choose the next task.';
