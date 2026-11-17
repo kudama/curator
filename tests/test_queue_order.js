@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const source=fs.readFileSync(path.join(__dirname,'../curator/static/workbench.js'),'utf8');
 function setup(){
  const controls={children:[],append(x){this.children.push(x);},replaceChildren(){this.children=[];}},calls=[];
- const context=vm.createContext({state:{tasks:[{id:'a',version:1,library:'one',status:'queued'},{id:'b',version:2,library:'one',status:'queued'},{id:'run',version:1,library:'one',status:'running'},{id:'other',version:1,library:'two',status:'queued'}]},libraryId:'one',screen:'processing',render(){},refresh:async()=>{},api:async(path,data)=>calls.push({path,data}),confirm:()=>false,$:()=>controls,button:(label,fn)=>({label,fn}),node:(tag,text)=>({tag,text}),run:fn=>fn()});
+ const context=vm.createContext({state:{tasks:[{id:'a',version:1,library:'one',status:'queued'},{id:'b',version:2,library:'one',status:'queued'},{id:'run',version:1,library:'one',status:'running'},{id:'other',version:1,library:'two',status:'queued'}]},libraryId:'one',screen:'processing',render(){},toast(){},refresh:async()=>{},api:async(path,data)=>calls.push({path,data}),confirm:()=>false,$:()=>controls,button:(label,fn)=>({label,fn}),node:(tag,text)=>({tag,text}),run:fn=>fn()});
  vm.runInContext(source,context);vm.runInContext('featureAvailable=()=>true',context);
  return {context,controls,calls,run:code=>vm.runInContext(code,context)};
 }

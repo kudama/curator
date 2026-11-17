@@ -38,7 +38,7 @@ class QueueOrder(unittest.TestCase):
         self.service.change_queue('one',self.snapshot(),remove=['a','b','c'])
         self.assertEqual(self.snapshot(),[])
         for key in ('a','b','c'):
-            task=self.service.get_task(key);self.assertEqual(task['status'],'cancelled');self.assertEqual(task['version'],2);self.assertNotIn('approval',task)
+            task=self.service.get_task(key);self.assertEqual(task['status'],'recommendation');self.assertEqual(task['version'],2);self.assertNotIn('approval',task)
         self.assertEqual(self.service.get_task('running')['status'],'running')
         self.assertEqual(self.service.get_task('other')['status'],'queued')
         self.assertEqual(sentinel.read_bytes(),b'keep')
@@ -58,3 +58,28 @@ class QueueOrder(unittest.TestCase):
         with patch.object(self.service,'asset',side_effect=AssertionError('Must not execute old head')):
             self.service._execute('a',queue_head=True)
         self.assertEqual(self.service.get_task('a')['status'],'queued')
+
+    def test_upgrade_recovers_only_removed_tasks_and_preserves_their_settings(self):
+        with self.store.transaction():
+            self.store.put('settings','queue-removal-suggestions-v1',False)
+            for key,action in (('a','remove from waiting queue'),('b','cancel'),('c','remove_queue')):
+                task=self.service.get_task(key);task.update(status='cancelled',plan={'handbrake_preset':'Saved preset'},output='retained-output.mp4');task.pop('approval',None)
+                self.store.put('tasks',key,task);self.store.event(key,dict(action=action))
+        self.assertEqual(self.service.recover_removed_queue_tasks(),2)
+        for key in ('a','c'):
+            task=self.service.get_task(key);self.assertEqual(task['status'],'recommendation');self.assertEqual(task['plan'],{'handbrake_preset':'Saved preset'});self.assertEqual(task['output'],'retained-output.mp4');self.assertNotIn('approval',task)
+        self.assertEqual(self.service.get_task('b')['status'],'cancelled')
+        self.assertEqual(self.service.get_task('running')['status'],'running')
+        self.assertEqual(self.service.recover_removed_queue_tasks(),0)
+
+    def test_recovery_ignores_deleted_finished_and_later_deliberate_cancellation(self):
+        with self.store.transaction():
+            self.store.put('settings','queue-removal-suggestions-v1',False)
+            for key,status in (('a','cancelled'),('b','cancelled'),('c','applied')):
+                task=self.service.get_task(key);task.update(status=status,deleted=key=='a')
+                self.store.put('tasks',key,task);self.store.event(key,dict(action='remove_queue'))
+            self.store.event('b',dict(action='cancel'))
+        self.assertEqual(self.service.recover_removed_queue_tasks(),0)
+        self.assertTrue(self.store.get('tasks','a')['deleted'])
+        self.assertEqual(self.service.get_task('b')['status'],'cancelled')
+        self.assertEqual(self.service.get_task('c')['status'],'applied')

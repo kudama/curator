@@ -14,7 +14,7 @@ class QueueControls(unittest.TestCase):
 
     def test_remove_waiting_job_preserves_plan_and_prevents_execution(self):
         task=self.queued();result=self.service.action(task['id'],'remove_queue',1)
-        self.assertEqual(result['status'],'cancelled');self.assertNotIn('approval',result)
+        self.assertEqual(result['status'],'recommendation');self.assertNotIn('approval',result)
         self.assertEqual(result['plan'],task['plan']);self.service._execute(task['id']);self.assertEqual(self.plex.writes,[])
         self.assertTrue(self.file.exists())
 
