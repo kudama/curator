@@ -101,7 +101,7 @@ class Startup(unittest.TestCase):
         from unittest.mock import Mock
         state = Mock()
         with patch('sys.argv', ['curator']), patch.object(web, 'Store', return_value=state), \
-             patch.object(web, 'App', side_effect=OSError('Address already in use')), \
+             patch.object(web,'Service'),patch.object(web, 'App', side_effect=OSError('Address already in use')), \
              patch('sys.stderr', new_callable=io.StringIO) as output:
             with self.assertRaises(SystemExit) as error:
                 web.main()

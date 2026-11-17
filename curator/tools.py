@@ -230,6 +230,22 @@ def processing_environment(kind, settings):
     return env
 
 
+def topaz_encoding(settings):
+    mode=settings.get('topaz_rate_control') or 'quality'
+    if mode not in {'quality','bitrate'}:raise ValueError('Choose quality or bitrate encoding')
+    value=settings.get('topaz_quality',65) if mode=='quality' else settings.get('topaz_bitrate_mbps')
+    try:
+        if isinstance(value,bool):raise ValueError()
+        value=float(value)
+        import math
+        if not math.isfinite(value) or not (1<=value<=100 if mode=='quality' else .1<=value<=500):raise ValueError()
+    except (TypeError,ValueError):
+        raise ValueError('Topaz quality must be 1–100' if mode=='quality' else 'Enter a Topaz bitrate target between 0.1 and 500 Mbps') from None
+    if mode=='quality':return ['-q:v',format(value,'g')]
+    bitrate=round(value*1_000_000)
+    return ['-b:v',str(bitrate),'-maxrate',str(bitrate),'-bufsize',str(bitrate*2)]
+
+
 def command(kind, source, output, settings):
     if kind == 'optimize':
         preset = settings.get('handbrake_preset')
@@ -253,7 +269,7 @@ def command(kind, source, output, settings):
         apple = ['-tag:v', 'hvc1', '-movflags', '+faststart'] if Path(output).suffix.lower() in {'.mov', '.mp4', '.m4v'} else []
         return [executable(settings, 'topaz'), '-nostdin', '-n', '-i', str(source), '-map', '0:v:0',
                 '-map', '0:a?', '-map', '0:s?', '-vf', vf, '-c:v', 'hevc_videotoolbox',
-                '-allow_sw', '1', '-q:v', '65', '-c:a', 'copy', '-c:s', 'copy', *apple, str(output)]
+                '-allow_sw', '1', *topaz_encoding(settings), '-c:a', 'copy', '-c:s', 'copy', *apple, str(output)]
     raise ValueError('This task does not use a video processing tool')
 
 
@@ -265,19 +281,52 @@ def quicktime_remux(source, output, settings):
 
 
 def frames(path, folder, media, settings):
+    folder = Path(folder)
+    if folder.is_symlink():
+        raise ValueError('Frame cache must not be a symlink')
     folder.mkdir(parents=True, exist_ok=True)
+    manifest = folder / '.manifest.json'
+    targets = [folder / f'{index}.jpg' for index in range(4)]
+    for target in [manifest, *targets]:
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError('Frame cache must contain regular files')
+    identity = dict(version=1, path=str(Path(path).resolve()), fingerprint=fingerprint(path),
+                    duration_seconds=media['duration_seconds'])
+    try:
+        valid = json.loads(manifest.read_text()) == identity
+    except (ValueError, OSError):
+        valid = False
+    if not valid:
+        for target in [manifest, *targets]:
+            target.unlink(missing_ok=True)
     result = []
     for index, fraction in enumerate((.15, .4, .65, .85)):
-        target = folder / f'{index}.jpg'
+        target = targets[index]
+        if target.exists() and not target.stat().st_size:
+            target.unlink()
         if not target.exists():
             cmd = [executable(settings, 'ffmpeg'), '-nostdin', '-n', '-ss', str(media['duration_seconds'] * fraction),
                    '-i', str(path), '-frames:v', '1', '-vf', 'scale=640:-2', str(target)]
             run = subprocess.run(cmd, capture_output=True, timeout=60)
-            if run.returncode or not target.is_file() or not target.stat().st_size:
+            if run.returncode or target.is_symlink() or not target.is_file() or not target.stat().st_size:
                 continue
         result.append(dict(file=target.name, seconds=round(media['duration_seconds'] * fraction, 1)))
     if not result:
+        manifest.unlink(missing_ok=True)
         raise ValueError('Could not extract candidate frames')
+    if fingerprint(path) != identity['fingerprint']:
+        manifest.unlink(missing_ok=True)
+        raise ValueError('Input changed during frame extraction; retry the comparison')
+    if len(result) == 4:
+        temporary = folder / f'.manifest-{uuid.uuid4().hex}.tmp'
+        try:
+            with temporary.open('x') as output:
+                json.dump(identity, output)
+            temporary.replace(manifest)
+        finally:
+            temporary.unlink(missing_ok=True)
+    else:
+        manifest.unlink(missing_ok=True)
     return result
 
 

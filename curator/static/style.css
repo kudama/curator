@@ -94,3 +94,7 @@
 [data-theme="cyberpunk"] .title-card,[data-theme="cyberpunk"] .task-row,[data-theme="cyberpunk"] .stats{background:var(--panel);border-color:var(--line)}
 [data-theme="cyberpunk"] .title-card-heading,[data-theme="cyberpunk"] .task-icon{background:#1c2540}
 [data-theme="cyberpunk"] pre,[data-theme="cyberpunk"] .editor-image,[data-theme="cyberpunk"] .artwork-preview{background:#0b1021}
+
+.bulk-group-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.bulk-group-actions button{font-size:12px}.bulk-file-row{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center}.bulk-file-row>input{width:auto;accent-color:var(--accent)}.bulk-review-card{border-bottom:1px solid var(--line);padding:16px 0}.bulk-review-card .comparison img{max-height:180px;object-fit:contain}
+
+.file-group-heading{flex-wrap:wrap}.file-group-heading>h3{flex:1 1 180px;min-width:140px}.file-group-heading>.bulk-group-actions{flex:1 0 100%}.bulk-review-card .comparison>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.bulk-review-card .comparison strong{grid-column:1/-1}.bulk-review-card .comparison img{width:100%;height:auto;max-height:120px}

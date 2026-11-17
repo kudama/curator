@@ -92,3 +92,7 @@ For optional service use after login on a separate Mac, see [Foundry single-host
 See [troubleshooting and recovery](docs/troubleshooting.md), [architecture](docs/architecture.md), [validation](docs/validation.md), [release review](docs/release-readiness.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Report reproducible bugs in [GitHub Issues](https://github.com/kudama/curator/issues), using synthetic media and sanitized details.
 
 MIT licensed. Curator is independent of Plex, HandBrake, Topaz, Ollama, Mage, and Kometa.
+
+## Batch review and retained originals
+
+Use task-group **Select all** and **Review selected** for large upscale/optimization result sets. Comparisons are prepared before separately confirmed, sequential publication. **Clean up originals** previews receipt-backed retained backups and requires selected permanent-deletion confirmation. Output settings support quality or bitrate targets, with size/Mbps warnings in Review. See [workflow and recovery details](docs/batch-review-cleanup.md).
