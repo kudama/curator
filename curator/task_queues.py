@@ -1,5 +1,6 @@
 """Bounded task-type workers over a shared, persistent waiting queue."""
 import threading
+import time
 from .queue_workflows import SourceBusy
 
 
@@ -34,13 +35,14 @@ class TaskQueues:
                          paused=bool(self.store.get('settings',self.pause_key(None,kind),False)),limit=self.queue_limit(kind),
                          waiting=sum(t['kind']==kind and t['status']=='queued' and not t.get('deleted') for t in tasks),
                          running=sum(t['kind']==kind and t['status']=='running' and not t.get('deleted') for t in tasks),
-                         waiting_for_source=any(w.get('waiting_for_source') for w in self.queue_workers.get(kind,{}).values()))
+                         waiting_for_source=any(w.get('waiting_for_source') for w in self.queue_workers.get(kind,{}).values()),waiting_for_retry=any(w.get('waiting_for_retry') for w in self.queue_workers.get(kind,{}).values()))
                     for kind in sorted(kinds)]
 
     def start(self,library=None,kind=None):
         if library is not None:self.library(library)
         files=library is None and (kind is None or kind=='file_operations') and any(j['phase']=='waiting' for j in self.file_jobs())
         if kind=='file_operations':
+            self.create_run_receipt(library,kind)
             self.start_file_queue(resume=True);return dict(started=['file_operations'],busy=[])
         threads=[];started=[];busy=[]
         with self.lock:
@@ -62,6 +64,7 @@ class TaskQueues:
                         wake=threading.Event();workers[wake]=dict(library=library,wake=wake)
                         threads.append((library,task_kind,wake))
                     self.active.add('queue:'+task_kind);started.append(task_kind)
+        if started or files:self.create_run_receipt(library,kind)
         for scope,task_kind,wake in threads:
             threading.Thread(target=self._run,args=(scope,task_kind,wake),daemon=True).start()
         if files:self.start_file_queue(resume=True);started.append('file_operations')
@@ -84,6 +87,7 @@ class TaskQueues:
 
     def next_waiting(self,library,kind):
         for task in self.waiting_tasks(library,kind=kind):
+            if (task.get('retry_at') or 0)>time.time():continue
             try:self.check_busy_sources(task)
             except SourceBusy:continue
             return task
@@ -104,7 +108,9 @@ class TaskQueues:
                     if not waiting:
                         self._release_queue_worker(library,kind,wake);return
                     task=self.next_waiting(library,kind) if kind is not None else waiting[0]
-                    if kind is not None:worker['waiting_for_source']=task is None
+                    if kind is not None:
+                        worker['waiting_for_retry']=task is None and any((t.get('retry_at') or 0)>time.time() for t in waiting)
+                        worker['waiting_for_source']=task is None and not worker['waiting_for_retry']
                 if task is None:
                     wake.wait(.2);wake.clear();continue
                 result=self._execute(task['id'],queue_head=True,**({'queue_kind':kind,'queue_library':library,'queue_wake':wake} if kind is not None else {}))
@@ -118,3 +124,4 @@ class TaskQueues:
             workers.pop(wake,None)
             if not workers:
                 self.queue_workers.pop(kind,None);self.active.discard('queue:'+kind)
+                with self.store.transaction():self.refresh_run_receipts()

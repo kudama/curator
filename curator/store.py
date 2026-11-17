@@ -4,6 +4,7 @@ import fcntl
 import os
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +68,7 @@ class Store:
     def put(self, table, key, value):
         self._table(table)
         if table=='tasks' and value.get('status')=='queued' and self.get('tasks',key,{}).get('status')!='queued':
+            value['queue_attempt']=uuid.uuid4().hex;value['queued_at']=now()
             order=self.get('settings','queue-order:global')
             if order is not None:
                 queued={t['id'] for t in self.all('tasks') if t['status']=='queued' and not t.get('deleted')}

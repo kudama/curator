@@ -98,5 +98,6 @@ class UniversalQueue(unittest.TestCase):
             self.store.put('settings','queue-order:one',{'ids':['c','a']})
             self.store.put('settings','queue-paused:two:optimize',True)
         fresh=Service(self.store)
-        self.assertEqual([t['id'] for t in fresh.waiting_tasks()],['c','a','b'])
+        # The other library's head was submitted before the manually promoted c.
+        self.assertEqual([t['id'] for t in fresh.waiting_tasks()],['b','c','a'])
         self.assertTrue(self.store.get('settings',fresh.pause_key(None,'optimize')));self.assertFalse(fresh.queue_running())

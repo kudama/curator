@@ -5,6 +5,7 @@ const workbench=fs.readFileSync(path.join(__dirname,'../curator/static/workbench
 class Element{
  constructor(tag,text='',cls=''){Object.assign(this,{tag,textContent:text,className:cls,children:[],disabled:false,hidden:false});}
  append(...children){this.children.push(...children);}
+ prepend(...children){this.children.unshift(...children);}
  replaceChildren(...children){this.children=children;}
  setAttribute(){}
  querySelectorAll(tag){return descendants(this).filter(e=>e!==this&&e.tag===tag);}
@@ -18,7 +19,7 @@ function setup(kind='optimize'){
  const context=vm.createContext({state:{tasks:[task],assets:[asset],config:{}},openedTask:null,inspectorMode:null,selectedAssetId:null,selected:new Set(),URLSearchParams,Promise,encodeURIComponent,setTimeout,clearTimeout,
   $:id=>{if(!elements.has(id))elements.set(id,node('div'));return elements.get(id);},node,
   button:(text,fn,cls)=>{const e=node('button',text,cls);e.onclick=fn;return e;},
-  prepareInspector:()=>true,inspectorOpen:()=>open,showInspector:()=>{open=true;},closeInspector:()=>{open=false;context.openedTask=null;},
+  prepareInspector:()=>true,featureAvailable:()=>false,inspectorOpen:()=>open,showInspector:()=>{open=true;},closeInspector:()=>{open=false;context.openedTask=null;},
   taskStatusLabel:s=>s,progressView:()=>node('div'),recommendation:()=>node('div'),taskControls:()=>node('div'),needsQuickTimeRepair:()=>false,
   api:async(endpoint,data)=>{calls.push({endpoint,data});if(endpoint==='handbrake/presets')return {presets:[],executable:'fixture'};return {};},
   refresh:async()=>{},toast:()=>{},confirm:()=>{throw Error('Unexpected confirmation');},portraitVideo:()=>false,
@@ -30,7 +31,7 @@ function setup(kind='optimize'){
 test('review loads comparison automatically and waits for all images before one-click publish',async()=>{
  for(const kind of ['optimize','upscale']){
   const h=setup(kind),comparison=deferred(),publication=deferred();h.context.api=async(endpoint,data)=>{h.calls.push({endpoint,data});return endpoint==='comparison'?comparison.promise:publication.promise;};
-  const opening=h.run("openTask('one')");assert.equal(h.calls.length,1);assert.equal(h.calls[0].endpoint,'comparison');assert.equal(h.publish().disabled,true);await h.publish().onclick();assert.equal(h.calls.length,1);
+  const opening=h.run("openTask('one')");assert.equal(h.elements.get('task-detail').children[0].tag,'section');assert.equal(h.calls.length,1);assert.equal(h.calls[0].endpoint,'comparison');assert.equal(h.publish().disabled,true);await h.publish().onclick();assert.equal(h.calls.length,1);
   comparison.resolve({});await tick();assert.equal(h.images.length,8);assert.equal(h.publish().disabled,true);
   for(const image of h.images.slice(0,7))image.onload();await tick();assert.equal(h.publish().disabled,true);h.images[7].onload();await opening;
   assert.equal(h.publish().disabled,false);assert.equal(h.all().some(e=>e.textContent==='Refresh preset list'),false);
