@@ -45,7 +45,7 @@ test('preserves review state, selection and catalog data without a backend reque
 });
 
 test('does nothing outside folder views or without a library',()=>{
- for(const overrides of [{screen:'processing'},{screen:'history'},{activeGrouping:'movie'},{activeGrouping:'task'},{libraryId:null}]){
+ for(const overrides of [{screen:'processing'},{screen:'history'},{activeGrouping:'movie'},{libraryId:null}]){
   const w=workspace(overrides);w.run('collapseAllFolders()');
   assert.ok(w.groups.every(group=>group.open));assert.equal(w.run('collapsedGroups.size'),0);
  }
@@ -54,4 +54,15 @@ test('does nothing outside folder views or without a library',()=>{
 test('handles catalogs whose folder list has not yet been populated',()=>{
  const w=workspace({state:{assets:[{library:'one',plex_path:'/media/file.mkv'}]}});
  w.run('collapseAllFolders()');assert.equal(w.run("collapsedGroups.has('one:folder:/media')"),true);
+});
+
+test('task groups collapse only this library and preserve folder state and selection',()=>{
+ const w=workspace({activeGrouping:'task',state:{tasks:[{library:'one',kind:'upscale'},{library:'one',kind:'metadata'},{library:'two',kind:'optimize'}]}});
+ w.run('collapseAllFolders()');assert.ok(w.groups.every(g=>!g.open));
+ assert.equal(w.run("rememberGroup({},'one:task:upscale').open"),false);
+ assert.equal(w.run("rememberGroup({},'one:task:metadata').open"),false);
+ assert.equal(w.run("rememberGroup({},'one:task:other').open"),false);
+ assert.equal(w.run("rememberGroup({},'two:task:optimize').open"),true);
+ assert.equal(w.run("rememberGroup({},'one:folder:folder-one').open"),true);
+ assert.equal(w.context.selectedAssetId,'selected-file');assert.equal(w.context.inspectorDirty,true);
 });
