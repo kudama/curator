@@ -119,7 +119,7 @@ function initWorkbench(){
  const reviewKindControl=$('review-kind');if(reviewKindControl)reviewKindControl.onchange=e=>{reviewKind=e.target.value;selected.clear();render();};
  $('history-status').onchange=e=>{historyStatus=e.target.value;render();};
  const fileLibrary=$('file-management-library');if(fileLibrary)fileLibrary.onchange=e=>{if(!chooseFileManagementLibrary(e.target.value))e.target.value=libraryId;};
- const mageSave=$('manager-mage-save');if(mageSave)mageSave.onclick=()=>run(async()=>{await api('mage/key',{key:$('manager-mage-key').value});$('manager-mage-key').value='';await refresh();$('manager-mage-status').textContent=state.config.mage_configured?'Mage connection saved.':'Mage connection removed.';});
+ setupMageSettings();$('settings-style-guides').onclick=()=>{$('config-dialog').close();openStyleGuideManager();};
  const notifications=$('enable-run-notifications');if(notifications)notifications.onclick=()=>run(enableRunNotifications);
  const restart=$('restart-curator');if(restart)restart.onclick=restartCurator;
  window.addEventListener('beforeunload',e=>{if(inspectorDirty){e.preventDefault();e.returnValue='';}});

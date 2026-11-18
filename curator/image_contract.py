@@ -44,7 +44,7 @@ def editor_png(encoded, ratio=None, logo=False):
         raise ValueError('Invalid PNG filter')
     if logo:
         if channels!=4:raise ValueError('A logo needs a transparent PNG background')
-        previous=bytearray(stride);transparent=False
+        previous=bytearray(stride);transparent=False;visible=False
         for y in range(height):
             offset=y*(stride+1);method=raw[offset];row=bytearray(raw[offset+1:offset+1+stride])
             if method>4:raise ValueError('Invalid PNG filter')
@@ -59,6 +59,8 @@ def editor_png(encoded, ratio=None, logo=False):
                 else:predict=0
                 row[i]=(row[i]+predict)&255
             if any(row[i]<255 for i in range(3,stride,4)):transparent=True
+            if any(row[i]>0 for i in range(3,stride,4)):visible=True
             previous=row
+        if not visible:raise ValueError('This image has no visible pixels; choose a font or artwork that renders visible lettering')
         if not transparent:raise ValueError('The logo is opaque; choose artwork with a transparent background')
     return dict(width=width,height=height,alpha=color==6)

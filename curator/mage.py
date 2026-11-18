@@ -71,29 +71,26 @@ class Mage:
 
     def discover(self):
         catalog = self.get('/architectures')
-        mango = next((r for r in catalog.get('architectures', []) if isinstance(r, dict) and r.get('id') == 'mango'), None)
-        if not mango:
-            raise ValueError('Mage no longer advertises the Mango architecture')
-        properties = mango.get('input_schema', {}).get('properties', {})
-        models = properties.get('model_id', {}).get('enum', [])
-        if not isinstance(models, list) or not all(isinstance(v, str) for v in models):
-            raise ValueError('Mage returned invalid model options')
+        from .mage_catalog import models
+        catalog_models=models(catalog)
+        mango = next((r for r in catalog.get('architectures', []) if isinstance(r,dict) and r.get('id')=='mango'), {})
+        model_ids=[r['id'] for r in catalog_models]
         balance = None
         balance_status = 'unavailable'
         try:
             value = self.get('/account').get('gems', {}).get('balance')
-            if type(value) in (int, float) and value >= 0:
+            if type(value) in (int, float) and __import__('math').isfinite(value) and value >= 0:
                 balance, balance_status = value, 'available'
         except ValueError:
             pass  # Balance is optional; discovery and manual artwork remain usable.
-        return dict(models=models, default_model=DEFAULT_MODEL if DEFAULT_MODEL in models else None,
+        return dict(models=model_ids, model_catalog=catalog_models, default_model=DEFAULT_MODEL if DEFAULT_MODEL in model_ids else None,
                     options=mango.get('options', {}), options_by_model=mango.get('options_by_model', {}),
                     balance=balance, balance_status=balance_status, generation_enabled=False,
                     reason='Paid generation requires a saved plan, usable pre-submit estimate and explicit consent. Exact catalog defaults use catalog pricing. Other configurations require a usable request-specific MCP estimate; unsupported schemas stay blocked.')
 
     def _job_request(self, method, path, body=None, idempotency_key=None):
         import re
-        allowed = method == 'POST' and path == '/mango/generate' or re.fullmatch(r'/requests/[a-f0-9-]{36}/' + ('status' if method == 'GET' else 'cancel'), path)
+        allowed = method == 'POST' and re.fullmatch(r'/[a-z][a-z0-9_-]{0,60}/generate',path) or re.fullmatch(r'/requests/[a-f0-9-]{36}/' + ('status' if method == 'GET' else 'cancel'), path)
         if not allowed or method not in {'GET','POST'}:
             raise ValueError('Unsupported Mage job operation')
         if not self.configured():raise ValueError('Configure a Mage API key first')
@@ -125,35 +122,27 @@ class Mage:
 
     def quote(self, settings, references=0, reference_images=None):
         catalog=self.get('/architectures')
-        mango=next((r for r in catalog.get('architectures',[]) if r.get('id')=='mango'),None)
-        if not mango:raise ValueError('Mango is unavailable')
+        from .mage_catalog import resolve,request_body
+        mango,row=resolve(catalog,settings['model'])
+        if references:
+            if not isinstance(reference_images,list) or len(reference_images)!=references:
+                raise ValueError('No verified pre-submit price without the exact reference images')
+            if any(not isinstance(image,str) or len(image)>4*1024*1024 for image in reference_images):
+                raise ValueError('Mage pricing references must be at most 3 MiB each')
         properties=mango.get('input_schema',{}).get('properties',{})
-        model=settings['model'];body={'prompt':settings['prompt'],'model_id':model,'aspect_ratio':settings['ratio'],'resolution':settings['resolution']}
-        for field,value in body.items():
-            option=mango.get('options_by_model',{}).get(model,{}).get(field) or mango.get('options',{}).get(field) or properties.get(field,{}).get('enum')
-            if field!='prompt' and (not isinstance(option,list) or value not in option):
-                raise ValueError('Mage does not advertise this model/option: '+field)
-        if settings.get('negative_prompt'):
-            if 'negative_prompt' not in properties:raise ValueError('Selected model has no documented negative prompt field')
-            body['negative_prompt']=settings['negative_prompt']
+        body=request_body(mango,row,settings,reference_images or [])
         defaults=dict(mango.get('base_config',{}))
         for field,value in properties.items():
             if isinstance(value,dict) and 'default' in value:defaults.setdefault(field,value['default'])
         # The only documented pre-submit price is for exact architecture defaults.
         # Never apply it to Mango 3 merely because Mango 4 is the API default.
-        if references or '@' in settings['prompt'] or any(defaults.get(field)!=body[field] for field in ('model_id','aspect_ratio','resolution')) or settings.get('negative_prompt'):
-            if references:
-                if not isinstance(reference_images,list) or len(reference_images)!=references:
-                    raise ValueError('No verified pre-submit price without the exact reference images')
-                if any(not isinstance(image,str) or len(image)>4*1024*1024 for image in reference_images):
-                    raise ValueError('Mage pricing references must be at most 3 MiB each')
-                body['image']=reference_images[0]
-                if references>1:body['additional_images']=reference_images[1:]
+        if references or '@' in settings['prompt'] or any(defaults.get(field)!=value for field,value in body.items() if field!='prompt'):
             from .mage_mcp import MagePricing
-            return MagePricing(self.job_credential(),self.opener).quote(body)
+            pricing=MagePricing(self.job_credential(),self.opener)
+            return pricing.quote(body) if row['architecture']=='mango' else pricing.quote(body,row['architecture'])
         gems=mango.get('gems')
         if type(gems) not in (int,float) or gems<0 or not __import__('math').isfinite(gems):raise ValueError('Mage has no usable pre-submit price')
-        return {'gems':gems,'body':body,'basis':'Live catalog price for exact architecture defaults; estimate, not a provider-enforced spend cap'}
+        return {'gems':gems,'body':body,**({'architecture':row['architecture']} if row['architecture']!='mango' else {}),'basis':'Live catalog price for exact architecture defaults; estimate, not a provider-enforced spend cap'}
 
     def _retry_job(self, method, path, body=None, key=None):
         import time
@@ -165,8 +154,10 @@ class Mage:
                 if attempt==2 or not transient:raise
                 time.sleep(2**attempt)
 
-    def submit(self, body, key):
-        return self._retry_job('POST','/mango/generate',body,key)
+    def submit(self, body, key, architecture='mango'):
+        import re
+        if not isinstance(architecture,str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,60}',architecture):raise ValueError('Invalid Mage image architecture')
+        return self._retry_job('POST','/'+architecture+'/generate',body,key)
 
     def status(self, request_id):
         return self._retry_job('GET','/requests/'+request_id+'/status')

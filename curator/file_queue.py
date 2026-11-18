@@ -41,14 +41,15 @@ class FileQueueWorkflows:
         return bool(self.store.get('settings',self.pause_key(None,'file_operations'),False))
 
     def queue_file_operation(self,operation,payload,background=False):
-        if operation not in {'publish','cleanup','restore_cleanup','repair','file_task','restore_rename','archive_artwork','archive_portrait'}:
+        if operation not in {'publish','cleanup','restore_cleanup','repair','file_task','restore_rename','archive_artwork','archive_portrait','local_artwork'}:
             raise ValueError('Unsupported file operation')
         task=self.get_task(payload['task']) if 'task' in payload else None
+        local=operation=='local_artwork'
         profile=self.store.get('settings','cast_profiles',{}).get(payload.get('profile')) if operation=='archive_portrait' else None
         if operation=='archive_portrait' and (not profile or profile['revision']!=payload.get('revision')):raise ValueError('Person portrait changed')
         job=dict(id='file-operation:'+uuid.uuid4().hex,record_type='file_operation',operation=operation,payload=payload,
-                 library=task['library'] if task else None if profile else self.cleanup_receipt(payload['receipt'])['library'],
-                 title=task.get('title',operation) if task else profile['name'] if profile else 'Clean up originals',phase='waiting',synchronous=not background,created=now(),updated=now())
+                 library=payload.get('library') if local else task['library'] if task else None if profile else self.cleanup_receipt(payload['receipt'])['library'],
+                 title=payload['title'] if local else task.get('title',operation) if task else profile['name'] if profile else 'Clean up originals',phase='waiting',synchronous=not background,created=now(),updated=now())
         with self.store.transaction():self.store.put('settings',job['id'],job)
         self.start_file_queue()
         if background:return job
@@ -123,7 +124,8 @@ class FileQueueWorkflows:
 
     def _execute_file_operation(self,job):
         payload=job['payload'];operation=job['operation']
-        if operation=='publish':
+        if operation=='local_artwork':job['result']=self.render_local_artwork(payload)
+        elif operation=='publish':
             task=self.get_task(payload['task'])
             if task['version']!=payload['version'] or task['status']!='publishing':raise ValueError('Publication task changed while waiting')
             asset=self.asset(task,check=task['kind'] not in {'artwork','portrait'})

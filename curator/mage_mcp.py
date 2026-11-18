@@ -74,10 +74,10 @@ class MagePricing:
         if not isinstance(value,dict):raise ValueError('Mage pricing returned an invalid result')
         return value
 
-    def quote(self,body):
-        result=self.call('estimate_cost',dict(architecture='mango',config=body))
+    def quote(self,body,architecture='mango'):
+        result=self.call('estimate_cost',dict(architecture=architecture,config=body))
         # Accept explicitly named Gems fields, never a generic currency/cost number.
         price=result.get('estimated_gems',result.get('gems',result.get('total_gems')))
         if type(price) not in (int,float) or price<0 or not __import__('math').isfinite(price):
             raise ValueError('Mage returned no usable request-specific Gems estimate')
-        return dict(gems=price,body=body,basis='Mage estimate_cost for this exact request; estimate, not a provider-enforced cap')
+        return dict(gems=price,body=body,**({'architecture':architecture} if architecture!='mango' else {}),basis='Mage estimate_cost for this exact request; estimate, not a provider-enforced cap')

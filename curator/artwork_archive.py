@@ -72,11 +72,11 @@ class ArtworkArchives:
             kind=plan['kind'];types={'cover':'Posters','background':'Backgrounds','square':'Squares','logo':'Logos'}
             if kind not in types:raise ValueError('Unsupported artwork archive type')
             identity=hashlib.sha256(json.dumps([asset['library'],asset['rating_key']]).encode()).hexdigest()[:12]
-            target=directory(root,['Collections' if asset.get('artwork_target')=='collection' else 'Movies',types[kind],readable(task['title'])+'--'+identity])
+            target=directory(root,['Cast']) if asset.get('artwork_target')=='person' else directory(root,['Collections' if asset.get('artwork_target')=='collection' else 'Movies',types[kind],readable(task['title'])+'--'+identity])
             directory(root,['Cast'])
             for owner in ('Movies','Collections'):
                 for folder in types.values():directory(root,[owner,folder])
-            files={};photos={};prefix=readable(task['id'])+'-v'+str(task['version'])
+            files={};photos={};prefix=(readable(task['title'])+'--'+asset['profile_id'][:12]+'-' if asset.get('artwork_target')=='person' else '')+readable(task['id'])+'-v'+str(task['version'])
             sources=[(role,plan.get(role)) for role in ('candidate','source_image','original')]+[('reference-'+str(i+1),photo) for i,photo in enumerate(plan.get('reference_photos',[]))]
             for role,photo in sources:
                 if not photo:continue
@@ -85,7 +85,7 @@ class ArtworkArchives:
                 data=self.folder_image(photo);suffix='.png' if data.startswith(b'\x89PNG') else '.jpg'
                 filename=prefix+'-'+role+'-'+hashlib.sha256(data).hexdigest()[:12]+suffix
                 digest=retain(target/filename,data);files[role]=dict(file=filename,sha256=digest);photos[photo]=files[role]
-            manifest=dict(version=1,task=task['id'],task_version=task['version'],target=dict(library=asset['library'],rating_key=asset['rating_key'],kind=asset.get('artwork_target','media'),title=task['title']),artwork=kind,files=files,style=plan.get('style'),settings=plan.get('settings'),references=plan.get('reference_photos',[]),billing=(task.get('provider') or {}).get('billing'),created=task.get('created'))
+            manifest=dict(version=1,task=task['id'],task_version=task['version'],target=dict(library=asset['library'],rating_key=asset['rating_key'],kind=asset.get('artwork_target','media'),title=task['title']),artwork=kind,files=files,derivative=plan.get('local_derivative'),style=plan.get('style'),settings=plan.get('settings'),references=plan.get('reference_photos',[]),billing=(task.get('provider') or {}).get('billing'),created=task.get('created'))
             name=prefix+'-manifest.json'
             retain(target/name,json.dumps(manifest,ensure_ascii=False,sort_keys=True,indent=2).encode())
             record=dict(root=str(root),directory=str(target.relative_to(root)),manifest=name)
@@ -117,6 +117,13 @@ class ArtworkArchives:
             filename=readable(profile['name'])+'--'+profile_id[:12]+'-v'+str(revision)+'-'+hashlib.sha256(data).hexdigest()[:12]+suffix
             retain(target/filename,data)
             manifest=dict(version=1,person=profile_id,name=profile['name'],revision=revision,photo=filename,sha256=hashlib.sha256(data).hexdigest(),identity=profile.get('identity'))
+            derivative=self.store.get('settings','local-artifact:'+profile['photo'])
+            if derivative:
+                manifest['derivative']=derivative
+                if derivative.get('original') and derivative['original']!=profile['photo']:
+                    original=self.folder_image(derivative['original']);suffix='.png' if original.startswith(b'\x89PNG') else '.jpg'
+                    original_name=filename.rsplit('.',1)[0]+'-original'+suffix
+                    retain(target/original_name,original);manifest['original']=original_name
             retain(target/(filename+'.json'),json.dumps(manifest,ensure_ascii=False,sort_keys=True,indent=2).encode())
             with self.store.transaction():
                 latest=self.store.get('settings','cast_profiles',{})

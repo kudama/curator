@@ -21,7 +21,7 @@ class ArtworkManagers(unittest.TestCase):
     def test_correct_shapes_and_real_alpha_logo_required(self):
         self.assertEqual(editor_png(png(20,30),'2:3')['width'],20)
         self.assertEqual(editor_png(png(16,9),'16:9')['height'],9)
-        self.assertTrue(editor_png(png(10,5,0),logo=True)['alpha'])
+        self.assertTrue(editor_png(png(10,5,128),logo=True)['alpha'])
         for image,ratio,logo in [(png(10,10),'2:3',False),(png(10,5),None,True),('bad',None,False)]:
             with self.subTest(ratio=ratio,logo=logo),self.assertRaises(ValueError):editor_png(image,ratio,logo)
 

@@ -23,7 +23,7 @@ class MageDiscovery(unittest.TestCase):
 
     def catalog(self):
         return {'architectures': [{'id': 'mango', 'input_schema': {'properties': {
-            'model_id': {'enum': ['mango-v3', 'mango-v4']}}},
+            'model_id': {'enum': ['mango-v3', 'mango-v4']},'prompt':{'type':'string'},'aspect_ratio':{'enum':['4:5','16:9']},'resolution':{'enum':['1K','2K']}}},
             'options_by_model': {'mango-v3': {'resolution': ['1K','2K']}}}]}
 
     def test_discovery_is_read_only_and_returns_live_models_and_optional_balance(self):

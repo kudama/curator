@@ -23,7 +23,7 @@ def resolve_style(preset, item, profile, kind, overrides):
     result = dict(model=preset.get('model') or 'mango-v3', ratio=ratio,
                   resolution=preset.get('resolution') or '2K', negative_prompt=preset.get('negative_prompt',''))
     result.update(overrides)
-    if result['ratio'] not in RATIOS or result['resolution'] not in {'1K','2K','3K','4K'}:
+    if result['ratio'] not in RATIOS or not __import__('re').fullmatch(r'[A-Za-z0-9_.-]{0,40}',result['resolution']):
         raise ValueError('Choose a supported ratio and resolution')
     title, summary = item.get('title',''), item.get('summary','')
     result.setdefault('prompt', f"Create {kind} artwork for {title}. Context: {summary}\n{preset['details']}\nBackground: {preset['background']}. Typography: {preset['typography']}\nTarget ratio: {result['ratio']}; resolution: {result['resolution']}. Preserve reference proportions.")
@@ -58,21 +58,28 @@ class ArtworkWorkflows:
             if identity in seen:
                 raise ValueError('Select each Plex title only once')
             seen.add(identity)
-            client = self.checked_client(self.library(asset['library']))
-            item = client.item(asset['rating_key'])
+            person=asset.get('artwork_target')=='person'
+            if person and kind!='square':raise ValueError('Person portraits use square artwork')
+            client = None if person else self.checked_client(self.library(asset['library']))
+            item = asset['item'] if person else client.item(asset['rating_key'])
+            profile=self.store.get('settings','cast_profiles',{}).get(asset.get('profile_id')) if person else None
+            if person and not profile:raise ValueError('Person no longer exists')
             if str(item.get('ratingKey')) != asset['rating_key']:
                 raise ValueError('Plex title identity changed; rescan before planning')
             plan = resolve_style(preset, item, self.library(asset['library'])['profile'], kind, overrides or {})
             plan.update(assets=[aid], rating_key=asset['rating_key'], reference_photos=reference_photos, target=dict(guid=item.get('guid'),paths=sorted(part.get('file','') for media in item.get('Media',[]) for part in media.get('Part',[]))))
+            if person:plan.update(profile_id=asset['profile_id'],profile_revision=profile['revision'],original=self._folder_photo(encoded=base64.b64encode(self.cast_profile_image(asset['profile_id'])).decode()) if profile.get('photo') else None)
             task_kind, status = 'mage_generation', 'recommendation'
             if aid in images:
                 candidate = self._folder_photo(encoded=images[aid])
                 if not candidate:
                     raise ValueError('Choose an image for each imported title')
-                original = self._folder_photo(encoded=base64.b64encode(client.image(asset['rating_key'],kind)).decode()) if Plex.artwork_path(item,kind) else None
+                original = plan.get('original') if person else self._folder_photo(encoded=base64.b64encode(client.image(asset['rating_key'],kind)).decode()) if Plex.artwork_path(item,kind) else None
                 if candidate == original:
                     skipped.append(aid);continue
                 plan.update(candidate=candidate, original=original, source_image=self._folder_photo(encoded=originals[aid]) if aid in originals else candidate)
+                derivative=self.store.get('settings','local-artifact:'+candidate)
+                if derivative:plan['local_derivative']=derivative
                 task_kind, status = 'artwork', 'awaiting_review'
             tasks.append(dict(id=uuid.uuid4().hex, asset=aid, library=asset['library'], title=item.get('title',asset['title']),
                               kind=task_kind, status=status, version=1, reason='Review artwork for this Plex title',
@@ -105,6 +112,11 @@ class ArtworkWorkflows:
         if plan['rating_key'] != asset['rating_key']:
             raise ValueError('Artwork destination changed; create a fresh review')
         image = self.folder_image(plan['candidate'])
+        if asset.get('artwork_target')=='person':
+            from .image_contract import editor_png
+            editor_png(base64.b64encode(image).decode(),'1:1')
+            saved=self.save_portrait(plan['profile_id'],plan['profile_revision'],base64.b64encode(image).decode())
+            self._save(task,status='applied',result={'verified':True,'local_portrait':True,'revision':saved['revision']},error=None);return
         if kind=='logo':
             from .image_contract import editor_png
             editor_png(base64.b64encode(image).decode(),logo=True)
@@ -265,7 +277,7 @@ class ArtworkWorkflows:
             period=self.reserve_mage_budget(receipt)
             for row in receipt['rows']:
                 task=self.get_task(row['id'])
-                task.update(status='queued',approval=task['version'],provider=dict(budget_period=period,idempotency_key=uuid.uuid4().hex,body=row['quote']['body'],estimate=row['quote']['gems'],credential=receipt['credential']))
+                task.update(status='queued',approval=task['version'],provider=dict(budget_period=period,idempotency_key=uuid.uuid4().hex,body=row['quote']['body'],estimate=row['quote']['gems'],credential=receipt['credential'],architecture=row['quote'].get('architecture','mango')))
                 self.store.put('tasks',task['id'],task)
                 self.store.event(task['id'],dict(action='approved Mage prompt and estimated Gems',gems=row['quote']['gems']))
             receipt['used']=True;self.store.put('settings','mage-quote:'+quote_id,receipt)
@@ -285,7 +297,7 @@ class ArtworkWorkflows:
         if not receipt.get('request_id') and not receipt.get('attempted'):
             reference_images=self.mage_references(task)
             fresh=provider.quote(task['plan']['settings'],len(reference_images),reference_images=reference_images) if reference_images else provider.quote(task['plan']['settings'],0)
-            if fresh['gems']>receipt['estimate'] or fresh['body']!=receipt['body']:
+            if fresh['gems']>receipt['estimate'] or fresh['body']!=receipt['body'] or fresh.get('architecture','mango')!=receipt.get('architecture','mango'):
                 raise ValueError('Mage price or supported settings changed; obtain fresh approval')
             # Persist the uncertain-outcome boundary before the first paid request.
             receipt['attempted']=True;self._save(task,provider=receipt)
@@ -294,9 +306,10 @@ class ArtworkWorkflows:
         for photo in task['plan'].get('reference_photos',[]):
             image=self.folder_image(photo);mime='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg'
             references.append('data:'+mime+';base64,'+base64.b64encode(image).decode())
-        if references:body['image']=references[0]
-        if len(references)>1:body['additional_images']=references[1:]
-        request=provider.status(receipt['request_id']) if receipt.get('request_id') else provider.submit(body,receipt['idempotency_key'])
+        if receipt.get('architecture','mango')=='mango':
+            if references:body['image']=references[0]
+            if len(references)>1:body['additional_images']=references[1:]
+        request=provider.status(receipt['request_id']) if receipt.get('request_id') else provider.submit(body,receipt['idempotency_key']) if receipt.get('architecture','mango')=='mango' else provider.submit(body,receipt['idempotency_key'],receipt['architecture'])
         for attempt in range(30):
             import re
             request_id=request.get('request_id')
@@ -308,8 +321,11 @@ class ArtworkWorkflows:
             if request.get('status')=='completed':
                 image=provider.download((request.get('result') or {}).get('url',''))
                 photo=self._folder_photo(encoded=base64.b64encode(image).decode())
-                asset=self.asset(task,check=False);client=self.checked_client(self.library(asset['library']));item=client.item(asset['rating_key']);kind=task['plan']['kind']
-                original=self._folder_photo(encoded=base64.b64encode(client.image(asset['rating_key'],kind)).decode()) if Plex.artwork_path(item,kind) else None
+                asset=self.asset(task,check=False);kind=task['plan']['kind']
+                if asset.get('artwork_target')=='person':original=task['plan'].get('original')
+                else:
+                    client=self.checked_client(self.library(asset['library']));item=client.item(asset['rating_key'])
+                    original=self._folder_photo(encoded=base64.b64encode(client.image(asset['rating_key'],kind)).decode()) if Plex.artwork_path(item,kind) else None
                 task['plan'].update(candidate=photo,source_image=photo,original=original)
                 # Same durable task enters artwork review. Generation never publishes.
                 self._save(task,kind='artwork',status='awaiting_review',result={'generated':True,'billing':receipt['billing']},error=None)

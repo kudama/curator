@@ -31,6 +31,8 @@ from .review_sessions import ReviewSessions
 from .run_readiness import RunReadiness
 from .recovery import RecoveryWorkflows
 from .runs import RunSummaries
+from .artwork_settings import ArtworkSettings
+from .local_artwork import LocalArtwork
 from .metadata_workflows import MetadataWorkflows
 from .artwork_targets import ArtworkTargets
 from .mage_budget import MageBudgets, gems
@@ -42,7 +44,7 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
+class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
@@ -83,7 +85,7 @@ class Service(ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, F
         allowed = {'plex_url', 'plex_token', 'ffprobe', 'ffmpeg', 'topaz', 'handbrake',
                    'handbrake_preset', 'handbrake_preset_import', 'topaz_filter', 'archive_root', 'vision_model',
                    'max_mbps_1080', 'max_mbps_4k', 'branding_presets',
-                   'topaz_rate_control','topaz_quality','topaz_bitrate_mbps','mage_monthly_budget','mage_batch_budget','artwork_archive_path'}
+                   'topaz_rate_control','topaz_quality','topaz_bitrate_mbps','mage_monthly_budget','mage_batch_budget','artwork_archive_path','mage_default_model','mage_default_resolution','magick'}
         if set(data) - allowed:
             raise ValueError('Unknown configuration field')
         if any(not isinstance(v, (str, int, float)) for k, v in data.items() if k != 'branding_presets'):
@@ -95,6 +97,8 @@ class Service(ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, F
             data['artwork_archive_path']=str(path) if path else ''
         for field in ('mage_monthly_budget','mage_batch_budget'):
             if field in data:gems(data[field],field.replace('_',' '))
+        for field in ('mage_default_model','mage_default_resolution'):
+            if field in data and (not isinstance(data[field],str) or len(data[field])>180 or not re.fullmatch(r'[A-Za-z0-9_:.-]*',data[field])):raise ValueError('Choose a valid Mage default')
         cfg = self.config()
         if not data.get('plex_token'):
             data.pop('plex_token', None)
@@ -668,7 +672,7 @@ class Service(ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, F
 
     def cast_profiles(self):
         profiles = self.store.get('settings', 'cast_profiles', {})
-        return [dict(id=key, name=row['name'], revision=row['revision'], has_photo=bool(row.get('photo')))
+        return [dict(id=key, name=row['name'], revision=row['revision'], has_photo=bool(row.get('photo')),archive_error=row.get('archive_error'))
                 for key, row in sorted(profiles.items(), key=lambda pair: pair[1]['name'].casefold())]
 
     def cast_profile_image(self, profile_id):
