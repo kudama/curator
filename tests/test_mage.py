@@ -80,15 +80,21 @@ class MageDiscovery(unittest.TestCase):
             with self.assertRaises(ValueError):self.mage.get(path)
         self.opener.open.assert_not_called()
 
-    def test_quote_rejects_nondefault_price_and_implicit_paid_references(self):
+    def test_quote_uses_exact_mcp_estimate_for_nondefaults_and_references(self):
+        from unittest.mock import patch
         catalog=self.catalog();row=catalog['architectures'][0]
         row.update(gems=42,base_config={'model_id':'mango-v4','aspect_ratio':'4:5','resolution':'2K'},options={'aspect_ratio':['4:5','16:9'],'resolution':['1K','2K']})
         self.mage.get=lambda path:catalog
         settings={'model':'mango-v3','ratio':'4:5','resolution':'2K','prompt':'Synthetic','negative_prompt':''}
-        with self.assertRaisesRegex(ValueError,'No verified'):self.mage.quote(settings)
-        settings['model']='mango-v4';self.assertEqual(self.mage.quote(settings)['gems'],42)
-        settings['prompt']='@person portrait'
-        with self.assertRaisesRegex(ValueError,'No verified'):self.mage.quote(settings)
+        with patch('curator.mage_mcp.MagePricing') as pricing:
+            pricing.return_value.quote.return_value={'gems':17,'body':{},'basis':'fixture'}
+            self.assertEqual(self.mage.quote(settings)['gems'],17)
+            self.assertEqual(pricing.return_value.quote.call_args.args[0]['model_id'],'mango-v3')
+            settings['model']='mango-v4';self.assertEqual(self.mage.quote(settings)['gems'],42)
+            with self.assertRaisesRegex(ValueError,'exact reference'):self.mage.quote(settings,1)
+            image='data:image/png;base64,synthetic'
+            self.mage.quote(settings,1,[image])
+            self.assertEqual(pricing.return_value.quote.call_args.args[0]['image'],image)
         self.opener.open.assert_not_called()
 
     def test_asset_download_never_uses_api_key_or_follows_unverified_hosts(self):

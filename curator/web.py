@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
-        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'),
+        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'), '/metadata-manager.js': ('metadata-manager.js', 'application/javascript'), '/artwork-manager.js': ('artwork-manager.js', 'application/javascript'),
                   '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/file-management.js': ('file-management.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
@@ -132,6 +132,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/review-session':
                 query=parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.review_session(query['id'][0]))
+            if path == '/api/artwork/target-image':
+                query=parse_qs(urlsplit(self.path).query)
+                image=self.server.service.artwork_target_image(query['asset'][0],query['kind'][0])
+                return self.reply(image,content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/artwork/collections':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.artwork_collections(query['library'][0]))
             if path == '/api/library/metadata-choices':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.library_metadata_choices(query['library'][0], query['field'][0]))
@@ -288,12 +295,16 @@ class Handler(BaseHTTPRequestHandler):
                 result=service.run_readiness(None if data.get('scope')=='all' else data['library'])
             elif path == '/api/recovery/retry-failed':
                 result=service.retry_failed_results(data['tasks'])
+            elif path == '/api/metadata/preview':
+                result = service.metadata_preview(data['tasks'], data['fields'])
+            elif path == '/api/metadata/approve-preview':
+                result = service.approve_metadata_preview(data['id'])
             elif path == '/api/task/edit':
                 result = service.edit_task(data['id'], data['plan'], data['version'])
             elif path == '/api/artwork/candidates':
                 result = service.artwork_candidates(data['id'],data['version'],data['count'])
             elif path == '/api/mage/quote':
-                result = service.mage_quote(data['tasks'])
+                result = service.mage_quote(data['tasks'],data.get('batch_limit'))
             elif path == '/api/mage/authorize':
                 result = service.authorize_mage(data['quote'],data.get('consent'))
             elif path == '/api/mage/resume':
@@ -309,6 +320,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.portrait_plan(data['profile_id'], data['revision'], data['targets'])
             elif path == '/api/artwork/plan':
                 result = service.artwork_plan(data['assets'], data['kind'], data['preset_id'], data.get('overrides'), data.get('images'), data.get('originals'), data.get('references'))
+            elif path == '/api/artwork/reference-frames':
+                result = service.artwork_reference_frames(data['asset'])
+            elif path == '/api/artwork/preview':
+                result = service.artwork_preview(data['assets'], data['kind'], data.get('ratio'), data['images'], data.get('originals'))
+            elif path == '/api/artwork/collection-target':
+                result = service.collection_artwork_target(data['library'], data['key'])
             elif path == '/api/artwork/save-style':
                 result = service.save_artwork_style(data['id'], data['name'])
             elif path == '/api/mage/key':
@@ -318,6 +335,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/mage/check':
                 from .mage import Mage
                 result = Mage(service.store.root).discover()
+                usage=service.mage_budget_usage();result['budget']={k:usage[k] for k in ('period','committed','limit')}
             elif path == '/api/metadata/task':
                 result = service.metadata_task(data['asset'])
             elif path == '/api/metadata/queue':

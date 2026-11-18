@@ -89,7 +89,7 @@ class Mage:
         return dict(models=models, default_model=DEFAULT_MODEL if DEFAULT_MODEL in models else None,
                     options=mango.get('options', {}), options_by_model=mango.get('options_by_model', {}),
                     balance=balance, balance_status=balance_status, generation_enabled=False,
-                    reason='Paid generation requires a saved plan, usable pre-submit estimate and explicit consent. Only exact catalog defaults currently have a documented estimate; other settings and references remain blocked.')
+                    reason='Paid generation requires a saved plan, usable pre-submit estimate and explicit consent. Exact catalog defaults use catalog pricing. Other configurations require a usable request-specific MCP estimate; unsupported schemas stay blocked.')
 
     def _job_request(self, method, path, body=None, idempotency_key=None):
         import re
@@ -123,7 +123,7 @@ class Mage:
         if not self.configured():raise ValueError('Configure a Mage API key first')
         return hashlib.sha256(self.job_credential().encode()).hexdigest()
 
-    def quote(self, settings, references=0):
+    def quote(self, settings, references=0, reference_images=None):
         catalog=self.get('/architectures')
         mango=next((r for r in catalog.get('architectures',[]) if r.get('id')=='mango'),None)
         if not mango:raise ValueError('Mango is unavailable')
@@ -142,9 +142,17 @@ class Mage:
         # The only documented pre-submit price is for exact architecture defaults.
         # Never apply it to Mango 3 merely because Mango 4 is the API default.
         if references or '@' in settings['prompt'] or any(defaults.get(field)!=body[field] for field in ('model_id','aspect_ratio','resolution')) or settings.get('negative_prompt'):
-            raise ValueError('No verified pre-submit price for these settings/references. Manual generation/import remains available.')
+            if references:
+                if not isinstance(reference_images,list) or len(reference_images)!=references:
+                    raise ValueError('No verified pre-submit price without the exact reference images')
+                if any(not isinstance(image,str) or len(image)>4*1024*1024 for image in reference_images):
+                    raise ValueError('Mage pricing references must be at most 3 MiB each')
+                body['image']=reference_images[0]
+                if references>1:body['additional_images']=reference_images[1:]
+            from .mage_mcp import MagePricing
+            return MagePricing(self.job_credential(),self.opener).quote(body)
         gems=mango.get('gems')
-        if type(gems) not in (int,float) or gems<0:raise ValueError('Mage has no usable pre-submit price')
+        if type(gems) not in (int,float) or gems<0 or not __import__('math').isfinite(gems):raise ValueError('Mage has no usable pre-submit price')
         return {'gems':gems,'body':body,'basis':'Live catalog price for exact architecture defaults; estimate, not a provider-enforced spend cap'}
 
     def _retry_job(self, method, path, body=None, key=None):

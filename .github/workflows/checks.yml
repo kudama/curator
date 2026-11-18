@@ -19,6 +19,8 @@ jobs:
           node-version: '22'
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q curator
+      - run: node --check curator/static/metadata-manager.js
+      - run: node --check curator/static/artwork-manager.js
       - run: node --check curator/static/refresh.js
       - run: node --check curator/static/app.js
       - run: node --check curator/static/workbench.js
