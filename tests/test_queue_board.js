@@ -16,7 +16,7 @@ function setup(){
   featureAvailable:()=>true,render(){},refresh:async()=>{},toast(){},api:async(endpoint,data)=>calls.push({endpoint,data}),run:fn=>fn(),
   document:{elementFromPoint:()=>({closest:()=>({dataset:{waitingId:target}})})}});
  for(const file of ['workbench','queue-board'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/'+file+'.js'),'utf8'),context);
- context.taskQueueControls=()=>new Element('div');context.cleanupJobCards=()=>state.cleanup_jobs?.filter(j=>j.phase!=='complete').map(j=>{const e=new Element('article');e.dataset.cleanupId=j.id;return e;})||[];
+ context.taskQueueControls=()=>new Element('div');context.bulkTaskControls=()=>new Element('div');context.cleanupJobCards=()=>state.cleanup_jobs?.filter(j=>j.phase!=='complete').map(j=>{const e=new Element('article');e.dataset.cleanupId=j.id;return e;})||[];
  context.processingTaskCard=t=>{cards.push(t.id);return new Element('article');};context.renderLegacyProcessing=()=>['legacy'];
  const add=(id,kind,status='queued',library='one')=>{const t={id,title:id,kind,status,library,version:1};state.tasks.push(t);if(status==='queued')state.global_queue.push({id,version:1});return t;};
  return {context,state,calls,cards,elements,add,target:id=>{target=id;},run:code=>vm.runInContext(code,context)};
@@ -69,4 +69,9 @@ test('unowned interrupted cleanup remains visible once without replacing the boa
  const h=setup();h.state.cleanup_jobs=[{id:'orphan',phase:'interrupted',library:'one'},{id:'owned',phase:'deleting',library:'one'}];h.state.file_jobs=[{id:'cleanup',phase:'running',operation:'backup_cleanup',title:'Cleanup',library:'one',payload:{receipt:'owned'}}];
  const sections=h.run('renderProcessing()'),ids=all(sections[0]).filter(e=>e.dataset.cleanupId).map(e=>e.dataset.cleanupId);
  assert.equal(sections[0].children.length,3);assert.deepEqual(ids,['orphan']);assert.equal(h.run('queueCountRows().length'),2);
+});
+
+test('mixed artwork and video review remains visible in the processing review filter',()=>{
+ const h=setup();h.add('art','artwork','awaiting_review');h.add('enc','optimize','awaiting_review');h.add('joined','join','awaiting_review');h.context.queueStatus='awaiting_review';
+ const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,3);assert.equal(sections.length,2);assert.deepEqual(new Set(h.cards),new Set(['art','enc','joined']));
 });

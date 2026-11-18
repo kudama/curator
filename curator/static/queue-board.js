@@ -85,8 +85,8 @@ function queueTaskDetailControls(task){
  controls.append(button('Remove from queue',()=>taskAction(task,'remove_queue'),'text-button'));return controls;
 }
 function renderProcessing(){
- const typeCounts=new Map();taskQueuePositions=new Map();for(const row of waitingSnapshot()){const task=state.tasks.find(t=>t.id===row.id);if(!task)continue;const position=(typeCounts.get(task.kind)||0)+1;typeCounts.set(task.kind,position);taskQueuePositions.set(task.id,position);}
- const board=node('div',undefined,'queue-board'),tasks=queueBoardTasks().filter(t=>queueVisible(t)&&(t.status!=='awaiting_review'||!['upscale','optimize','join'].includes(t.kind))&&queueStatusMatches(t.status)),positions=new Map(waitingSnapshot().map((r,i)=>[r.id,i]));
+ const typeCounts=new Map(),byId=new Map(state.tasks.map(t=>[t.id,t]));taskQueuePositions=new Map();for(const row of waitingSnapshot()){const task=byId.get(row.id);if(!task)continue;const position=(typeCounts.get(task.kind)||0)+1;typeCounts.set(task.kind,position);taskQueuePositions.set(task.id,position);}
+ const board=node('div',undefined,'queue-board'),tasks=queueBoardTasks().filter(t=>queueVisible(t)&&(t.status!=='awaiting_review'||queueStatus==='awaiting_review'||!['upscale','optimize','join'].includes(t.kind))&&queueStatusMatches(t.status)),positions=new Map(waitingSnapshot().map((r,i)=>[r.id,i]));
  for(const [kind,title] of [['upscale','Upscaling'],['optimize','Encoding'],['file_operations','File operations']]){
   const lane=node('section',undefined,'queue-lane'),header=node('div',undefined,'queue-lane-heading');lane.setAttribute('aria-label',title);header.append(node('h2',title),queueLaneControl(kind));lane.append(header);
   const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>t.kind===kind).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
@@ -96,6 +96,7 @@ function renderProcessing(){
   for(const row of running.slice(1))lane.append(make(row,false));
   lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'),queueLaneSelection(kind));for(const row of waiting)if(row!==head)lane.append(make(row,false));
   for(const row of attention)lane.append(make(row,false));
+  const review=files?[]:rows.filter(r=>r.status==='awaiting_review');if(review.length)lane.append(bulkTaskControls(review));for(const row of review)lane.append(make(row,false));
   if(files){
    const preparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)).sort((a,b)=>['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));let hasHead=Boolean(head);
    for(const kind of [...new Set(preparation.map(t=>t.kind))]){

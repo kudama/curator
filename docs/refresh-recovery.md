@@ -37,11 +37,11 @@ connection cause has not been established by this change.
 ## Verification
 
 - 418 Python tests run, three optional skips; all remaining tests passed.
-- 80 JavaScript tests passed; all six frontend modules passed syntax checks.
+- 81 JavaScript tests passed; all six frontend modules passed syntax checks.
 - Coverage includes repeated failure/recovery/backoff, single-flight/trailing
   reads, mutation races, timeout, incremental merge/removal/order, cursor expiry,
   client disconnects, join moves in the correct order domain, publication
-  deduplication and unowned interrupted cleanup visibility.
+  deduplication unowned interrupted cleanup visibility and mixed artwork/video review visibility.
 - Synthetic browser: three columns remain with a queued join; unrelated metadata
   remains visible below. Controlled repeated 503s produced one connection status
   and zero alert notices; recovery cleared the status while preserving an unsaved
