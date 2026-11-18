@@ -115,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
         static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'),
-                  '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
+                  '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/file-management.js': ('file-management.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
             return self.reply((Path(__file__).parent / 'static' / name).read_bytes(), content_type=kind, cookie=path == '/')
