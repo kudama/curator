@@ -428,19 +428,21 @@ function renderFilePlan(detail,t){
  if(t.kind==='join'&&t.plan.metadata_snapshot){const metadata=t.plan.metadata_snapshot.metadata,box=node('details');box.append(node('summary','Metadata to copy'));for(const [name,label] of [['title','Source title'],['summary','Description'],['studio','Studio'],['tagline','Tagline'],['genre','Genres'],['label','Labels'],['collection','Collections']])box.append(node('p',label+': '+(Array.isArray(metadata[name])?metadata[name].join(', '):metadata[name]||'—')));box.append(node('p','Cast: '+(metadata.cast.map(c=>c.name+(c.role?' ('+c.role+')':'')).join(', ')||'—')));detail.append(box);if(t.metadata_refreshed)detail.append(node('p','Metadata preview refreshed. The joined video and comparison are retained. Review the details before publishing.','muted'));}
  if(t.error)detail.append(node('p',t.error,'error'));
 }
-async function openFileOperation(asset,kind){
+async function openFileOperation(asset,kind,selectedIds=null){
  if(!prepareInspector())return;inspectorMode='file-tools';openedTask='file-tools:'+asset.id+':'+kind;const operationToken=openedTask;
  const detail=$('task-detail'),actions=$('task-buttons');
  $('task-title').textContent=TASK_LABELS[kind];$('task-kind').textContent='FILE TOOLS';$('task-reason').textContent=kind==='rename'?'Preview filenames before changing files or Plex.':'Confirm the exact parts and their order.';$('task-feedback').hidden=true;
  detail.replaceChildren();actions.replaceChildren();
  const field=(label,value)=>{const wrap=node('label',label),input=node('input');input.value=value;wrap.append(input);detail.append(wrap);return input;};
  const currentName=(asset.plex_path||asset.local_path).split('/').pop();
+ if(kind==='rename')detail.append(node('p','Current filename','muted'),node('strong',currentName));
  const title=kind==='rename'?null:field(kind==='join'?'Joined Plex title':'Collection / playlist title',asset.title);
- const filename=kind==='group'?null:field('Filename including extension',kind==='rename'?currentName:'Joined.mkv');
+ const filename=kind==='group'?null:field(kind==='rename'?'New filename':'Filename including extension',kind==='rename'?currentName:'Joined.mkv');
+ if(kind==='rename')detail.append(node('p','Preview the file and Plex path changes before queueing.','muted'),node('h3','Source'),node('p',(asset.plex_path||asset.local_path).split('/').slice(0,-1).join('/'),'muted'),node('p',formatBytes(asset.fingerprint?.size),'muted'));
  let ordered=[asset.id],chapterNames=new Map(),metadataAsset=asset.id,mode=null,groupMode=null;
  const partsBox=node('div'),all=state.assets.filter(a=>a.library===asset.library&&a.present!==false);
  if(kind!=='rename'){
-  const suggested=await api('files/suggestions?'+new URLSearchParams({asset:asset.id}));if(openedTask!==operationToken)return;ordered=suggested.assets;title.value=suggested.title;
+  const suggested=selectedIds?.length?{assets:[...selectedIds],title:asset.title,warnings:[]}:await api('files/suggestions?'+new URLSearchParams({asset:asset.id}));if(openedTask!==operationToken)return;ordered=suggested.assets;title.value=suggested.title;
   for(const warning of suggested.warnings)detail.append(node('p',warning,'muted'));
   const choices=node('label','Add a file'),select=node('select');select.setAttribute('aria-label','Add part');choices.append(select);detail.append(choices,partsBox);
   const metadata=node('label','Use metadata and artwork from'),metadataSelect=node('select');metadataSelect.setAttribute('aria-label','Metadata source');metadata.append(metadataSelect);if(kind==='join')detail.append(metadata);

@@ -171,6 +171,15 @@
 .recent-activity>summary{cursor:pointer;font-weight:600}
 .activity-row{padding:10px 0;border-bottom:1px solid var(--line);font-size:12px}
 .activity-row p{margin:3px 0}
+.file-tool-row{display:grid;grid-template-columns:22px 90px minmax(0,1fr) auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:10px;min-width:0}
+.file-tool-row.selected{border-color:#ed4dc5;box-shadow:inset 0 0 0 1px #ed4dc5}
+.file-tool-row .media-thumbnail{width:90px;height:62px}
+.file-tool-name{min-width:0}.file-tool-name>button{font-weight:650;text-align:left;overflow-wrap:anywhere;padding:0;white-space:normal}
+.file-tool-name p{font-size:11px;overflow-wrap:anywhere;margin:5px 0 0}
+#file-management-library-control{margin:0;min-width:160px}
+#file-management-library{margin:5px 0 0}
+#file-management-actions{gap:12px}#file-management-actions>button{padding:5px 0}
+@media(max-width:650px){.file-tool-row{grid-template-columns:20px minmax(0,1fr);gap:8px}.file-tool-row .media-thumbnail{display:none}.file-tool-row>span{grid-column:2}}
 .queue-page .heading-tools{flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:1250px){.queue-inspecting .queue-board{grid-template-columns:minmax(0,1fr)}.queue-inspecting .queue-lane{min-height:0}}
 @media(max-width:1050px){.queue-board{grid-template-columns:minmax(0,1fr)}.queue-lane{min-height:0}.queue-page .heading{flex-wrap:wrap}.queue-page .heading-tools{width:100%;justify-content:space-between}#queue-status-links{gap:12px}}
