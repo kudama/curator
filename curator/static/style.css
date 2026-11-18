@@ -114,3 +114,8 @@
 #history-status-control{margin:0;font-size:12px;min-width:160px}
 #history-status{height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
 .view-options:has(#history-status-control:not([hidden]))>button{height:40px;display:inline-flex;align-items:center;justify-content:center}
+
+/* Align review actions with the fields, below their labels. */
+.view-options:has(#review-kind-control:not([hidden])){align-items:flex-end}
+.view-options:has(#review-kind-control:not([hidden]))>label{margin:0}
+.view-options:has(#review-kind-control:not([hidden]))>button,.view-options:has(#review-kind-control:not([hidden])) select{height:40px}
