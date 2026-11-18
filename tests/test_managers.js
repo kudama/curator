@@ -37,3 +37,14 @@ test('queued metadata opens an explanation instead of editable controls',async()
  const h=setup();h.context.api=()=>{throw Error('No read or write needed');};await h.run("openMetadataManager([{id:'task',asset:'a',version:2,status:'queued'}])");
  assert.ok(h.ids['task-detail'].children[0].textContent.includes('already queued'));assert.ok(h.find('Close'));assert.ok(!h.find('Preview changes'));
 });
+
+test('retrying partial artwork preview reuses drafts already retained',async()=>{
+ const h=setup(),calls=[];h.context.screen='artwork';h.context.render=()=>{};h.context.state.libraries=[];
+ h.context.ARTWORK_LABELS={cover:'Cover',background:'Background',square:'Square',logo:'Logo'};
+ Element.prototype.classList={toggle(){}};
+ h.context.managerArtworkCard=(asset,task,kind)=>({section:new Element('section'),asset,kind,dirty:()=>true,ready:()=>true,encoded:()=>asset.id+'-candidate',original:async()=>null,ratio:()=> '2:3'});
+ h.context.assets=[{id:'a',library:'one',rating_key:'1',title:'First',item:{}},{id:'b',library:'one',rating_key:'2',title:'Second',item:{}}];
+ let failed=false;h.context.api=async(endpoint,data)=>{calls.push(data.assets[0]);if(data.assets[0]==='b'&&!failed){failed=true;throw Error('Synthetic connection failure');}return {tasks:[{id:data.assets[0],title:data.assets[0],version:1,plan:{kind:'cover',candidate:'photo'}}]};};
+ await h.run('openArtworkManager(assets)');await h.find('Preview changes').onclick();assert.deepEqual(calls,['a','b']);await h.find('Preview changes').onclick();
+ assert.deepEqual(calls,['a','b','b']);assert.ok(h.find('Approve & queue 2 artwork changes'));
+});

@@ -14,7 +14,7 @@ Implementation branch: `feat/metadata-artwork-managers-20261118`. This record de
 
 ## Acceptance evidence
 
-- 445 Python tests pass, three optional skips; 85 JavaScript behavior checks pass. New coverage includes stale/atomic metadata approval, preserved cast thumbnails/labels, collection isolation, image dimensions/alpha, quote invalidation, monthly/batch reservations, unknown billing, append-only archives, interrupted copies and unavailable paths.
+- 445 Python tests pass, three optional skips; 86 JavaScript behavior checks pass. New coverage includes stale/atomic metadata approval, preserved cast thumbnails/labels, collection isolation, image dimensions/alpha, quote invalidation, monthly/batch reservations, unknown billing, append-only archives, interrupted copies and unavailable paths.
 - Synthetic browser fixture: bulk metadata preview→queue; imported art→current/proposed→verified fixture publication; collection-owned editor; exact three-item shared-background preview; Generate close→parent draft; Classic/Cyberpunk and narrow layout. No production Plex/media mutation or paid generation was used for these checks.
 - Native Forge analyst `d9dcb78f87fe41119cdfe15b0ec141b1` failed `tool_denied` on its initial source read despite ready health. No worker patch was accepted. Senior implementation and review performed directly; reliability evidence tracked under Forge #76.
 
