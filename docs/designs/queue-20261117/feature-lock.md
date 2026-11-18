@@ -97,12 +97,13 @@ Curator Artwork/
     Logos/
     Squares/
   Cast/
-    [Person]/
+    [Person name].png
+    [Person name]--[candidate/version].png
 ```
 
-Within Movies/Collections artwork types, group by stable target identity plus readable title and generation/version, not colliding title-only filenames. Cast is person-keyed with square portraits; avoid duplicate records from repeated credits. Movies is the agreed top-level name for the media-side archive; confirm any future TV/home subdivision rather than silently rename the root. Preserve original/candidate/selected/processed relationships plus prompt/guide/model/settings/reference provenance/cost, target IDs and timestamps. Do not place secrets in sidecars/public repos.
+Within Movies/Collections artwork types, group by stable target identity plus readable title and generation/version, not colliding title-only filenames. Cast is one flat top-level folder, with square portrait files named by person and candidate/version when needed; no per-person subfolders. Preserve stable person identity in the index/manifest and use readable collision-safe suffixes for same-name people or versions; avoid duplicate records from repeated credits. Movies is the agreed top-level name for the media-side archive; confirm any future TV/home subdivision rather than silently rename the root. Preserve original/candidate/selected/processed relationships plus prompt/guide/model/settings/reference provenance/cost, target IDs and timestamps. Do not place secrets in sidecars/public repos.
 
-Archive root is configurable on suitable local/NAS storage. The operator has not selected an actual mount/path. A Plex share can host a dedicated archive outside folders Plex scans as media; this archive is distinct from publication. Handle missing mounts, access failures, collision/partial writes and recovery explicitly. No automatic archive deletion or retention purge is approved. Importing the existing desktop image folder is a separate explicit, non-destructive mapping/dedup/preview operation; do not move/delete originals or publish imports automatically.
+Settings must provide one **Artwork archive path** for the top-level root on suitable local/NAS storage. The configured root contains Movies, Collections and the single flat Cast folder. Show the chosen path, validate access on explicit save/check, preserve it across restart, and report an unavailable path inline. Path changes must not silently move/delete/relink existing archives; any migration needs explicit preview/approval. The operator has not selected an actual mount/path. A Plex share can host a dedicated archive outside folders Plex scans as media; this archive is distinct from publication. Handle missing mounts, access failures, collision/partial writes and recovery explicitly. No automatic archive deletion or retention purge is approved. Importing the existing desktop image folder is a separate explicit, non-destructive mapping/dedup/preview operation; do not move/delete originals or publish imports automatically.
 
 ## 8. Remaining gates and acceptance
 

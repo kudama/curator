@@ -1,5 +1,6 @@
 # Curator queue UI — approved design, 2026-11-17
 
+**Latest governing scope:** [Consolidated feature lock](feature-lock.md), including later clarifications. It supersedes conflicting earlier wording below.
 Status: design approved for ticketing. **Implementation, worker dispatch, merge and deployment are on hold until Mike explicitly authorizes execution.** This packet contains documentation and synthetic renders only. No code changes are authorized by this packet.
 
 ## Approved references and precedence

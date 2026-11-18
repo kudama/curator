@@ -1,5 +1,6 @@
 # Library task workflows — approved direction, 2026-11-17
 
+**Latest governing scope:** [Consolidated feature lock](feature-lock.md), including later clarifications. It supersedes conflicting earlier wording below.
 Status: approved for ticketing. **No coding, worker dispatch, merge or rollout until Mike explicitly authorizes execution.** This is a documentation-only supplement to the [queue design](README.md), tracked by Curator #54.
 
 ## Render references and approval scope

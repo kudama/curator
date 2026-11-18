@@ -1,5 +1,6 @@
 # Artwork workspace — approved direction, 2026-11-17
 
+**Latest governing scope:** [Consolidated feature lock](feature-lock.md), including later clarifications. It supersedes conflicting earlier wording below.
 Status: approved for ticketing only. **No implementation, worker dispatch, merge, deployment, paid generation, service restart or real media/Plex writes until explicitly authorized.** Supplements [library workflows](library-workflow.md) and [queue design](README.md). These are written requirements and synthetic render references, not implemented-feature claims.
 
 ## Approved renders and precedence
