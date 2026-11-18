@@ -7,9 +7,28 @@ from .store import now
 class FileQueueWorkflows:
     def file_jobs(self):
         records=[r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record_type')=='file_operation']
-        active=[r for r in records if r['phase'] in {'waiting','running'}]
+        running=sorted((r for r in records if r['phase']=='running'),key=lambda r:r['created'])
+        positions={key:index for index,key in enumerate(self.store.get('settings','file-queue-order:global',{}).get('ids',[]))}
+        waiting=sorted((r for r in records if r['phase']=='waiting'),key=lambda r:(positions.get(r['id'],len(positions)),r['created']))
         recent=sorted((r for r in records if r['phase'] not in {'waiting','running'}),key=lambda r:r['created'],reverse=True)[:30]
-        return sorted(active,key=lambda r:r['created'])+recent
+        return running+waiting+recent
+
+    def file_queue_snapshot(self):
+        return [dict(id=j['id'],updated=j.get('updated')) for j in self.file_jobs() if j['phase']=='waiting']
+
+    def change_file_queue_order(self,expected,order):
+        if (not isinstance(expected,list) or len(expected)>20000 or
+            any(not isinstance(row,dict) or set(row)!={'id','updated'} or not isinstance(row['id'],str) or
+                (row['updated'] is not None and not isinstance(row['updated'],str)) for row in expected) or
+            not isinstance(order,list) or any(not isinstance(key,str) for key in order) or len(order)!=len(set(order))):
+            raise ValueError('Choose a valid waiting file-queue order')
+        with self.lock:
+            with self.store.transaction():
+                current=self.file_queue_snapshot()
+                if expected!=current:raise ValueError('Waiting file queue changed; refresh and try again')
+                if set(order)!={row['id'] for row in current}:raise ValueError('Reorder only the current waiting file operations')
+                self.store.put('settings','file-queue-order:global',dict(ids=order,updated=now()))
+        return dict(waiting=len(order))
 
     def recover_file_jobs(self):
         with self.store.transaction():

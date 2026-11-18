@@ -1,5 +1,7 @@
 # Curator — feature lock, 2026-11-17
 
+Execution update, 2026-11-17: Mike authorized development with Forge after the specification lock. The earlier execution hold below is historical. Approved scope may now be developed and reviewed; unrendered-screen approval gates remain. This does not authorize deployment, production service changes, real media/Plex writes or paid generation. See [queue implementation contract](queue-contract.md) for the first bounded handoff.
+
 This is the consolidated operator-approved feature direction and latest wording for the queue, library and artwork workflows. It links the detailed acceptance packets and supersedes earlier conflicting drafts. **This instruction locks specifications/tickets, not execution. No code, worker dispatch, merge, deployment, service restart, generation/spend or real media/Plex actions until Mike explicitly authorizes execution.**
 
 ## Source of truth and render precedence
