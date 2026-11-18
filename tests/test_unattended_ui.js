@@ -1,11 +1,11 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../curator/static/workbench.js'),'utf8');
-class Element{constructor(tag,text=''){this.tag=tag;this.textContent=text;this.children=[];this.disabled=false;}append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=nodes;}setAttribute(){}}
+class Element{constructor(tag,text=''){this.tag=tag;this.textContent=text;this.children=[];this.disabled=false;this.dataset={};}append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=nodes;}setAttribute(){}}
 function setup(){
  const elements=new Map(),calls=[],messages=[],storage=new Map(),notifications=[];let permissions=0;
  class Notification{static permission='granted';static async requestPermission(){permissions++;return 'granted';}constructor(title,options){notifications.push({title,...options});}}
- const context=vm.createContext({state:{tasks:[],libraries:[],global_queue:[]},libraryId:'one',screen:'processing',inspectorMode:null,openedTask:null,selected:new Set(),
+ const context=vm.createContext({state:{tasks:[],libraries:[],global_queue:[]},libraryId:'one',screen:'processing',queueStatus:'all',inspectorMode:null,openedTask:null,selected:new Set(),
   $:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);},node:(tag,text)=>new Element(tag,text),button:(text,fn)=>{const e=new Element('button',text);e.onclick=fn;return e;},
   api:async(endpoint,data)=>{calls.push({endpoint,data});return {waiting:2,running:0,file_waiting:0,limits:{optimize:2},volumes:[],issues:[],processing_eta_seconds:null,estimate_note:'Measured estimates only'};},
   formatBytes:String,TASK_LABELS:{optimize:'Encoding',upscale:'Upscale'},run:fn=>fn(),refresh:async()=>{},render:()=>{},toast:text=>messages.push(text),Notification,
@@ -36,4 +36,20 @@ test('batch defaults are remembered only for libraries with successfully queued 
  const h=setup();h.context.state.tasks=[{id:'a',library:'one',version:1,kind:'optimize',status:'recommendation',plan:{}},{id:'b',library:'two',version:1,kind:'optimize',status:'recommendation',plan:{}}];h.context.canQueue=()=>true;
  h.context.api=async(endpoint,data)=>{h.calls.push({endpoint,data});if(data.id==='b')throw Error('Changed');return {};};
  await h.run("queueTaskRows(state.tasks,{handbrake_preset:'Chosen',remember_preset:true})");const defaults=h.calls.filter(c=>c.endpoint==='processing-defaults');assert.equal(defaults.length,1);assert.equal(defaults[0].data.library,'one');assert.equal(defaults[0].data.values.handbrake_preset,'Chosen');
+});
+
+test('queue empty state hides inapplicable selection and pause controls',()=>{
+ const h=setup();h.context.featureAvailable=()=>true;h.run('renderWaitingControls()');
+ const labels=h.elements.get('queue-actions').children.map(e=>e.textContent);
+ assert.deepEqual(labels,['Processing limits']);
+});
+test('recent activity is collapsed and has no notification or stale failure shortcuts',()=>{
+ const h=setup();h.context.featureAvailable=()=>true;h.context.state.run_summaries=[{id:'past',title:'Original cleanup',phase:'needs_attention',counts:{total:9,failed:9}}];h.run('renderRunSummaries()');
+ const details=h.elements.get('run-summaries').children[0];assert.equal(details.tag,'details');assert.notEqual(details.open,true);
+ assert.equal(details.children[0].textContent,'Recent activity (1)');
+ const text=JSON.stringify(details);assert.doesNotMatch(text,/Enable browser|Open needs attention/);
+});
+test('processing tab counts publication alongside running jobs',()=>{
+ const h=setup();h.context.state.tasks=[{library:'one',status:'publishing'},{library:'one',status:'running'},{library:'one',status:'blocked'}];h.run('renderQueueStatusTabs()');
+ assert.ok(h.elements.get('queue-status-tabs').children.some(e=>e.textContent==='Processing 2'));
 });

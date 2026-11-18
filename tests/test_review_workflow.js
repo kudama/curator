@@ -41,7 +41,7 @@ test('review loads comparison automatically and waits for all images before one-
 test('failed comparison API and failed image loads stay blocked and offer retry',async()=>{
  const h=setup();let attempt=0;h.context.api=async()=>{if(++attempt===1)throw Error('Source unavailable');return {};};
  await h.run("openTask('one')");assert.equal(h.publish().disabled,true);const retry=h.all().find(e=>e.textContent==='Retry comparison');assert.equal(retry.hidden,false);
- let loading=retry.onclick();await tick();h.images[0].onerror();await loading;assert.equal(h.publish().disabled,true);assert.equal(retry.hidden,false);
+ let loading=retry.onclick();await tick();h.images[0].onerror();assert.match(h.images[0].src,/retry=1$/);h.images[0].onerror();await loading;assert.equal(h.publish().disabled,true);assert.equal(retry.hidden,false);
  loading=retry.onclick();await tick();h.loadImages();await loading;assert.equal(h.publish().disabled,false);assert.equal(retry.hidden,true);
 });
 test('late comparison cannot populate a closed or different inspector',async()=>{
@@ -60,4 +60,9 @@ test('ready file overview labels the result without preselecting unrelated work'
  const h=setup();h.context.state.tasks.push({...h.task,id:'suggestion',kind:'upscale',status:'recommendation'});
  vm.runInContext(workbench.slice(workbench.indexOf('function renderAssetOverview('),workbench.indexOf('function editorTabs(')),h.context);
  h.run('renderAssetOverview(state.assets[0])');assert.equal(h.elements.get('task-kind').textContent,'READY TO PUBLISH');assert.equal(h.context.selected.size,0);assert.ok(h.all().some(e=>e.textContent==='Review & Publish'));assert.ok(h.all().some(e=>e.textContent==='Ready to publish'));
+});
+test('comparison request timeout becomes a retryable connection error',async()=>{
+ const context=vm.createContext({AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'}))))});
+ vm.runInContext(app.slice(app.indexOf('async function api('),app.indexOf('async function run(')),context);
+ await assert.rejects(vm.runInContext("api('comparison',{id:'one'},{timeout:1})",context),/connection timed out.*retry/);
 });

@@ -119,3 +119,52 @@
 .view-options:has(#review-kind-control:not([hidden])){align-items:flex-end}
 .view-options:has(#review-kind-control:not([hidden]))>label{margin:0}
 .view-options:has(#review-kind-control:not([hidden]))>button,.view-options:has(#review-kind-control:not([hidden])) select{height:40px}
+
+/* Queue is a job workspace; open the inspector only for an actual selection. */
+.queue-workspace{grid-template-columns:minmax(0,1fr)!important}
+.queue-workspace>#inspector-empty{display:none!important}
+.queue-workspace.queue-inspecting{grid-template-columns:minmax(300px,1fr) minmax(360px,.8fr)!important}
+.queue-page .heading{margin-bottom:10px}
+.queue-page .heading h1{font-size:32px;margin:2px 0}
+.queue-page #library-note{margin:4px 0 8px}
+.queue-page .workspace-toolbar{padding:8px 0 12px;margin-bottom:0}
+.queue-page .view-options{align-items:flex-end;gap:10px;flex:1}
+.queue-page .view-options>label{margin:0;font-size:11px}
+.queue-page .view-options select{height:36px;padding:6px 10px;margin-top:4px}
+.queue-page .view-options>button,#queue-actions>button{height:36px;padding:6px 12px;font-size:12px}
+.queue-page #queue-actions{margin-left:auto;gap:8px;align-items:center}
+.queue-page .file-pane{padding-top:0;border:0;background:transparent}
+.queue-status-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:12px 0;margin-bottom:14px}
+.queue-status-tabs button{font-size:12px;padding:8px 12px;border-radius:6px}
+.queue-status-tabs button.active{color:var(--accent);background:var(--panel);border-color:var(--line)}
+.queue-page .processing-group{margin:0 0 20px;padding:0;border:0}
+.queue-page .processing-group-heading{padding:4px 0 10px;gap:10px;flex-wrap:wrap}
+.queue-page .processing-group-heading h2{font:600 14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;margin:0}
+.queue-page .processing-card{border-radius:7px;padding:12px 14px;margin:0 0 8px}
+.queue-page .processing-card-main{gap:12px}
+.queue-page .processing-card-main>.media-thumbnail{width:70px;height:48px;flex-shrink:0}
+.queue-page .processing-card-text>strong{font-size:13px}
+.queue-page .processing-card-text p{font-size:11px;margin:3px 0}
+.queue-page .processing-card-actions{flex-direction:row;align-items:center;flex-wrap:wrap}
+.queue-page .processing-card-actions button{font-size:11px;padding:6px 9px}
+.queue-more{position:relative;border:0;margin:0;padding:0;font-size:12px}
+.queue-more>summary{padding:7px 12px;color:var(--muted)}
+.queue-more>div{position:absolute;right:0;top:100%;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px;min-width:240px}
+.queue-more button{width:100%;text-align:left;font-size:12px}
+#run-summaries{margin-top:24px;border-top:1px solid var(--line)}
+.queue-activity{margin:0;border:0;padding:12px 0}
+.queue-activity>summary{font-size:12px;color:var(--muted)}
+.queue-activity-row{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+.queue-activity-row strong{font-size:12px}
+.queue-activity-row p{font-size:11px;margin:2px 0}
+.queue-state{font-size:10px;color:var(--muted);white-space:nowrap}
+@media(max-width:1100px){.queue-page #queue-actions{margin-left:0;flex-basis:100%}.queue-workspace.queue-inspecting{grid-template-columns:1fr!important}.queue-workspace.queue-inspecting .file-pane{max-height:35vh}.queue-workspace.queue-inspecting .inspector{max-height:65vh}}
+@media(max-width:650px){.queue-page .view-options>label{flex:1;min-width:120px}.queue-page .processing-card-actions{width:auto}.queue-status-tabs button{padding:7px 9px;font-size:11px}}
+.queue-page #queue-actions{flex-basis:auto;margin-top:0}
+.queue-page #queue-group-control,.queue-page #queue-library-control{font-size:11px;margin:0}
+.queue-page #queue-group,.queue-page #queue-library{height:36px;margin:4px 0 0;padding:6px 10px;font-size:12px}
+.queue-status-tabs{position:sticky;top:0;z-index:2;background:var(--bg)}
+@media(max-width:1000px){.queue-page #queue-actions{flex-basis:100%}}
+.queue-job-more{position:relative;border:0;margin:0;padding:0}
+.queue-job-more>summary{font-size:11px;color:var(--muted);padding:6px 9px}
+.queue-job-more[open]>div{position:absolute;right:0;top:100%;z-index:4;min-width:150px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px}

@@ -5,7 +5,7 @@ const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'Ho
 const $=id=>document.getElementById(id);
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function toast(text,error=false){const feedback=$($('config-dialog').open?'config-feedback':'task-feedback');if(feedback&&(inspectorOpen()||$('config-dialog').open)){feedback.hidden=false;feedback.textContent=text;feedback.className=error?'artwork-status error':'artwork-status';}$('toast').textContent=text;$('toast').className=error?'error':'';$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,7000);}
-async function api(path,data){const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}
+async function api(path,data,options={}){const controller=options.timeout?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),options.timeout):null;try{const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined,...(controller?{signal:controller.signal}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}catch(error){if(error.name==='AbortError')throw Error('The connection timed out. Please retry.');throw error;}finally{clearTimeout(timer);}}
 async function run(fn){try{return await fn();}catch(e){toast(e.message,true);}}
 async function refresh(){if(serviceRestarting)return;state=await api('state');if(!libraryId&&state.libraries.length)libraryId=state.libraries[0].id;render();updateServiceControls();}
 function current(){return state.libraries.find(x=>x.id===libraryId);}
@@ -242,7 +242,7 @@ function renderPresetSettings(){
 }
 function readPresetSettings(){return [...$('preset-settings').children].filter(row=>row.querySelector('[data-enabled]').checked).map(row=>({id:row.dataset.presetId,...Object.fromEntries([...row.querySelectorAll('[data-preset-field]')].map(input=>[input.dataset.presetField,input.value]))}));}
 function openConfig(){$('config-feedback').hidden=true;renderPresetSettings();const form=$('config-form');for(const el of form.elements){if(el.name&&el.name!=='plex_token')el.value=state.config[el.name]??el.defaultValue??el.options?.[0]?.value??'';}form.elements.plex_token.value='';$('config-dialog').showModal();for(const control of $('encoding-controls')?.querySelectorAll('input,select')||[])control.disabled=!featureAvailable('encoding_controls');run(loadServiceStatus);}
-$('settings').onclick=openConfig;
+$('settings').onclick=()=>{openConfig();updateNotificationSettings();};
 $('config-form').onsubmit=e=>{e.preventDefault();run(async()=>{const data=Object.fromEntries(new FormData(e.target));for(const key of ['max_mbps_1080','max_mbps_4k'])data[key]=Number(data[key]);data.branding_presets=readPresetSettings();await api('config',data);$('config-dialog').close();await refresh();toast('Workspace settings saved');});};
 $('connect').onclick=()=>run(async()=>{if(!state.config.token_configured){openConfig();return;}await api('connect',{});await refresh();toast('Plex libraries refreshed');});
 $('library-settings').onclick=()=>run(openLibrarySettings);
@@ -388,9 +388,9 @@ async function openTask(id,workspace='metadata'){
    prepareComparison=async()=>{
     if(loading||!current())return;loading=true;retry.hidden=true;status.textContent='Loading source/output comparison…';images.replaceChildren();let imageTimer;
     try{
-     await api('comparison',{id:t.id});if(!current())return;
+     await api('comparison',{id:t.id},{timeout:90000});if(!current())return;
      const grid=node('div',undefined,'comparison'),ready=[];
-     for(const side of ['source','output']){const column=node('div');column.append(node('h3',side==='source'?'Original':'Processed'));for(let n=0;n<4;n++){const img=node('img');img.alt=side+' sample '+(n+1);ready.push(new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('A comparison image could not be loaded.'));}));img.src='/api/comparison/'+encodeURIComponent(t.id)+'/'+side+'/'+n+'.jpg';column.append(img);}grid.append(column);}
+     for(const side of ['source','output']){const column=node('div');column.append(node('h3',side==='source'?'Original':'Processed'));for(let n=0;n<4;n++){const img=node('img');img.alt=side+' sample '+(n+1);ready.push(new Promise((resolve,reject)=>{img.onload=resolve;let retried=false;img.onerror=()=>{if(!retried&&current()){retried=true;img.src='/api/comparison/'+encodeURIComponent(t.id)+'/'+side+'/'+n+'.jpg?retry=1';}else reject(Error('A comparison image could not be loaded. Check the connection and retry.'));};}));img.src='/api/comparison/'+encodeURIComponent(t.id)+'/'+side+'/'+n+'.jpg';column.append(img);}grid.append(column);}
      images.append(grid);await Promise.race([Promise.all(ready),new Promise((resolve,reject)=>{imageTimer=setTimeout(()=>reject(Error('Comparison images timed out; retry when the connection is ready.')),30000);})]);if(!current())return;
      t.comparison_loaded=true;status.textContent=t.source?.size!=null&&t.result?.size_bytes!=null?'Original → Processed · '+formatBytes(t.source.size)+' → '+formatBytes(t.result.size_bytes):'Original and processed output';if(publishButton)publishButton.disabled=false;
     }catch(error){if(current()){status.textContent='Comparison unavailable: '+error.message;retry.hidden=false;}}
