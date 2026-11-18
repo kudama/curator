@@ -1239,16 +1239,35 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
             raise ValueError(message) from None
 
     def comparison(self, key):
-        task = self.get_task(key)
-        if task['status'] != 'awaiting_review' or task['kind'] not in {'upscale', 'optimize'}:
-            raise ValueError('No processed video awaiting review')
-        asset = self.asset(task)
-        for side, path, media in [('source', asset['local_path'], asset['technical']),
-                                  ('output', task['output'], task['result'])]:
-            folder = self.store.root / 'comparisons' / key / side
-            tools.frames(path, folder, media, self.config())
-        self._save(task, comparison_loaded=True)
-        return {'ready': True}
+        # Concurrent browser retries must not invalidate each other's frame cache.
+        with self.operation_lock(key):
+            task = self.get_task(key)
+            if task.get('deleted') or task['status'] != 'awaiting_review' or task['kind'] not in {'upscale', 'optimize'}:
+                raise ValueError('No processed video awaiting review')
+            asset = self.asset(task)
+            def identity(row):
+                return tuple(row.get(field) for field in ('version','kind','asset','source','output','source_hash','output_hash'))
+            def current_review():
+                current = self.get_task(key)
+                if current.get('deleted') or current['status'] != 'awaiting_review' or identity(current) != identity(task):
+                    raise ValueError('Review changed while preparing comparisons; reopen the task')
+                return current
+            with self.store.transaction():
+                current = current_review()
+                current.update(comparison_loaded=False, updated=now())
+                self.store.put('tasks', key, current)
+            for side, path, media in [('source', asset['local_path'], asset['technical']),
+                                      ('output', task['output'], task['result'])]:
+                folder = self.store.root / 'comparisons' / key / side
+                samples = tools.frames(path, folder, media, self.config())
+                if len(samples) != 4 or {sample['file'] for sample in samples} != {'0.jpg','1.jpg','2.jpg','3.jpg'}:
+                    label = 'Original' if side == 'source' else 'Processed'
+                    raise ValueError(label+' comparison is incomplete; could not extract all four images. Retry the comparison after checking file access and decoding.')
+            with self.store.transaction():
+                current = current_review()
+                current.update(comparison_loaded=True, updated=now())
+                self.store.put('tasks', key, current)
+            return {'ready': True}
 
     def kometa(self, library_id, title, asset_ids, mode='collection'):
         library = self.library(library_id)
