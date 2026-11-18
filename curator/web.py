@@ -65,18 +65,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, data, status=200, content_type='application/json', cookie=False, download=None):
         raw = json.dumps(data, allow_nan=False).encode() if content_type == 'application/json' else data
-        self.send_response(status)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(raw)))
-        self.send_header('Cache-Control', 'no-store')
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-        if cookie:
-            self.send_header('Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/')
-        if download:
-            self.send_header('Content-Disposition', 'attachment; filename="' + download + '"')
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(raw)))
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+            if cookie:
+                self.send_header('Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/')
+            if download:
+                self.send_header('Content-Disposition', 'attachment; filename="' + download + '"')
+            self.end_headers()
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return  # Only response writes: provider/operation errors keep normal handling.
 
     def request_host(self):
         hosts = self.headers.get_all('Host', [])
@@ -106,8 +109,6 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with runtime.request(mutate) if runtime else nullcontext():
                 return method()
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            return  # Client went away; no second response can be delivered.
         except Restarting:
             return self.reply({'error':'Curator is restarting; reconnect shortly.'},503)
 
@@ -223,8 +224,6 @@ class Handler(BaseHTTPRequestHandler):
                 target = self.server.service.store.root / 'comparisons' / key / side / name
                 return self.reply(image_bytes(target), content_type='image/jpeg')
             return self.reply({'error': 'Not found'}, 404)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            raise
         except (ValueError, OSError, KeyError) as e:
             return self.reply({'error': str(e) if isinstance(e, ValueError) else 'Resource unavailable'}, 400)
 
@@ -379,8 +378,6 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self.reply({'error': 'Not found'}, 404)
             self.reply(result)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            raise
         except RestartBlocked as error:
             self.reply({'error':str(error)},409)
         except (ValueError, KeyError, TypeError) as e:

@@ -43,23 +43,32 @@ class StateUpdateTests(unittest.TestCase):
         self.assertTrue(StateUpdates().response(self.state, changed['revision'])['reset'])
         self.assertLessEqual(len(self.cache.snapshots), 2)
 
-    def test_disconnected_client_does_not_trigger_second_error_response(self):
-        handler = object.__new__(Handler)
-        handler.server = object()
-        for exception in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            with self.subTest(exception=exception):
-                def disconnected():
-                    raise exception('client closed')
-                handler.dispatch(disconnected)
-        with self.assertRaises(RuntimeError):
-            handler.dispatch(lambda: (_ for _ in ()).throw(RuntimeError('real server failure')))
-
-    def test_state_disconnect_is_not_replied_to_as_resource_error(self):
+    def test_disconnected_response_does_not_hide_non_response_errors(self):
         handler = object.__new__(Handler)
         handler.server = SimpleNamespace(service=SimpleNamespace(state=lambda: {}))
         handler.path = '/api/state'
         handler.request_host = lambda: True
         handler.allowed = lambda: True
-        handler.reply = Mock(side_effect=BrokenPipeError('closed'))
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = SimpleNamespace(write=Mock(side_effect=BrokenPipeError('closed')))
         handler.dispatch(handler.get_response)
-        self.assertEqual(handler.reply.call_count, 1)
+        self.assertEqual(handler.send_response.call_count, 1)
+        self.assertEqual(handler.wfile.write.call_count, 1)
+        handler.wfile.write.side_effect = ConnectionResetError('closed')
+        handler.reply({})
+        handler.wfile.write.side_effect = ConnectionAbortedError('closed')
+        handler.reply({})
+        with self.assertRaises(RuntimeError):
+            handler.dispatch(lambda: (_ for _ in ()).throw(RuntimeError('real server failure')))
+
+    def test_upstream_connection_failure_retains_error_response(self):
+        handler = object.__new__(Handler)
+        handler.server = SimpleNamespace(service=SimpleNamespace(state=Mock(side_effect=ConnectionResetError('upstream'))))
+        handler.path = '/api/state'
+        handler.request_host = lambda: True
+        handler.allowed = lambda: True
+        handler.reply = Mock()
+        handler.get_response()
+        handler.reply.assert_called_once_with({'error': 'Resource unavailable'}, 400)
