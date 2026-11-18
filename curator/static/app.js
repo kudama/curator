@@ -14,9 +14,10 @@ function toast(text,error=false){
  message.append(button('Dismiss',()=>{message.remove();feedback.hidden=![...feedback.children].some(notice=>!notice.hidden);},'text-button feedback-dismiss'));
  feedback.hidden=false;feedback.append(message);return message;
 }
-async function api(path,data){const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}
+let mutationEpoch=0;
+async function api(path,data){if(data)mutationEpoch++;try{const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}finally{if(data)mutationEpoch++;}}
 async function run(fn){try{return await fn();}catch(e){toast(e.message,true);}}
-async function refresh(){if(serviceRestarting)return;state=await api('state');if(!libraryId&&state.libraries.length)libraryId=state.libraries[0].id;render();updateServiceControls();}
+
 function current(){return state.libraries.find(x=>x.id===libraryId);}
 const COMPLETED_TASK_STATES=new Set(['applied','resolved']);
 const HISTORY_TASK_STATES=new Set(['applied','resolved','rejected','cancelled']);
@@ -468,7 +469,7 @@ async function openFileOperation(asset,kind,selectedIds=null){
 }
 let presencePending=false;
 async function syncCatalog(){if(serviceRestarting)return;if(!libraryId||presencePending||!state.config.token_configured)return;presencePending=true;try{await api('library/presence',{library:libraryId});}catch(error){if(error.message!=='Not found')throw error;}finally{presencePending=false;}}
-initWorkbench();run(async()=>{await refresh();await syncCatalog();await loadServiceStatus();});setInterval(()=>run(refresh),4000);setInterval(()=>run(syncCatalog),60000);
+initWorkbench();startBackgroundRefresh();run(loadServiceStatus);
 
 function folderValue(value){if(Array.isArray(value))return value.map(v=>typeof v==='string'?v:v.name+(v.role?' ('+v.role+')':'')+(v.photo||v.thumb?' · photo':'')).join(', ')||'(empty)';return value||'(empty)';}
 function folderDiff(row){

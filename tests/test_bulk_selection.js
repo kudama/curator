@@ -17,7 +17,7 @@ test('group queue action keeps failures selected and never starts the queue',asy
 });
 test('cleanup cards stay visible in queue and completed receipts move to history',()=>{
  const w=setup();w.context.state.cleanup_jobs=[{id:'active',library:'one',phase:'deleting',total:9,completed:2,deleted:2,failed:0,current:{title:'Movie',phase:'Verifying'}},{id:'done',library:'one',phase:'complete',total:9,completed:9,deleted:0,failed:9}];
- w.context.node=(tag,text)=>({tag,text,children:[],append(...items){this.children.push(...items);}});w.context.button=(label)=>({label});
+ w.context.node=(tag,text)=>({tag,text,dataset:{},children:[],append(...items){this.children.push(...items);}});w.context.button=(label)=>({label});
  const active=w.run('cleanupJobCards(false)'),done=w.run('cleanupJobCards(true)');
  assert.equal(active.length,1);assert.equal(done.length,1);
  assert.match(JSON.stringify(active),/Verifying/);assert.match(JSON.stringify(done),/Finished with failures/);
@@ -45,7 +45,7 @@ test('optimization batch passes the explicitly selected preset without changing 
 });
 test('metadata selection shows a disabled queue action with the missing-edit explanation',()=>{
  const w=setup();w.tasks.splice(1);Object.assign(w.tasks[0],{kind:'metadata',status:'recommendation',plan:{}});w.context.canQueue=t=>Boolean(Object.keys(t.plan.changes||{}).length);
- w.context.node=(tag,text)=>({tag,text,children:[],append(...x){this.children.push(...x);},querySelectorAll(){return this.children.filter(x=>x.label);}});
+ w.context.node=(tag,text)=>({tag,text,dataset:{},children:[],append(...x){this.children.push(...x);},querySelectorAll(){return this.children.filter(x=>x.label);}});
  w.context.button=label=>({label,addEventListener(){}});w.run('selectTaskRows(state.tasks,true)');
  const controls=w.run('bulkTaskControls(state.tasks)'),action=controls.children.find(c=>c.label==='Queue selected (0)');
  assert.ok(action);assert.equal(action.disabled,true);assert.match(JSON.stringify(controls),/need metadata edits/);

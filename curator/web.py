@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from .state_updates import StateUpdates
 from .service import Service
 from .store import Store
 from .tools import image_bytes
@@ -50,6 +51,7 @@ class App(ThreadingHTTPServer):
         self.service = service
         self.runtime = ServiceRuntime(service, managed=managed_service)
         self.session = secrets.token_urlsafe(32)
+        self.state_updates = StateUpdates()
         super().__init__((host, address[1]), Handler)
         self.allowed_authorities = {name + ':' + str(self.server_port) for name in expected_hosts}
         self.allowed_authorities.add(host + ':' + str(self.server_port))
@@ -63,18 +65,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, data, status=200, content_type='application/json', cookie=False, download=None):
         raw = json.dumps(data, allow_nan=False).encode() if content_type == 'application/json' else data
-        self.send_response(status)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(raw)))
-        self.send_header('Cache-Control', 'no-store')
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-        if cookie:
-            self.send_header('Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/')
-        if download:
-            self.send_header('Content-Disposition', 'attachment; filename="' + download + '"')
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(raw)))
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+            if cookie:
+                self.send_header('Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/')
+            if download:
+                self.send_header('Content-Disposition', 'attachment; filename="' + download + '"')
+            self.end_headers()
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return  # Only response writes: provider/operation errors keep normal handling.
 
     def request_host(self):
         hosts = self.headers.get_all('Host', [])
@@ -114,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
-        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'),
+        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'),
                   '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/file-management.js': ('file-management.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
@@ -141,6 +146,9 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.folder_image(query['photo'][0])
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/state/updates':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.state_updates.response(self.server.service.state(), query.get('since', [''])[0]))
             if path == '/api/state':
                 return self.reply(self.server.service.state())
             if path == '/api/artwork/image':
