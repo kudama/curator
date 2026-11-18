@@ -29,6 +29,18 @@ class ArtworkTargets:
             self.store.put('settings', 'artwork-target:'+identity, asset)
         return dict(asset=asset)
 
+    def person_artwork_target(self, profile_id, library_id):
+        self.library(library_id)
+        profile=self.store.get('settings','cast_profiles',{}).get(profile_id)
+        if not profile:raise ValueError('Person not found')
+        identity=hashlib.sha256(('person:'+profile_id).encode()).hexdigest()[:24]
+        existing=self.store.get('settings','artwork-target:'+identity)
+        asset=dict(id=identity,record_type='artwork_target',artwork_target='person',profile_id=profile_id,
+            library=existing['library'] if existing else library_id,rating_key=profile_id,title=profile['name'],plex_path='',present=True,
+            item=dict(title=profile['name'],summary='Square portrait of '+profile['name'],ratingKey=profile_id,guid='person:'+profile_id),updated=now())
+        with self.store.transaction():self.store.put('settings','artwork-target:'+identity,asset)
+        return dict(asset=asset)
+
     def artwork_preview(self, asset_ids, kind, ratio, images, originals=None):
         from .image_contract import editor_png
         if not isinstance(asset_ids,list) or not 1<=len(asset_ids)<=100 or any(not isinstance(a,str) for a in asset_ids) or len(set(asset_ids))!=len(asset_ids):
@@ -58,4 +70,7 @@ class ArtworkTargets:
         from .plex import Plex
         if kind not in Plex.ARTWORK:raise ValueError('Unknown artwork type')
         asset=self.asset({'asset':asset_id},check=False)
+        if asset.get('artwork_target')=='person':
+            if kind!='square':raise ValueError('Person portraits are square')
+            return self.cast_profile_image(asset['profile_id'])
         return self.checked_client(self.library(asset['library'])).image(asset['rating_key'],kind)

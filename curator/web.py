@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
-        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'), '/metadata-manager.js': ('metadata-manager.js', 'application/javascript'), '/artwork-manager.js': ('artwork-manager.js', 'application/javascript'),
+        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'), '/metadata-manager.js': ('metadata-manager.js', 'application/javascript'), '/mage-settings.js': ('mage-settings.js','application/javascript'), '/artwork-editors.js': ('artwork-editors.js','application/javascript'), '/artwork-manager.js': ('artwork-manager.js', 'application/javascript'),
                   '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/file-management.js': ('file-management.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
@@ -165,6 +165,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/metadata/read':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.read_metadata(query['id'][0]))
+            if path == '/api/artwork/styles':return self.reply(self.server.service.artwork_style_guides())
+            if path == '/api/artwork/folder-scope':
+                query=parse_qs(urlsplit(self.path).query);return self.reply(self.server.service.folder_artwork_scope(query['id'][0],query.get('recursive',['false'])[0]=='true'))
+            if path == '/api/artwork/fonts':return self.reply(self.server.service.artwork_fonts())
+            if path == '/api/file-operation':
+                query=parse_qs(urlsplit(self.path).query);return self.reply(self.server.service.file_operation(query['id'][0]))
             if path == '/api/cast/profiles':
                 return self.reply({'profiles': self.server.service.cast_profiles()})
             if path == '/api/cast/image':
@@ -322,8 +328,16 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.artwork_plan(data['assets'], data['kind'], data['preset_id'], data.get('overrides'), data.get('images'), data.get('originals'), data.get('references'))
             elif path == '/api/artwork/reference-frames':
                 result = service.artwork_reference_frames(data['asset'])
+            elif path == '/api/artwork/styles':
+                result=service.save_artwork_style_guides(data['revision'],data['styles'])
+            elif path == '/api/artwork/shared-preview':
+                result=service.shared_artwork_preview(data['assets'],data['image'],data.get('original'),data.get('scope'),data.get('expected'))
+            elif path == '/api/artwork/local':
+                result = service.local_artwork(data)
             elif path == '/api/artwork/preview':
                 result = service.artwork_preview(data['assets'], data['kind'], data.get('ratio'), data['images'], data.get('originals'))
+            elif path == '/api/artwork/person-target':
+                result = service.person_artwork_target(data['profile'],data['library'])
             elif path == '/api/artwork/collection-target':
                 result = service.collection_artwork_target(data['library'], data['key'])
             elif path == '/api/artwork/save-style':

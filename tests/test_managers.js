@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 class Element{
- constructor(tag,text='',cls=''){Object.assign(this,{tag,textContent:text,className:cls,children:[],attrs:{},value:'',hidden:false,disabled:false});}
+ constructor(tag,text='',cls=''){Object.assign(this,{tag,textContent:text,className:cls,children:[],attrs:{},files:[],value:'',hidden:false,disabled:false});}
  append(...items){this.children.push(...items);if(this.tag==='select'&&this.value===''&&items[0])this.value=items[0].value;}
  replaceChildren(...items){this.children=items;}
  setAttribute(key,value){this.attrs[key]=value;}
@@ -47,4 +47,21 @@ test('retrying partial artwork preview reuses drafts already retained',async()=>
  let failed=false;h.context.api=async(endpoint,data)=>{calls.push(data.assets[0]);if(data.assets[0]==='b'&&!failed){failed=true;throw Error('Synthetic connection failure');}return {tasks:[{id:data.assets[0],title:data.assets[0],version:1,plan:{kind:'cover',candidate:'photo'}}]};};
  await h.run('openArtworkManager(assets)');await h.find('Preview changes').onclick();assert.deepEqual(calls,['a','b']);await h.find('Preview changes').onclick();
  assert.deepEqual(calls,['a','b','b']);assert.ok(h.find('Approve & queue 2 artwork changes'));
+});
+
+test('native logo candidate becomes a ready draft through a CSP-compatible blob URL',async()=>{
+ const h=setup();h.context.state.libraries=[];h.context.ARTWORK_LABELS.logo='Logo';let revoked=[];
+ h.context.atob=s=>Buffer.from(s,'base64').toString('binary');h.context.Blob=Blob;h.context.URL={createObjectURL:()=> 'blob:local-logo',revokeObjectURL:v=>revoked.push(v)};
+ const previous=Object.getOwnPropertyDescriptor(Element.prototype,'src');
+ Object.defineProperty(Element.prototype,'src',{configurable:true,set(value){this._src=value;if(value.startsWith('blob:')){this.naturalWidth=600;this.naturalHeight=180;queueMicrotask(()=>this.onload?.());}},get(){return this._src||'';}});
+ Element.prototype.getContext=()=>({clearRect(){},drawImage(){},getImageData:()=>({data:new Uint8Array([255,255,255,128])})});Element.prototype.classList={add(){},toggle(){}};Element.prototype.style={};
+ let changed=0;h.context.changed=()=>changed++;
+ try{const card=h.run("managerArtworkCard(asset,{},'logo',changed)");await card.setCandidate('aGVsbG8=','original');assert.equal(card.dirty(),true);assert.equal(card.ready(),true);assert.equal(card.canvas.width,600);assert.equal(card.canvas.hidden,false);assert.equal(await card.original(),'original');assert.equal(changed,1);}finally{delete Element.prototype.src;if(previous)Object.defineProperty(Element.prototype,'src',previous);}
+});
+
+test('Mage settings preserve an unavailable saved model and use model-specific resolutions',()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/mage-settings.js'),'utf8'),h.context);
+ h.run("mageDiscovery={model_catalog:[{id:'mango-v2',name:'Mango 2',group:'Mango',supported:true,resolutions:['2K','3K','4K']},{id:'mango-v4',name:'Mango 4',group:'Mango',supported:true,resolutions:['1K','2K']}]}");
+ h.context.model=new Element('select');h.context.resolution=new Element('select');h.context.resolution.value='4K';h.context.model.value='mango-v4';h.run('syncMageResolution(model,resolution)');assert.deepEqual(h.context.resolution.children.map(e=>e.value),['1K','2K']);assert.equal(h.context.resolution.value,'1K');
+ h.run("fillMageModels(model,'retired-model')");assert.equal(h.context.model.value,'retired-model');assert.equal(h.context.model.children.at(-1).disabled,true);
 });

@@ -21,6 +21,8 @@ jobs:
       - run: python -m compileall -q curator
       - run: node --check curator/static/metadata-manager.js
       - run: node --check curator/static/artwork-manager.js
+      - run: node --check curator/static/artwork-editors.js
+      - run: node --check curator/static/mage-settings.js
       - run: node --check curator/static/refresh.js
       - run: node --check curator/static/app.js
       - run: node --check curator/static/workbench.js
