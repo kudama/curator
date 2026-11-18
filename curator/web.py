@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from .state_updates import StateUpdates
 from .service import Service
 from .store import Store
 from .tools import image_bytes
@@ -50,6 +51,7 @@ class App(ThreadingHTTPServer):
         self.service = service
         self.runtime = ServiceRuntime(service, managed=managed_service)
         self.session = secrets.token_urlsafe(32)
+        self.state_updates = StateUpdates()
         super().__init__((host, address[1]), Handler)
         self.allowed_authorities = {name + ':' + str(self.server_port) for name in expected_hosts}
         self.allowed_authorities.add(host + ':' + str(self.server_port))
@@ -104,6 +106,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with runtime.request(mutate) if runtime else nullcontext():
                 return method()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return  # Client went away; no second response can be delivered.
         except Restarting:
             return self.reply({'error':'Curator is restarting; reconnect shortly.'},503)
 
@@ -114,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
-        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'),
+        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'),
                   '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/file-management.js': ('file-management.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
@@ -141,6 +145,9 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.folder_image(query['photo'][0])
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/state/updates':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.state_updates.response(self.server.service.state(), query.get('since', [''])[0]))
             if path == '/api/state':
                 return self.reply(self.server.service.state())
             if path == '/api/artwork/image':
@@ -216,6 +223,8 @@ class Handler(BaseHTTPRequestHandler):
                 target = self.server.service.store.root / 'comparisons' / key / side / name
                 return self.reply(image_bytes(target), content_type='image/jpeg')
             return self.reply({'error': 'Not found'}, 404)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            raise
         except (ValueError, OSError, KeyError) as e:
             return self.reply({'error': str(e) if isinstance(e, ValueError) else 'Resource unavailable'}, 400)
 
@@ -370,6 +379,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self.reply({'error': 'Not found'}, 404)
             self.reply(result)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            raise
         except RestartBlocked as error:
             self.reply({'error':str(error)},409)
         except (ValueError, KeyError, TypeError) as e:

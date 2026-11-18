@@ -242,6 +242,7 @@ function handleReviewShortcut(event){
 function cleanupJobCards(history){
  return (state.cleanup_jobs||[]).filter(j=>(history?j.library===libraryId:queueMatchesLibrary(j))&&(history?(j.phase==='complete'||j.phase==='interrupted')&&historyStatusMatches({status:j.phase==='interrupted'?'blocked':j.failed?'failed':'applied'}):j.phase!=='complete')).map(job=>{
   const card=node('article',undefined,'processing-card'),text=node('div',undefined,'processing-card-text');
+  card.dataset.cleanupId=job.id;
   text.append(node('strong','Clean up originals'),node('p',(job.phase==='queued'?'Waiting for file operation slot':job.phase==='deleting'?'Processing':job.phase==='complete'?(job.failed?'Finished with failures':'Completed'):'Interrupted')+' · '+job.completed+' of '+job.total+' checked · '+job.deleted+' deleted · '+job.failed+' failed','muted'));
   if(job.phase==='deleting'&&job.current)text.append(node('p',job.current.phase+' · '+job.current.title,'muted'));
   const progress=node('progress');progress.max=job.total||1;progress.value=job.completed;text.append(progress);

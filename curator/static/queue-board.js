@@ -1,15 +1,15 @@
 'use strict';
-// Three approved lanes. Unmapped task kinds retain the existing queue until their design is approved.
+// Keep the approved board stable; file preparation and other work never replace it.
 const queueFileSelection=new Set();
+const QUEUE_FILE_KINDS=new Set(['join','rename','group']);
 function queueActiveFiles(){return (state.file_jobs||[]).filter(j=>['waiting','running'].includes(j.phase));}
 function queueBoardTasks(){const owned=new Set(queueActiveFiles().map(j=>j.payload?.task).filter(Boolean));return state.tasks.filter(t=>!owned.has(t.id)&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status));}
-function queueBoardAvailable(){
- return !queueBoardTasks().some(t=>!['upscale','optimize'].includes(t.kind))&&!(state.cleanup_jobs||[]).some(r=>r.phase!=='complete'&&!queueActiveFiles().some(j=>j.payload?.receipt===r.id));
-}
+function queueBoardAvailable(){return true;}
+function queueOrphanCleanups(){return (state.cleanup_jobs||[]).filter(r=>r.phase!=='complete'&&!queueActiveFiles().some(j=>j.payload?.receipt===r.id));}
 function queueIsRunning(){return (state.task_queues||[]).some(q=>q.active&&!q.paused)||queueActiveFiles().some(j=>j.phase==='running'&&!state.file_queue_paused)||(!Array.isArray(state.task_queues)&&Boolean(state.queue_running));}
 function queueVisible(row){return queueMatchesLibrary(row)&&(!searchText||[row.title,catalogIndex().byId.get(row.asset)?.plex_path,TASK_LABELS[row.kind],row.operation].join(' ').toLocaleLowerCase().includes(searchText));}
 function queueStatusMatches(status){return queueStatus==='all'||(queueStatus==='attention'?['failed','blocked'].includes(status):queueStatus==='running'?['running','publishing'].includes(status):status===queueStatus);}
-function queueCountRows(){return [...queueBoardTasks(),...queueActiveFiles().map(j=>({...j,status:j.phase==='waiting'?'queued':'publishing'}))].filter(queueVisible);}
+function queueCountRows(){return [...queueBoardTasks(),...queueOrphanCleanups().map(r=>({...r,title:'Clean up originals',status:r.phase==='queued'?'queued':r.phase==='deleting'?'publishing':'blocked'})),...queueActiveFiles().map(j=>({...j,status:j.phase==='waiting'?'queued':'publishing'}))].filter(queueVisible);}
 function renderQueueStatusLinks(){
  const nav=$('queue-status-links');nav.hidden=!['processing','review'].includes(screen);nav.replaceChildren();if(nav.hidden)return;
  const rows=queueCountRows();
@@ -50,7 +50,7 @@ function queueLaneSelection(kind){
 }
 function queueLaneControl(kind){
  const files=kind==='file_operations',info=(state.task_queues||[]).find(q=>q.kind===kind),running=files?queueActiveFiles().filter(j=>j.phase==='running').length:info?.running||0,waiting=queueLaneIds(kind).length,paused=files?state.file_queue_paused:Boolean(info?.paused);
- const active=files?running&&!paused:info?.active&&!paused,box=node('div',undefined,'queue-lane-control');box.append(node('span',running+' running · limit '+(state.queue_limits?.[kind]||(files?4:1)),'muted'));
+ const active=files?running&&!paused:info?.active&&!paused,box=node('div',undefined,'queue-lane-control');box.append(node('span',(files?'Copy/delete: ':'')+running+' running · limit '+(state.queue_limits?.[kind]||(files?4:1)),'muted'));
  const control=button(active?'Ⅱ':'▶',async()=>{await api(active?'queue/pause':'run',{scope:'all',kind});await refresh();},'icon-button subtle');control.setAttribute('aria-label',(active?'Pause after current: ':'Start queue: ')+(files?'File operations':kind==='upscale'?'Upscaling':'Encoding')+' across all libraries');control.title=control.getAttribute('aria-label');control.disabled=!active&&!waiting;box.append(control);if(paused)box.append(node('span',running?'Pausing…':'Paused','muted'));return box;
 }
 function queueFileCard(job,head){
@@ -85,17 +85,34 @@ function queueTaskDetailControls(task){
  controls.append(button('Remove from queue',()=>taskAction(task,'remove_queue'),'text-button'));return controls;
 }
 function renderProcessing(){
- if(!queueBoardAvailable())return renderLegacyProcessing();
- const board=node('div',undefined,'queue-board'),tasks=queueBoardTasks().filter(t=>queueVisible(t)&&t.status!=='awaiting_review'&&queueStatusMatches(t.status)),positions=new Map(waitingSnapshot().map((r,i)=>[r.id,i]));
+ const typeCounts=new Map();taskQueuePositions=new Map();for(const row of waitingSnapshot()){const task=state.tasks.find(t=>t.id===row.id);if(!task)continue;const position=(typeCounts.get(task.kind)||0)+1;typeCounts.set(task.kind,position);taskQueuePositions.set(task.id,position);}
+ const board=node('div',undefined,'queue-board'),tasks=queueBoardTasks().filter(t=>queueVisible(t)&&(t.status!=='awaiting_review'||!['upscale','optimize','join'].includes(t.kind))&&queueStatusMatches(t.status)),positions=new Map(waitingSnapshot().map((r,i)=>[r.id,i]));
  for(const [kind,title] of [['upscale','Upscaling'],['optimize','Encoding'],['file_operations','File operations']]){
   const lane=node('section',undefined,'queue-lane'),header=node('div',undefined,'queue-lane-heading');lane.setAttribute('aria-label',title);header.append(node('h2',title),queueLaneControl(kind));lane.append(header);
   const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>t.kind===kind).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
   const running=rows.filter(r=>files?r.phase==='running':['running','publishing'].includes(r.status)),waiting=rows.filter(r=>files?r.phase==='waiting':r.status==='queued'),attention=files?[]:rows.filter(r=>['failed','blocked'].includes(r.status));
   const head=running[0]||waiting[0],make=(row,head)=>{if(files)return queueFileCard(row,head);const card=processingTaskCard(row);card.classList.add(head?'queue-head':'queue-compact');return card;};
-  if(head)lane.append(make(head,true));else lane.append(node('p',rows.length?'No active jobs':'No jobs','queue-lane-empty muted'));
+  if(head)lane.append(make(head,true));else if(!files||!tasks.some(t=>QUEUE_FILE_KINDS.has(t.kind)))lane.append(node('p',rows.length?'No active jobs':'No jobs','queue-lane-empty muted'));
   for(const row of running.slice(1))lane.append(make(row,false));
-  lane.append(node('h3','Waiting ('+waiting.length+')'),queueLaneSelection(kind));for(const row of waiting)if(row!==head)lane.append(make(row,false));
-  for(const row of attention)lane.append(make(row,false));board.append(lane);
+  lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'),queueLaneSelection(kind));for(const row of waiting)if(row!==head)lane.append(make(row,false));
+  for(const row of attention)lane.append(make(row,false));
+  if(files){
+   const preparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)).sort((a,b)=>['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));let hasHead=Boolean(head);
+   for(const kind of [...new Set(preparation.map(t=>t.kind))]){
+    lane.append(node('h3',(TASK_LABELS[kind]||kind)+' · preparation'),taskQueueControls(kind),queueLaneSelection(kind));
+    for(const task of preparation.filter(t=>t.kind===kind)){
+     const card=processingTaskCard(task);card.classList.add(hasHead?'queue-compact':'queue-head');lane.append(card);hasHead=true;
+    }
+   }
+   const orphanIds=new Set(queueOrphanCleanups().filter(r=>queueVisible({...r,title:'Clean up originals'})&&queueStatusMatches(r.phase==='queued'?'queued':r.phase==='deleting'?'publishing':'blocked')).map(r=>r.id));
+   for(const card of cleanupJobCards(false))if(orphanIds.has(card.dataset.cleanupId))lane.append(card);
+  }
+  board.append(lane);
  }
- return [board];
+ const other=tasks.filter(t=>!['upscale','optimize'].includes(t.kind)&&!QUEUE_FILE_KINDS.has(t.kind)),extra=[];
+ for(const kind of [...new Set(other.map(t=>t.kind))]){
+  const section=node('section',undefined,'processing-group');section.append(node('h2',TASK_LABELS[kind]||kind),taskQueueControls(kind),queueLaneSelection(kind));
+  section.append(...other.filter(t=>t.kind===kind).map(processingTaskCard));extra.push(section);
+ }
+ return [board,...extra];
 }
