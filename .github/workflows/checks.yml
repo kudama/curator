@@ -21,5 +21,6 @@ jobs:
       - run: python -m compileall -q curator
       - run: node --check curator/static/app.js
       - run: node --check curator/static/workbench.js
+      - run: node --check curator/static/queue-board.js
       - run: node --check curator/static/collections.js
       - run: node --test tests/test_*.js

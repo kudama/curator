@@ -1,5 +1,6 @@
 """Synthetic private-network browser policy checks; no Plex or media operations."""
 import io
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -59,13 +60,13 @@ class ListenerPolicy(unittest.TestCase):
 
 class BrowserPolicy(unittest.TestCase):
     def request(self, host='foundry:8790', path='/api/state', method='GET', origin=None,
-                cookie=True, mutation_header=True, extra_headers=()):
+                cookie=True, mutation_header=True, extra_headers=(),data=None):
         headers = [('Host',host)] if host is not None else []
         if cookie:headers.append(('Cookie','curator_session=test-session'))
         if origin is not None:headers.append(('Origin',origin))
         if mutation_header:headers.append(('X-Curator-Request','1'))
         headers.extend(extra_headers)
-        payload = b'{}' if method == 'POST' else b''
+        payload = json.dumps(data if data is not None else {}).encode() if method == 'POST' else b''
         request = (f'{method} {path} HTTP/1.1\r\n'+''.join(k+': '+v+'\r\n' for k,v in headers)
                    +f'Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n').encode()+payload
         class Connection:
@@ -74,10 +75,22 @@ class BrowserPolicy(unittest.TestCase):
             def sendall(self,data):self.output.extend(data)
         connection=Connection()
         service=Mock();service.state.return_value={'ok':True};service.save_config.return_value={'ok':True}
+        service.change_file_queue_order.return_value={'waiting':1}
         server=SimpleNamespace(server_port=8790,session='test-session',service=service,
             allowed_authorities={'foundry:8790','10.0.0.106:8790'})
         web.Handler(connection,('10.0.0.50',1),server)
         return bytes(connection.output),service
+
+    def test_file_order_endpoint_requires_session_and_exact_request_scope(self):
+        data={'expected':[{'id':'file-operation:one','updated':'now'}],'order':['file-operation:one']}
+        response,service=self.request(path='/api/file-queue/order',method='POST',data=data,origin='http://foundry:8790')
+        self.assertIn(b'200 OK',response)
+        service.change_file_queue_order.assert_called_once_with(data['expected'],data['order'])
+        for options in ({'cookie':False},{'mutation_header':False},{'origin':'https://evil.example'}):
+            response,service=self.request(path='/api/file-queue/order',method='POST',data=data,**options)
+            self.assertIn(b'403',response);service.change_file_queue_order.assert_not_called()
+        response,service=self.request(path='/api/file-queue/order',method='POST',data={**data,'library':'one'},origin='http://foundry:8790')
+        self.assertIn(b'400',response);service.change_file_queue_order.assert_not_called()
 
     def test_lan_page_cookie_and_authenticated_session_read(self):
         page,_=self.request(path='/',cookie=False)

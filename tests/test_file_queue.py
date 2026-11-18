@@ -62,3 +62,71 @@ class FileOperations(unittest.TestCase):
         old=threading.Event();new=threading.Event();self.service.file_workers[new]=True;self.service.active.add('file-queue')
         self.service._release_file_worker(old);self.assertIn(new,self.service.file_workers)
         self.service._release_file_worker(new)
+
+    def queued_jobs(self,count=3):
+        with self.store.transaction():
+            self.store.put('settings',self.service.pause_key(None,'file_operations'),True)
+        return [self.service.queue_file_operation('repair',{'task':str(i)},background=True) for i in range(count)]
+
+    def test_waiting_order_persists_and_admission_uses_display_order(self):
+        jobs=self.queued_jobs()
+        before={job['id']:job for job in self.service.file_jobs()}
+        order=[jobs[i]['id'] for i in (2,0,1)]
+        self.service.change_file_queue_order(self.service.file_queue_snapshot(),order)
+        self.assertEqual([j['id'] for j in self.service.file_jobs()],order)
+        self.assertEqual({j['id']:j for j in self.service.file_jobs()},before)
+        self.assertFalse(self.service.file_workers)
+        state=self.service.state()
+        self.assertEqual(state['file_queue'],self.service.file_queue_snapshot())
+        self.assertEqual([j['id'] for j in state['file_jobs']],order)
+        # The setting persists independently of worker admission and never replays on restart.
+        self.assertEqual(self.store.get('settings','file-queue-order:global')['ids'],order)
+        self.service.set_queue_limits({'file_operations':1})
+        with patch.object(self.service,'_execute_file_operation',side_effect=self.operation):
+            self.service.start_file_queue(resume=True)
+            self.wait(lambda:len(self.seen)==1)
+            self.assertEqual(self.seen,['2'])
+            active=next(j for j in self.service.file_jobs() if j['phase']=='running')
+            snapshot=self.service.file_queue_snapshot()
+            self.service.change_file_queue_order(snapshot,[row['id'] for row in reversed(snapshot)])
+            self.assertEqual(self.store.get('settings',active['id']),active)
+            self.release.set();self.wait(lambda:not self.service.file_workers)
+        self.assertEqual(self.seen,['2','1','0'])
+
+    def test_new_jobs_append_and_stale_snapshots_reject_without_writes(self):
+        jobs=self.queued_jobs(2)
+        order=[j['id'] for j in reversed(jobs)]
+        self.service.change_file_queue_order(self.service.file_queue_snapshot(),order)
+        snapshot=self.service.file_queue_snapshot()
+        added=self.service.queue_file_operation('repair',{'task':'2'},background=True)
+        self.assertEqual([r['id'] for r in self.service.file_queue_snapshot()],order+[added['id']])
+        saved=self.store.get('settings','file-queue-order:global')
+        with self.assertRaisesRegex(ValueError,'changed'):
+            self.service.change_file_queue_order(snapshot,order)
+        self.assertEqual(self.store.get('settings','file-queue-order:global'),saved)
+        for change in ({'updated':'changed'},{'phase':'running'}):
+            snapshot=self.service.file_queue_snapshot()
+            with self.store.transaction():
+                record=self.store.get('settings',jobs[0]['id']);record.update(change)
+                self.store.put('settings',record['id'],record)
+            with self.assertRaisesRegex(ValueError,'changed'):
+                self.service.change_file_queue_order(snapshot,[r['id'] for r in snapshot])
+            self.assertEqual(self.store.get('settings','file-queue-order:global'),saved)
+
+    def test_invalid_order_cannot_drop_duplicate_or_include_nonwaiting_operations(self):
+        self.queued_jobs(2)
+        snapshot=self.service.file_queue_snapshot();ids=[r['id'] for r in snapshot]
+        for expected,order in ((snapshot,ids[:1]),(snapshot,[ids[0],ids[0]]),(snapshot,ids+['unknown']),
+                               (None,ids),([{'id':ids[0]}],ids),(snapshot,[{}]),(snapshot,None)):
+            with self.subTest(expected=expected,order=order),self.assertRaises(ValueError):
+                self.service.change_file_queue_order(expected,order)
+            self.assertIsNone(self.store.get('settings','file-queue-order:global'))
+
+    def test_legacy_fifo_and_restart_hold_survive_saved_order(self):
+        jobs=self.queued_jobs()
+        self.assertEqual([r['id'] for r in self.service.file_queue_snapshot()],[j['id'] for j in jobs])
+        self.service.change_file_queue_order(self.service.file_queue_snapshot(),[j['id'] for j in reversed(jobs)])
+        fresh=Service(self.store)
+        self.assertFalse(fresh.file_workers)
+        self.assertEqual(fresh.file_queue_snapshot(),[])
+        self.assertEqual({j['phase'] for j in fresh.file_jobs()},{'interrupted'})

@@ -4,7 +4,16 @@ const expandedFiles=new Set();let queueStatus='all',activeGrouping='folder';let 
 const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'Home-movie analysis',metadata:'Metadata & artwork',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Generation plan'};
 const $=id=>document.getElementById(id);
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-function toast(text,error=false){const feedback=$($('config-dialog').open?'config-feedback':'task-feedback');if(feedback&&(inspectorOpen()||$('config-dialog').open)){feedback.hidden=false;feedback.textContent=text;feedback.className=error?'artwork-status error':'artwork-status';}$('toast').textContent=text;$('toast').className=error?'error':'';$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,7000);}
+function feedbackTarget(){return $($('config-dialog').open?'config-feedback':$('library-dialog').open?'library-feedback':inspectorOpen()?'task-feedback':'workspace-feedback');}
+function toast(text,error=false){
+ const feedback=feedbackTarget(),message=node('div',undefined,'feedback-message'+(error?' error':''));
+ const context=feedback===$('task-feedback')?(openedTask||inspectorMode||'panel'):'workspace';
+ for(const notice of feedback.children)notice.hidden=notice.dataset.feedbackContext!==context;
+ message.dataset.feedbackContext=context;message.hidden=false;
+ message.setAttribute('role',error?'alert':'status');message.append(node('span',text));
+ message.append(button('Dismiss',()=>{message.remove();feedback.hidden=![...feedback.children].some(notice=>!notice.hidden);},'text-button feedback-dismiss'));
+ feedback.hidden=false;feedback.append(message);return message;
+}
 async function api(path,data){const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}
 async function run(fn){try{return await fn();}catch(e){toast(e.message,true);}}
 async function refresh(){if(serviceRestarting)return;state=await api('state');if(!libraryId&&state.libraries.length)libraryId=state.libraries[0].id;render();updateServiceControls();}
@@ -265,7 +274,7 @@ async function openLibrarySettings(){
 }
 $('library-form').onsubmit=e=>{e.preventDefault();run(async()=>{const form=e.target;const mappings=[...$('mapping-rows').querySelectorAll('.mapping-row')].map(row=>({plex_root:row.querySelector('[name="plex_root"]').value,local_root:localPath(row.querySelector('[name="local_root"]').value)})).filter(x=>x.local_root);await api('library',{id:libraryId,settings:{profile:form.elements.profile.value,mappings,themes:form.elements.themes.value.split(',').map(x=>x.trim()).filter(Boolean)}});$('library-dialog').close();await refresh();toast('Library settings saved');});};
 $('scan').onclick=()=>run(async()=>{await api('scan',{library:libraryId});toast('Library scan started');await refresh();});
-$('run').onclick=()=>run(async()=>{if(featureAvailable('unattended_runs'))return showRunReadiness();await api('run',queueScope());await refresh();toast('Task queues started with shared processing limits.');});
+$('run').onclick=()=>run(async()=>{if(queueIsRunning()){await api('queue/pause',{scope:'all'});await refresh();toast('Queues will pause after their current jobs finish.');return;}if(featureAvailable('unattended_runs'))return showRunReadiness();await api('run',queueScope());await refresh();toast('Task queues started with shared processing limits.');});
 $('filters').onclick=e=>{const tab=e.target.closest('[data-view]');if(tab){libraryView=tab.dataset.view;filter=libraryView==='completed'?'completed':'all';selected.clear();render();}};
 $('group-by').onchange=e=>{activeGrouping=e.target.value;render();};
 $('queue-status').onchange=e=>{queueStatus=e.target.value;selected.clear();render();};
@@ -278,7 +287,7 @@ $('playlist').onclick=()=>run(async()=>{if(!libraryId)throw Error('Select and sc
 $('mcu').onclick=()=>run(async()=>{if(!libraryId)throw Error('Select a library first');const a=node('a');a.href='/api/kometa?'+new URLSearchParams({library:libraryId,mode:'mcu'});a.download='curator-mcu.yml';a.click();toast('MCU definition exported; verify movie/TV library names during Kometa setup');});
 async function taskAction(t,action,settings={}){
  const result=await api('task/action',{id:t.id,version:t.version,action,...settings});if(action==='queue'&&t.kind==='optimize'&&settings.remember_preset){try{await api('processing-defaults',{library:t.library,kind:'optimize',values:{handbrake_preset:settings.handbrake_preset}});}catch(error){toast('Queued, but the library default could not be remembered.',true);}}selected.delete(t.id);await refresh();const advance=openedTask===t.id;closeInspector(true);
- if(action==='delete'){toast('Task deleted. Media files and retained outputs are kept.');$('toast').append(button('Undo',()=>taskAction(result,'restore_task'),'subtle'));}
+ if(action==='delete'){toast('Task deleted. Media files and retained outputs are kept.').append(button('Undo',()=>run(()=>taskAction(result,'restore_task')),'text-button'));}
  else if(action==='remove_queue')toast('Removed from queue.');
  else if(action==='cancel')toast(t.status==='running'?'Cancellation requested…':'Task cancelled.');
  else if(action==='restore_task')toast('Task restored; it has not been requeued.');
@@ -335,7 +344,9 @@ async function openTask(id,workspace='metadata'){
  const processedReview=t.status==='awaiting_review'&&['upscale','optimize'].includes(t.kind);if(processedReview)$('task-reason').hidden=true;
  let processingSelector=null,prepareComparison=null;
  if(t.kind==='upscale'&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&featureAvailable('unattended_runs')){const saved=state.processing_defaults?.[t.library]?.upscale;detail.append(node('p',saved?'Uses remembered upscale settings for this library.':'Uses workspace upscale settings.','muted'),button(saved?'Use current workspace settings for this library':'Remember current upscale settings for this library',()=>run(async()=>{const values=Object.fromEntries(['topaz_filter','topaz_rate_control','topaz_quality','topaz_bitrate_mbps'].filter(key=>state.config[key]!==undefined).map(key=>[key,state.config[key]]));await api('processing-defaults',{library:t.library,kind:'upscale',values});await refresh();await openTask(t.id);}), 'subtle'));}
- detail.append(recommendation(t,asset),progressView(t));
+ if(['queued','running','publishing'].includes(t.status)&&['upscale','optimize'].includes(t.kind)&&typeof renderQueueTaskFacts==='function')renderQueueTaskFacts(detail,t,asset);
+ else detail.append(recommendation(t,asset));
+ detail.append(progressView(t));
  if(['upscale','optimize','join'].includes(t.kind)&&t.result?.size_bytes!==undefined)detail.append(sizeComparison(t.kind==='join'?{...t,source:{size:t.evidence.total_bytes}}:t,asset));
  if(['rename','join','group'].includes(t.kind))renderFilePlan(detail,t);
  if(['upscale','optimize','join','rename'].includes(t.kind)){const log=node('details'),summary=node('summary','Publication log'),entries=node('div');log.append(summary,entries);log.ontoggle=()=>{if(log.open)run(async()=>{entries.replaceChildren(node('p','Loading publication log…','muted'));const result=await api('task/publication-log?'+new URLSearchParams({id:t.id}));entries.replaceChildren(...(result.entries.length?result.entries.map(e=>node('p',new Date(e.at).toLocaleTimeString()+' · '+e.phase+(e.detail?' · '+e.detail:'')+(e.errno?' · errno '+e.errno:''),'muted')):[node('p','No recorded publication phases yet. Older attempts have no detailed log.','muted')]));});};detail.append(log);}
@@ -402,7 +413,8 @@ async function openTask(id,workspace='metadata'){
   if(t.kind!=='home'){detail.append(node('p',t.kind==='join'?'Publication adds a new file and Plex item. All source parts stay in place.':'Publication keeps the original beside the video as filename-old.extension. Existing backups are never overwritten.','muted'));const publish=button('Accept & publish',async()=>{if(publishing||publish.disabled)return;if(t.kind==='join'&&!confirm('I reviewed the parts and approve adding the joined file; retain every original part.'))return;const current=state.tasks.find(task=>task.id===t.id);if(!current||current.version!==reviewVersion||current.status!=='awaiting_review')throw Error('Task changed; reopen it before publishing.');publishing=true;for(const control of actions.querySelectorAll('button'))control.disabled=true;publish.textContent='Publishing…';try{await api('task/review',{id:t.id,version:reviewVersion});await refresh();const advance=openedTask===t.id;if(advance)closeInspector(true);toast('Publishing started. Track copying and verification under Publishing in Queue.');if(typeof afterReviewDecision==='function')await afterReviewDecision(t.id,'accepted',advance);}catch(error){await refresh();if(openedTask===t.id){closeInspector(true);await openTask(t.id);}throw error;}},'primary');publishButton=publish;publish.disabled=['upscale','optimize','join'].includes(t.kind)&&!t.comparison_loaded;actions.append(publish);}
  }
  if(needsQuickTimeRepair(t))actions.append(button('Fix QuickTime playback',async()=>{const result=await api('task/action',{id:t.id,version:t.version,action:'repair_quicktime'});await refresh();toast(result.quicktime_repair_warning||'QuickTime container repaired without re-encoding',Boolean(result.quicktime_repair_warning));},'primary'));
- if(!processedReview)actions.append(taskControls(t,true));
+ if(t.status==='queued'&&screen==='processing'&&typeof queueTaskDetailControls==='function')actions.append(queueTaskDetailControls(t));
+ else if(!processedReview)actions.append(taskControls(t,true));
  if(typeof decorateContinuousReview==='function')decorateContinuousReview(t,actions);
  showInspector();
  if(prepareComparison)await prepareComparison();
