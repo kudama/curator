@@ -3,6 +3,8 @@
 **Latest governing scope:** [Consolidated feature lock](feature-lock.md), including later clarifications. It supersedes conflicting earlier wording below.
 Status: design approved for ticketing. **Implementation, worker dispatch, merge and deployment are on hold until Mike explicitly authorizes execution.** This packet contains documentation and synthetic renders only. No code changes are authorized by this packet.
 
+Execution update, 2026-11-17: Mike subsequently authorized development with Forge. The hold text is historical; the latest feature lock governs scope. The implementation is being reviewed in draft PR #57. See [implementation evidence and remaining gates](implementation-check.md); it is not deployed acceptance.
+
 ## Approved references and precedence
 
 - [Three-column queue](queue-three-columns.png): the main screen direction.

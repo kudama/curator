@@ -103,8 +103,9 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         public['token_configured'] = bool(cfg.get('plex_token'))
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
-        return dict(config=public, libraries=libraries, assets=self.store.all('assets'),
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=self.file_jobs(),processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
+        file_jobs=self.file_jobs()
+        return dict(config=public, libraries=libraries, assets=self.store.all('assets'),file_queue_paused=self.file_queue_paused(),file_queue=[dict(id=j['id'],updated=j.get('updated')) for j in file_jobs if j['phase']=='waiting'],
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=file_jobs,processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
         with self.lock:active=tuple(self.active)

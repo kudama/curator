@@ -76,6 +76,9 @@ class FileOperations(unittest.TestCase):
         self.assertEqual([j['id'] for j in self.service.file_jobs()],order)
         self.assertEqual({j['id']:j for j in self.service.file_jobs()},before)
         self.assertFalse(self.service.file_workers)
+        state=self.service.state()
+        self.assertEqual(state['file_queue'],self.service.file_queue_snapshot())
+        self.assertEqual([j['id'] for j in state['file_jobs']],order)
         # The setting persists independently of worker admission and never replays on restart.
         self.assertEqual(self.store.get('settings','file-queue-order:global')['ids'],order)
         self.service.set_queue_limits({'file_operations':1})

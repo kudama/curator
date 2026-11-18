@@ -115,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
         static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'),
-                  '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
+                  '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
             return self.reply((Path(__file__).parent / 'static' / name).read_bytes(), content_type=kind, cookie=path == '/')
@@ -322,6 +322,9 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.action(data['id'], data['action'], data['version'], data.get('handbrake_preset'))
             elif path == '/api/queue/change':
                 result=service.change_queue(None if data.get('scope')=='all' else data['library'],data['expected'],order=data.get('order'),remove=data.get('remove'))
+            elif path == '/api/file-queue/order':
+                if set(data)!={'expected','order'}:raise ValueError('File ordering requires the full waiting snapshot and order')
+                result=service.change_file_queue_order(data['expected'],data['order'])
             elif path == '/api/task/review':
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
             elif path == '/api/review-batch/prepare':

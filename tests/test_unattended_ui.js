@@ -8,7 +8,7 @@ function setup(){
  const context=vm.createContext({state:{tasks:[],libraries:[],global_queue:[]},libraryId:'one',screen:'processing',inspectorMode:null,openedTask:null,selected:new Set(),
   $:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);},node:(tag,text)=>new Element(tag,text),button:(text,fn)=>{const e=new Element('button',text);e.onclick=fn;return e;},
   api:async(endpoint,data)=>{calls.push({endpoint,data});return {waiting:2,running:0,file_waiting:0,limits:{optimize:2},volumes:[],issues:[],processing_eta_seconds:null,estimate_note:'Measured estimates only'};},
-  formatBytes:String,TASK_LABELS:{optimize:'Encoding',upscale:'Upscale'},run:fn=>fn(),refresh:async()=>{},render:()=>{},toast:text=>messages.push(text),Notification,
+  formatBytes:String,TASK_LABELS:{optimize:'Encoding',upscale:'Upscale'},run:fn=>fn(),refresh:async()=>{},render:()=>{},toast:text=>{messages.push(text);return new Element("div");},Notification,
   window:{isSecureContext:true,focus(){}},localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
   document:{querySelectorAll:()=>[],getElementById:()=>({append(){}})}});
  vm.runInContext(source,context);context.prepareInspector=()=>true;context.showInspector=()=>{};context.closeInspector=()=>{};

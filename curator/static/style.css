@@ -114,3 +114,64 @@
 #history-status-control{margin:0;font-size:12px;min-width:160px}
 #history-status{height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
 .view-options:has(#history-status-control:not([hidden]))>button{height:40px;display:inline-flex;align-items:center;justify-content:center}
+
+/* Feedback participates in layout; messages never cover the work controls. */
+.inline-feedback{flex-shrink:0;min-width:0;max-height:24vh;overflow:auto;margin:0 0 12px}
+.feedback-message{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;padding:10px 12px;margin:0 0 6px;border:1px solid var(--line);border-radius:7px;background:var(--panel)}
+.feedback-message>span{flex:1 1 200px;overflow-wrap:anywhere}
+.feedback-message.error{border-color:var(--bad);color:var(--bad)}
+.feedback-message .text-button{font-size:12px;white-space:nowrap}
+.feedback-dismiss{color:var(--muted)}
+
+/* The queue fills its workspace until a temporary detail panel is opened. */
+.queue-workspace{grid-template-columns:minmax(0,1fr)}
+.queue-workspace>#inspector-empty{display:none}
+.queue-workspace.queue-inspecting{grid-template-columns:minmax(0,1.65fr) minmax(340px,1fr)}
+.queue-workspace #task-dialog{--accent:#ff61d4;--muted:#dfbbd5;--line:#794060;--panel:#281226;background:linear-gradient(145deg,#32112b,#1e1123);border:2px solid #ed4dc5;color:#fff0fa}
+.queue-workspace #task-dialog>.dialog-head,.queue-workspace #task-dialog>.dialog-actions{background:#2b1228;border-color:#bc4c9f}
+.queue-workspace #task-dialog .eyebrow,.queue-workspace #task-dialog h3{color:#ff79dc}
+.queue-workspace .processing-card.inspected{border-color:#ff61d4;box-shadow:0 0 0 2px #ff61d4}
+.queue-workspace #task-dialog button:focus-visible{outline:2px solid #ff9ce5;outline-offset:3px}
+.queue-workspace #task-dialog .primary{background:#ff61d4;border-color:#ff61d4;color:#261022}
+.queue-page .view-options{flex-wrap:wrap;align-items:flex-end}
+.queue-page .view-options>label{margin:0}
+.queue-page .view-options>button{min-height:40px}
+@media(max-width:1100px){.queue-workspace.queue-inspecting{grid-template-columns:minmax(0,1fr) minmax(320px,1fr)}}
+@media(max-width:800px){.queue-workspace.queue-inspecting{grid-template-columns:minmax(0,1fr)}.queue-workspace.queue-inspecting #task-dialog{grid-row:1;max-height:80vh}.queue-workspace.queue-inspecting .file-pane{grid-row:2}}
+
+#queue-global-controls{display:flex;gap:14px;align-items:center;order:2;margin-left:18px}
+#queue-global-controls small{display:block;text-align:center;color:var(--muted);font-size:11px;margin-top:4px}
+#queue-status-links{display:flex;gap:24px;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid var(--line);margin-bottom:14px}
+#queue-status-links button{border:0;border-radius:0;padding:10px 3px;background:none;color:var(--text)}
+#queue-status-links button.active{border-bottom:3px solid var(--accent);color:var(--accent)}
+.queue-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+.queue-lane{border:1px solid var(--line);border-radius:9px;padding:12px;min-width:0;min-height:320px}
+.queue-lane-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.queue-lane h2{font-size:18px;margin:0;color:var(--text)}
+.queue-lane h3{font-size:13px;margin:22px 0 8px}
+.queue-lane-control{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:10px}
+.queue-lane-control button{padding:2px 6px;min-height:26px}
+.queue-lane .processing-card{padding:10px;margin:0 0 8px;min-width:0}
+.queue-lane .processing-card-main{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.queue-lane .processing-card-text{min-width:0;flex:1 1 130px}
+.queue-lane .processing-card-text p{font-size:11px;margin:4px 0}
+.queue-lane .processing-card-actions{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;width:100%;gap:8px}
+.queue-lane .processing-card-actions>button{border:0;background:none;padding:2px;font-size:12px;color:var(--accent)}
+.queue-lane .queue-head{min-height:220px}
+.queue-head .media-thumbnail{width:100%;height:110px;flex:none}
+.queue-compact .media-thumbnail,.queue-compact .task-controls{display:none}
+.queue-compact .processing-card-main>.muted{display:none}
+.queue-compact .processing-card-actions{width:auto;flex:0 1 auto}
+.queue-lane .task-name{font-size:13px;text-align:left;font-weight:650;padding:0;color:var(--text);overflow-wrap:anywhere;white-space:normal}
+.queue-lane-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0 0 8px;font-size:11px}
+.queue-lane-actions button{padding:2px 0;font-size:11px}
+.queue-file-card{display:flex;align-items:start;gap:8px;flex-wrap:wrap}
+.queue-lane-empty{min-height:180px;text-align:center;padding-top:65px}
+.recent-activity{border-top:1px solid var(--line);margin-top:18px;padding-top:12px}
+.recent-activity>summary{cursor:pointer;font-weight:600}
+.activity-row{padding:10px 0;border-bottom:1px solid var(--line);font-size:12px}
+.activity-row p{margin:3px 0}
+.queue-page .heading-tools{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:1250px){.queue-inspecting .queue-board{grid-template-columns:minmax(0,1fr)}.queue-inspecting .queue-lane{min-height:0}}
+@media(max-width:1050px){.queue-board{grid-template-columns:minmax(0,1fr)}.queue-lane{min-height:0}.queue-page .heading{flex-wrap:wrap}.queue-page .heading-tools{width:100%;justify-content:space-between}#queue-status-links{gap:12px}}
+@media(max-width:650px){#queue-global-controls{margin:0}.queue-page .search-label{width:100%}.queue-page .heading-tools{justify-content:flex-start}#queue-status-links{gap:5px}#queue-status-links button{font-size:12px}}
