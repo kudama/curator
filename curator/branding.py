@@ -11,11 +11,13 @@ STYLES = {'gritty', 'sunlit', 'editorial', 'vintage', 'monochrome', 'minimal'}
 
 
 DEFAULT_PRESETS = [
-    dict(id='gritty', name='Dark & gritty', details='Deep shadows, muted colors, strong contrast and subtle film grain.', background='solid black', typography='Heavy condensed off-white lettering with a subtly distressed texture.'),
+    dict(id='gritty', name='Gritty cinematic', details='Dark, photorealistic cinematic lighting, deep shadows, muted colors, strong contrast and subtle film grain.', background='solid black', typography='Heavy condensed off-white lettering with a subtly distressed texture.'),
     dict(id='sunlit', name='Warm & sunlit', details='Golden light, warm natural colors and soft contrast.', background='soft warm ivory', typography='Clean bold lettering with a warm editorial feel.'),
     dict(id='editorial', name='Cool editorial', details='Blue-gray tones, crisp contrast and a restrained editorial finish.', background='muted blue-gray', typography='Refined magazine-style typography.'),
     dict(id='vintage', name='Vintage film', details='Faded colors, warm highlights and analog film grain.', background='warm charcoal', typography='Bold retro title lettering.'),
-    dict(id='minimal', name='Minimal & clean', details='Natural colors, a simple composition and generous negative space.', background='a complementary neutral tone', typography='Understated clean typography.')
+    dict(id='minimal', name='Minimal & clean', details='Natural colors, a simple composition and generous negative space.', background='a complementary neutral tone', typography='Understated clean typography.'),
+    dict(id='grindhouse', name='Grindhouse', details='Vintage grindhouse poster treatment, distressed printing, rough film grain, bold high-contrast colors and dramatic lighting.', background='warm black', typography='Bold retro display lettering with distressed print texture.'),
+    dict(id='anime', name='Anime', details='Expressive anime illustration, clean linework, cel shading, rich cinematic colors and a coherent hand-drawn composition.', background='deep navy', typography='Clear bold title lettering suited to an illustrated film poster.')
 ]
 
 

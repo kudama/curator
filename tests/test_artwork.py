@@ -162,11 +162,12 @@ class Artwork(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'JPEG or PNG'):
             self.service.apply_cover(self.task['id'], b'not an image')
 
-    def test_settings_publish_five_editable_presets_and_validate_count(self):
+    def test_settings_publish_editable_presets_and_validate_count(self):
         presets = self.service.state()['config']['branding_presets']
-        self.assertEqual(len(presets), 5)
+        self.assertTrue({'gritty','grindhouse','anime'} <= {row['id'] for row in presets})
         changed = json.loads(json.dumps(presets));changed[0]['details'] = 'Custom prompt details'
         self.service.save_config({'branding_presets': changed[:4]})
+        self.assertEqual(len(self.service.state()['config']['branding_presets']),4)
         self.assertEqual(self.service.state()['config']['branding_presets'][0]['details'], 'Custom prompt details')
         self.service.save_config({'branding_presets': changed[:1]})
         with self.assertRaisesRegex(ValueError, 'one and fifty'):
