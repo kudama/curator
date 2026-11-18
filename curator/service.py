@@ -31,6 +31,10 @@ from .review_sessions import ReviewSessions
 from .run_readiness import RunReadiness
 from .recovery import RecoveryWorkflows
 from .runs import RunSummaries
+from .metadata_workflows import MetadataWorkflows
+from .artwork_targets import ArtworkTargets
+from .mage_budget import MageBudgets, gems
+from .artwork_archive import ArtworkArchives, archive_root
 
 
 def identifier(*values):
@@ -38,7 +42,7 @@ def identifier(*values):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
 
 
-class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
+class Service(ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
         self.lock = threading.RLock()
@@ -57,6 +61,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         self.presence_status = {}
         self.task_locks = {}
         self.thumbnail_cache = {}
+        self.split_metadata_findings()
 
     def operation_lock(self, key):
         with self.lock:return self.task_locks.setdefault(key, threading.RLock())
@@ -78,13 +83,18 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         allowed = {'plex_url', 'plex_token', 'ffprobe', 'ffmpeg', 'topaz', 'handbrake',
                    'handbrake_preset', 'handbrake_preset_import', 'topaz_filter', 'archive_root', 'vision_model',
                    'max_mbps_1080', 'max_mbps_4k', 'branding_presets',
-                   'topaz_rate_control','topaz_quality','topaz_bitrate_mbps'}
+                   'topaz_rate_control','topaz_quality','topaz_bitrate_mbps','mage_monthly_budget','mage_batch_budget','artwork_archive_path'}
         if set(data) - allowed:
             raise ValueError('Unknown configuration field')
         if any(not isinstance(v, (str, int, float)) for k, v in data.items() if k != 'branding_presets'):
             raise ValueError('Invalid configuration value')
         if 'branding_presets' in data:
             branding.validate_presets(data['branding_presets'])
+        if 'artwork_archive_path' in data:
+            path=archive_root(data['artwork_archive_path'],check_write=True)
+            data['artwork_archive_path']=str(path) if path else ''
+        for field in ('mage_monthly_budget','mage_batch_budget'):
+            if field in data:gems(data[field],field.replace('_',' '))
         cfg = self.config()
         if not data.get('plex_token'):
             data.pop('plex_token', None)
@@ -104,7 +114,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         file_jobs=self.file_jobs()
-        return dict(config=public, libraries=libraries, assets=self.store.all('assets'),file_queue_paused=self.file_queue_paused(),file_queue=[dict(id=j['id'],updated=j.get('updated')) for j in file_jobs if j['phase']=='waiting'],
+        return dict(config=public, libraries=libraries, assets=self.store.all('assets')+self.artwork_targets(),file_queue_paused=self.file_queue_paused(),file_queue=[dict(id=j['id'],updated=j.get('updated')) for j in file_jobs if j['phase']=='waiting'],
                     tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=file_jobs,processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
@@ -183,7 +193,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         current_kinds = {finding['kind'] for finding in findings}
         for old in self.store.all('tasks'):
             if (old['asset'] == asset['id'] and old['kind'] not in current_kinds
-                    and old['status'] == 'recommendation' and old['kind'] not in FILE_KINDS | {'folder_metadata','artwork','mage_generation','portrait'}):
+                    and old['status'] == 'recommendation' and (old['kind'] not in FILE_KINDS | {'folder_metadata','artwork','mage_generation','portrait'} or old['kind']=='artwork' and old.get('evidence',{}).get('discovery'))):
                 old.update(status='resolved', reason='Resolved by the latest scan', updated=now(), error=None)
                 old.pop('approval', None)
                 self.store.put('tasks', old['id'], old)
@@ -266,8 +276,10 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                             asset['blocked'] = str(e)[:200]
                             findings = [dict(kind='inspect', reason=asset['blocked'],
                                              evidence={'scan_error': asset['blocked']})]
-                        if not item.get('thumb') or not item.get('summary'):
-                            findings.append(dict(kind='metadata', reason='Artwork or description is missing', evidence={}))
+                        if not item.get('summary'):
+                            findings.append(dict(kind='metadata', reason='Description is missing', evidence={}))
+                        if not item.get('thumb'):
+                            findings.append(dict(kind='artwork', reason='Cover artwork is missing', evidence={'discovery': True}))
                         if library['profile'] == 'home':
                             findings.append(dict(kind='home', reason='Review home-movie metadata, themes and cover candidates', evidence={}))
                         with self.store.transaction():
@@ -346,7 +358,9 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         return task
 
     def asset(self, task, check=True):
-        asset = self.store.get('assets', task['asset'])
+        asset = self.store.get('assets', task['asset']) or self.store.get('settings', 'artwork-target:'+task['asset'])
+        if check and asset and asset.get('artwork_target'):
+            raise ValueError('Collection artwork has no media-file operation')
         if not asset or not asset.get('present', True):
             raise ValueError('Media item is no longer available')
         if check:
@@ -438,6 +452,14 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 if task['kind']=='mage_generation':task['mage_cancel_requested']=True
                 if task['status'] not in {'running', 'publishing'}:
                     task['status'] = 'cancelled'
+                    if task['kind']=='mage_generation' and task.get('provider'):
+                        # We already own the transaction; update the reservation here.
+                        period=task['provider'].get('budget_period')
+                        if period and not task['provider'].get('attempted') and not task['provider'].get('request_id'):
+                            ledger=self.store.get('settings','mage-budget:'+period,{'rows':{}})
+                            if key in ledger['rows']:
+                                ledger['rows'][key].update(phase='released',charged=0,refunded=0,updated=now())
+                                self.store.put('settings','mage-budget:'+period,ledger)
             elif action == 'queue':
                 if task['kind'] == 'folder_metadata':
                     raise ValueError('Review a fresh folder preview before queueing these changes')
@@ -469,7 +491,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         return task
 
     def check_busy_sources(self, task):
-        assets = {a['id']:a for a in self.store.all('assets')}
+        assets = {a['id']:a for a in self.store.all('assets')+self.artwork_targets()}
         def identities(row):
             members = [assets[aid] for aid in row.get('plan',{}).get('assets',[row['asset']]) if aid in assets]
             return {(a['library'],a['rating_key']) for a in members}, {a.get('local_path') for a in members if a.get('local_path')}
@@ -578,6 +600,8 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
                 self._process(task, asset)
             self._save(self.get_task(key),processing_seconds=time.monotonic()-started)
         except Exception as e:
+            if task.get('kind')=='mage_generation' and task.get('provider') and not task['provider'].get('attempted') and not task['provider'].get('request_id'):
+                self.reconcile_mage_budget(key,task['provider'],unsubmitted=True)
             if self.schedule_preflight_retry(task,e,side_effects_started):return 'retry_scheduled'
             reason = str(e) if isinstance(e, ValueError) else 'Operation failed; inspect configuration/output before retry'
             if not side_effects_started and isinstance(e,OSError):
@@ -614,7 +638,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         observed = self.metadata_fields(result)
         differing = [field for field, value in changes.items() if not self._same_metadata(observed, {field: value})]
         if differing:
-            labels = {'summary': 'Description', 'genre': 'Tags / genres', 'label': 'Labels', 'collection': 'Collections'}
+            labels = {'summary': 'Description', 'genre': 'Categories', 'label': 'Labels', 'collection': 'Collections'}
             names = ', '.join(labels.get(field, field.title()) for field in differing)
             raise ValueError('Plex readback differs (' + names + '); inspect before retrying')
         if 'cast' in changes:
@@ -626,6 +650,11 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
 
     def _cache_metadata(self, asset, result):
         with self.store.transaction():
+            if asset.get('artwork_target'):
+                row=self.store.get('settings','artwork-target:'+asset['id'])
+                if row:
+                    row.update(item=result,title=result.get('title',row['title']),updated=now())
+                    self.store.put('settings','artwork-target:'+row['id'],row)
             for row in self.store.all('assets'):
                 if row['library'] == asset['library'] and row['rating_key'] == asset['rating_key']:
                     row.update(item=result, title=result.get('title', row['title']))
@@ -747,7 +776,7 @@ class Service(FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkfl
         if not asset or not asset.get('present', True):
             raise ValueError('Media item is no longer available')
         with self.store.transaction():
-            task=self.task(asset, dict(kind='metadata', reason='Review Plex metadata and artwork'))
+            task=self.task(asset, dict(kind='metadata', reason='Review Plex metadata'))
             if task.get('deleted'):
                 task.update(deleted=False,status='recommendation',version=task['version']+1,plan={},error=None)
                 task.pop('approval',None)

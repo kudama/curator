@@ -26,16 +26,21 @@ test('new cast names can be entered and remembered in split metadata view',async
 test('portrait library creates a local person without requiring existing credits',async()=>{
  const h=harness();define(h,'async function portraitLibrary','async function mageBatchConsent');const section=await h.run("portraitLibrary('one')");all(section).find(e=>e.attrs['aria-label']==='New person name').value='New Person';await all(section).find(e=>e.textContent==='Save new person').onclick();const call=h.calls.find(c=>c.path==='cast/profile/create');assert.equal(call.data.name,'New Person');assert.equal(section.replacement.open,true);assert.ok(!h.calls.some(c=>c.path==='cast/apply'));
 });
-test('new collections can be added directly and with Enter, including after enabling folder field',async()=>{
- const h=harness();vm.runInContext(collections,h.c);h.c.input=node('input');h.c.change=h.changed;const picker=h.run("collectionPicker(input,'one',[],change,true)");await new Promise(resolve=>setImmediate(resolve));h.c.input.collectionPicker.setDisabled(false);const add=all(picker).find(e=>e.textContent==='Add new collection');assert.equal(add.disabled,false);add.onclick();assert.deepEqual([...h.c.input.collectionPicker.values()],['New Collection']);const search=all(picker).find(e=>e.type==='search');search.value='Family, 2026';let prevented=false;search.onkeydown({key:'Enter',preventDefault(){prevented=true;}});assert.equal(prevented,true);assert.deepEqual([...h.c.input.collectionPicker.values()],['New Collection','Family, 2026']);assert.equal(h.calls.length,1);
+test('new collection creation is explicit; Enter only selects known names',async()=>{
+ const h=harness();h.c.api=async()=>({choices:[{title:'Existing',smart:false}]});vm.runInContext(collections,h.c);h.c.input=node('input');h.c.change=h.changed;const picker=h.run("collectionPicker(input,'one',[],change,true)");await new Promise(resolve=>setImmediate(resolve));h.c.input.collectionPicker.setDisabled(false);
+ const search=all(picker).find(e=>e.type==='search');search.value='Family, 2026';search.oninput();let prevented=false;search.onkeydown({key:'Enter',preventDefault(){prevented=true;}});assert.equal(prevented,true);assert.deepEqual([...h.c.input.collectionPicker.values()],[]);
+ all(picker).find(e=>e.textContent==='Create “Family, 2026”').onclick();assert.deepEqual([...h.c.input.collectionPicker.values()],['Family, 2026']);
+ search.value='Existing';search.onkeydown({key:'Enter',preventDefault(){}});assert.deepEqual([...h.c.input.collectionPicker.values()],['Family, 2026','Existing']);
 });
 
-test('smart collections stay read-only through both creation controls',async()=>{
- const h=harness();h.c.api=async()=>({choices:[{title:'Smart',smart:true}]});h.c.prompt=()=> 'Smart';vm.runInContext(collections,h.c);h.c.input=node('input');h.c.change=h.changed;const picker=h.run("collectionPicker(input,'one',[],change)");await new Promise(resolve=>setImmediate(resolve));all(picker).find(e=>e.textContent==='Add new collection').onclick();const search=all(picker).find(e=>e.type==='search');search.value='Smart';search.onkeydown({key:'Enter',preventDefault(){}});assert.deepEqual([...h.c.input.collectionPicker.values()],[]);
+test('smart collection cannot be selected or recreated',async()=>{
+ const h=harness();h.c.api=async()=>({choices:[{title:'Smart',smart:true}]});vm.runInContext(collections,h.c);h.c.input=node('input');h.c.change=h.changed;const picker=h.run("collectionPicker(input,'one',[],change)");await new Promise(resolve=>setImmediate(resolve));
+ const search=all(picker).find(e=>e.type==='search');search.value='Smart';search.oninput();search.onkeydown({key:'Enter',preventDefault(){}});
+ assert.equal(all(picker).find(e=>e.textContent==='Smart · Smart').disabled,true);assert.ok(!all(picker).some(e=>e.textContent==='Create “Smart”'));assert.deepEqual([...h.c.input.collectionPicker.values()],[]);
 });
 
 test('folder preview retains selected artwork and metadata regardless of active manager',async()=>{
- const start=app.indexOf(' async function payload(preserve=false)',app.indexOf('async function openFolder(fid)'));
+ const start=app.indexOf(' async function payload(preserve=false)',app.indexOf('async function openFolder(fid,'));
  const source=app.slice(start,app.indexOf('\n recursive.onchange',start));
  for(const manager of ['metadata','artwork']){
   const h=harness();Object.assign(h.c,{folderManager:manager,fields:{studio:{value:'Shared studio'}},enabled:{studio:{checked:true}},useCast:{checked:false},images:{cover:{use:{checked:true},input:{files:[]},photo:'poster'},background:{use:{checked:true},input:{files:[]},photo:'background'},square:{use:{checked:false},input:{files:[]},photo:'square'}},portraitProfiles:[],portraitSelect:{value:''},mode:{value:'fill'},artworkMode:{value:'replace'},recursive:{checked:true},info:{defaults:null},initial:{},current:()=>({profile:'commercial'}),brandToggle:{checked:false}});

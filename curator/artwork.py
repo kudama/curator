@@ -19,7 +19,7 @@ def resolve_style(preset, item, profile, kind, overrides):
     if any(not isinstance(v, str) or len(v) > 12000 for v in overrides.values()):
         raise ValueError('Invalid artwork setting value')
     # Destination defaults take precedence over style defaults; explicit overrides win.
-    ratio = '2:3' if kind=='cover' and item.get('type')=='collection' else '1:1' if kind in {'square','logo'} else '16:9' if kind == 'background' or profile == 'home' else '2:3'
+    ratio = '2:3' if kind=='cover' and item.get('type')=='collection' else '16:9' if kind=='logo' else '1:1' if kind=='square' else '16:9' if kind == 'background' or profile == 'home' else '2:3'
     result = dict(model=preset.get('model') or 'mango-v3', ratio=ratio,
                   resolution=preset.get('resolution') or '2K', negative_prompt=preset.get('negative_prompt',''))
     result.update(overrides)
@@ -82,6 +82,8 @@ class ArtworkWorkflows:
             for task in tasks:
                 self.store.put('tasks',task['id'],task)
                 self.store.event(task['id'],dict(action='saved immutable artwork plan'))
+        for task in tasks:
+            if task['kind']=='artwork':self.queue_artwork_archive(task)
         return dict(tasks=tasks, skipped=skipped)
 
     def save_artwork_style(self, key, name):
@@ -98,10 +100,14 @@ class ArtworkWorkflows:
         return style
 
     def publish_artwork(self, task, asset):
+        self.archive_artwork_task(task)
         plan = task['plan'];kind = plan['kind']
         if plan['rating_key'] != asset['rating_key']:
             raise ValueError('Artwork destination changed; create a fresh review')
         image = self.folder_image(plan['candidate'])
+        if kind=='logo':
+            from .image_contract import editor_png
+            editor_png(base64.b64encode(image).decode(),logo=True)
         client = self.checked_client(self.library(asset['library']))
         item = client.item(asset['rating_key'])
         target=plan.get('target',{})
@@ -141,6 +147,7 @@ class ArtworkWorkflows:
             pid=uuid.uuid4().hex
             profiles[pid]=dict(name=name,photo=photo,revision=1)
             self.store.put('settings','cast_profiles',profiles)
+        if photo:self.queue_portrait_archive(pid,1)
         return dict(profile_id=pid,revision=1)
 
     def save_portrait(self, profile_id, revision, encoded):
@@ -162,6 +169,7 @@ class ArtworkWorkflows:
                 with os.fdopen(fd,'wb') as out:out.write(image);out.flush();os.fsync(out.fileno())
             profile=dict(profile,photo=photo,revision=revision+1)
             profiles[profile_id]=profile;self.store.put('settings','cast_profiles',profiles)
+        self.queue_portrait_archive(profile_id,revision+1)
         return dict(profile_id=profile_id,revision=revision+1,photo=photo)
 
     def portrait_plan(self, profile_id, revision, targets):
@@ -212,8 +220,16 @@ class ArtworkWorkflows:
             raise ValueError('Portrait image readback differs; original and candidate retained')
         self._save(task,status='applied',result={'verified':True},error=None)
 
-    def mage_quote(self, targets):
+    def mage_references(self, task):
+        references=[]
+        for photo in task['plan'].get('reference_photos',[]):
+            image=self.folder_image(photo);mime='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg'
+            references.append('data:'+mime+';base64,'+base64.b64encode(image).decode())
+        return references
+
+    def mage_quote(self, targets, batch_limit=None):
         from .mage import Mage
+        from .mage_budget import gems
         provider=Mage(self.store.root);rows=[]
         if not isinstance(targets,list) or not 1<=len(targets)<=20 or len({t['id'] for t in targets})!=len(targets):
             raise ValueError('Choose between one and twenty distinct generation plans')
@@ -221,9 +237,15 @@ class ArtworkWorkflows:
             task=self.get_task(target['id'])
             if task['kind']!='mage_generation' or task['version']!=target['version'] or task['status'] not in {'recommendation','cancelled'} or task.get('provider'):
                 raise ValueError('Generation plan changed or has already been submitted')
-            quote=provider.quote(task['plan']['settings'],len(task['plan'].get('reference_photos',[])))
+            reference_images=self.mage_references(task)
+            quote=provider.quote(task['plan']['settings'],len(reference_images),reference_images=reference_images) if reference_images else provider.quote(task['plan']['settings'],0)
+            gems(quote.get('gems'),'Generation estimate')
             rows.append(dict(id=task['id'],version=task['version'],quote=quote,title=task['title']))
         receipt=dict(id=uuid.uuid4().hex,rows=rows,total=sum(r['quote']['gems'] for r in rows),count=len(rows),created=__import__('time').time(),credential=provider.credential_identity())
+        gems(receipt['total'],'Generation estimate')
+        limit=batch_limit if batch_limit is not None else self.config().get('mage_batch_budget') or receipt['total']
+        receipt['batch_limit']=gems(limit,'Batch budget')
+        if receipt['total']>receipt['batch_limit']:raise ValueError('Generation estimate exceeds the batch budget')
         with self.store.transaction():self.store.put('settings','mage-quote:'+receipt['id'],receipt)
         return {k:v for k,v in receipt.items() if k!='credential'}
 
@@ -240,9 +262,10 @@ class ArtworkWorkflows:
                 task=self.get_task(row['id'])
                 if task['version']!=row['version'] or task['status'] not in {'recommendation','cancelled'} or task.get('provider'):
                     raise ValueError('Plan changed after quotation')
+            period=self.reserve_mage_budget(receipt)
             for row in receipt['rows']:
                 task=self.get_task(row['id'])
-                task.update(status='queued',approval=task['version'],provider=dict(idempotency_key=uuid.uuid4().hex,body=row['quote']['body'],estimate=row['quote']['gems'],credential=receipt['credential']))
+                task.update(status='queued',approval=task['version'],provider=dict(budget_period=period,idempotency_key=uuid.uuid4().hex,body=row['quote']['body'],estimate=row['quote']['gems'],credential=receipt['credential']))
                 self.store.put('tasks',task['id'],task)
                 self.store.event(task['id'],dict(action='approved Mage prompt and estimated Gems',gems=row['quote']['gems']))
             receipt['used']=True;self.store.put('settings','mage-quote:'+quote_id,receipt)
@@ -258,8 +281,10 @@ class ArtworkWorkflows:
         asset=self.asset(task,check=False)
         if asset['library']!=task['library'] or asset['rating_key']!=task['plan']['rating_key']:
             raise ValueError('Generation destination changed; no new request submitted')
+        self.ensure_mage_budget_for_submission(task)
         if not receipt.get('request_id') and not receipt.get('attempted'):
-            fresh=provider.quote(task['plan']['settings'],len(task['plan'].get('reference_photos',[])))
+            reference_images=self.mage_references(task)
+            fresh=provider.quote(task['plan']['settings'],len(reference_images),reference_images=reference_images) if reference_images else provider.quote(task['plan']['settings'],0)
             if fresh['gems']>receipt['estimate'] or fresh['body']!=receipt['body']:
                 raise ValueError('Mage price or supported settings changed; obtain fresh approval')
             # Persist the uncertain-outcome boundary before the first paid request.
@@ -279,6 +304,7 @@ class ArtworkWorkflows:
             if receipt.get('request_id') and receipt['request_id']!=request_id:raise ValueError('Mage request identity differs')
             receipt.update(request_id=request_id,status=request.get('status'),billing=request.get('billing',{}))
             self._save(task,provider=receipt,progress={'phase':'Mage '+str(request.get('status'))})
+            self.reconcile_mage_budget(task['id'],receipt,terminal=request.get('status') in {'completed','failed','cancelled'})
             if request.get('status')=='completed':
                 image=provider.download((request.get('result') or {}).get('url',''))
                 photo=self._folder_photo(encoded=base64.b64encode(image).decode())
@@ -286,7 +312,8 @@ class ArtworkWorkflows:
                 original=self._folder_photo(encoded=base64.b64encode(client.image(asset['rating_key'],kind)).decode()) if Plex.artwork_path(item,kind) else None
                 task['plan'].update(candidate=photo,source_image=photo,original=original)
                 # Same durable task enters artwork review. Generation never publishes.
-                self._save(task,kind='artwork',status='awaiting_review',result={'generated':True,'billing':receipt['billing']},error=None);return
+                self._save(task,kind='artwork',status='awaiting_review',result={'generated':True,'billing':receipt['billing']},error=None)
+                self.queue_artwork_archive(task);return
             if request.get('status') in {'failed','cancelled'}:
                 self._save(task,status='cancelled' if request['status']=='cancelled' else 'failed',error='Mage '+request['status']+'; inspect billed/refunded Gems',result={'billing':receipt['billing']});return
             if request.get('status') not in {'queued','in_progress'}:raise ValueError('Unknown Mage state; check request before retrying')

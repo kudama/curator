@@ -43,12 +43,12 @@ test('optimization batch passes the explicitly selected preset without changing 
  assert.equal(calls.length,2);for(const c of calls){assert.equal(c.data.handbrake_preset,'General/HQ 1080p30');assert.equal(c.path,'task/action');}
  assert.deepEqual(w.tasks[0].plan,{});
 });
-test('metadata selection shows a disabled queue action with the missing-edit explanation',()=>{
+test('metadata selection opens the bulk metadata editor without an unusable queue button',()=>{
  const w=setup();w.tasks.splice(1);Object.assign(w.tasks[0],{kind:'metadata',status:'recommendation',plan:{}});w.context.canQueue=t=>Boolean(Object.keys(t.plan.changes||{}).length);
  w.context.node=(tag,text)=>({tag,text,dataset:{},children:[],append(...x){this.children.push(...x);},querySelectorAll(){return this.children.filter(x=>x.label);}});
  w.context.button=label=>({label,addEventListener(){}});w.run('selectTaskRows(state.tasks,true)');
- const controls=w.run('bulkTaskControls(state.tasks)'),action=controls.children.find(c=>c.label==='Queue selected (0)');
- assert.ok(action);assert.equal(action.disabled,true);assert.match(JSON.stringify(controls),/need metadata edits/);
+ const controls=w.run('bulkTaskControls(state.tasks)'),action=controls.children.find(c=>c.label==='Edit selected metadata (1)');
+ assert.ok(action);assert.equal(controls.children.some(c=>c.label==='Queue selected (0)'),false);
 });
 test('bulk acceptance warns once with exact selection and can be cancelled without a request',async()=>{
  const w=setup();w.tasks.splice(2);w.tasks[1].library='two';w.context.state.libraries=[{id:'one',title:'First library'},{id:'two',title:'Second library'}];
