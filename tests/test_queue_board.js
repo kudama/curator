@@ -133,3 +133,13 @@ test('file preparation and copy jobs share one five-item waiting disclosure',()=
  const h=setup();for(let i=0;i<4;i++)h.add('join'+i,'join');h.state.file_jobs=Array.from({length:4},(_,i)=>({id:'f'+i,phase:'waiting',operation:'copy',title:'Copy '+i,library:'one'}));h.state.file_queue=h.state.file_jobs.map(j=>({id:j.id}));
  const lane=h.run('renderProcessing()')[0].children[0];assert.equal(visibleAll(lane).filter(e=>e.dataset.queueWaiting==='true').length,5);assert.ok(all(lane).some(e=>e.textContent==='Show 3 more'));
 });
+
+test('selection and preparation controls precede active cards in every queue',()=>{
+ const h=setup();h.add('rename-wait','rename');h.add('up-wait','upscale');h.add('active-up','upscale','running');h.state.file_jobs=[{id:'copy',phase:'running',operation:'copy',title:'Copy',library:'one'}];
+ h.context.taskQueueControls=()=>new Element('div','Preparation controls');
+ const board=h.run('renderProcessing()')[0],up=board.children.find(e=>e.attrs['aria-label']==='Upscaling'),files=board.children.find(e=>e.attrs['aria-label']==='File operations');
+ const cardIndex=lane=>lane.children.findIndex(e=>e.tag==='article');
+ assert.ok(up.children.findIndex(e=>all(e).some(c=>c.textContent==='Select all 1'))<cardIndex(up));
+ assert.ok(files.children.findIndex(e=>e.textContent==='Preparation controls')<cardIndex(files));
+ assert.ok(files.children.findIndex(e=>all(e).some(c=>c.textContent==='Select all 1'))<cardIndex(files));
+});

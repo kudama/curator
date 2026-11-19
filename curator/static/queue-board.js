@@ -102,19 +102,19 @@ function renderProcessing(){
   const filePreparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)),orphans=queueOrphanCleanups().filter(r=>queueVisible({...r,title:'Clean up originals'})&&queueStatusMatches(r.phase==='queued'?'queued':r.phase==='deleting'?'publishing':'blocked'));
   const hasRows=kind==='file_operations'?queueActiveFiles().some(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing'))||filePreparation.length||orphans.length:tasks.some(t=>t.kind===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider));
   if(!hasRows)continue;
-  const lane=node('section',undefined,'queue-lane'),header=node('div',undefined,'queue-lane-heading');lane.setAttribute('aria-label',title);header.append(node('h2',title),queueLaneControl(kind));lane.append(header);if(kind==='metadata')for(const subtype of ['home','folder_metadata'])if(tasks.some(t=>t.kind===subtype))lane.append(node('h3',TASK_LABELS[subtype]||subtype),taskQueueControls(subtype),queueLaneSelection(subtype));
+  const lane=node('section',undefined,'queue-lane'),header=node('div',undefined,'queue-lane-heading');lane.setAttribute('aria-label',title);header.append(node('h2',title),queueLaneControl(kind));lane.append(header,queueLaneSelection(kind));if(kind==='metadata')for(const subtype of ['home','folder_metadata'])if(tasks.some(t=>t.kind===subtype))lane.append(node('h3',TASK_LABELS[subtype]||subtype),taskQueueControls(subtype),queueLaneSelection(subtype));
+  if(kind==='file_operations')for(const subtype of [...new Set(filePreparation.map(t=>t.kind))])lane.append(node('h3',(TASK_LABELS[subtype]||subtype)+' · preparation'),taskQueueControls(subtype),queueLaneSelection(subtype));
   const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>t.kind===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider)).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
   const running=rows.filter(r=>files?r.phase==='running':['running','publishing'].includes(r.status)),waiting=rows.filter(r=>files?r.phase==='waiting':r.status==='queued'),attention=files?[]:rows.filter(r=>['failed','blocked'].includes(r.status));
   const head=running[0]||waiting[0],make=(row,head)=>{if(files)return queueFileCard(row,head);const card=processingTaskCard(row);card.dataset.queueWaiting=String(row.status==='queued');card.classList.add(head?'queue-head':'queue-compact');return card;};
   if(head)lane.append(make(head,true));else if(!files||!tasks.some(t=>QUEUE_FILE_KINDS.has(t.kind)))lane.append(node('p',rows.length?'No active jobs':'No jobs','queue-lane-empty muted'));
   for(const row of running.slice(1))lane.append(make(row,false));
-  lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'),queueLaneSelection(kind));for(const row of waiting)if(row!==head)lane.append(make(row,false));
+  lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'));for(const row of waiting)if(row!==head)lane.append(make(row,false));
   for(const row of attention)lane.append(make(row,false));
   const review=files?[]:rows.filter(r=>r.status==='awaiting_review');if(review.length&&!['mage_generation','metadata'].includes(kind))lane.append(bulkTaskControls(review));for(const row of review)lane.append(make(row,false));
   if(files){
    const preparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)).sort((a,b)=>['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));let hasHead=Boolean(head);
    for(const kind of [...new Set(preparation.map(t=>t.kind))]){
-    lane.append(node('h3',(TASK_LABELS[kind]||kind)+' · preparation'),taskQueueControls(kind),queueLaneSelection(kind));
     for(const task of preparation.filter(t=>t.kind===kind)){
      const card=processingTaskCard(task);card.dataset.queueWaiting=String(task.status==='queued');card.classList.add(hasHead?'queue-compact':'queue-head');lane.append(card);hasHead=true;
     }

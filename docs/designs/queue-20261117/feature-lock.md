@@ -134,3 +134,5 @@ A rename completes after the filesystem moves and verification succeed. Do not f
 ## Waiting queue disclosure — 2026-11-18
 
 Keep every active job visible. Each queue column initially shows its first five waiting jobs, counting a waiting head card among those five. Put additional waiting jobs in a collapsed container with Show N more / Show fewer. Expansion is independent per column and survives background refreshes for the current browser session. File copy/delete and file preparation share the File operations column’s five-item allowance; Metadata and AI assist share Metadata’s allowance. Attention and ready-to-review results are never hidden by this disclosure. Keep total waiting counts and explicit Select all N selection scope; expanding retains the complete drag-and-drop and bulk ordering behavior.
+
+Queue run/pause and selection/order controls, including metadata subtypes and file preparation, belong directly below the column heading and above every job card. Waiting counts remain beside the waiting list.
