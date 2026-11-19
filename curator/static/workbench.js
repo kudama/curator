@@ -365,6 +365,8 @@ function showQueueLimits(){
  actions.append(button('Save limits',()=>run(async()=>{const limits=Object.fromEntries([...inputs].map(([kind,input])=>[kind,Number(input.value)]));await api('queue/limits',{limits});closeInspector(true);await refresh();toast('Shared processing limits saved.');}),'primary'));showInspector();
 }
 function renderLibraryNavigation(){
+ const container=$('libraries'),signature=JSON.stringify([libraryId,state.libraries.map(lib=>[lib.id,lib.title])]);
+ if(container.dataset.navigation===signature)return;container.dataset.navigation=signature;
  const links=$('library-navigation');links.remove();links.hidden=!current();
  const groups=state.libraries.map(lib=>{
   const group=node('div',undefined,'library-group'),active=lib.id===libraryId;
