@@ -1,7 +1,6 @@
 """Folder-scoped, reviewed metadata plans. Private defaults never publish themselves."""
 import base64
 import hashlib
-import json
 import os
 import re
 import time
@@ -12,10 +11,10 @@ from . import branding, cast, tools
 from .paths import map_path
 from .plex import Plex
 from .store import now
+from .rules import RESERVING, stable_id
 
 
-def key(*values):
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
+key = stable_id
 
 
 def combine(before, proposed, mode, field):
@@ -232,7 +231,7 @@ class FolderWorkflows:
                 hashes = {kind:hashes[kind] for kind in artwork}
                 self.resolve_satisfied_folder_work(asset,item,fid,not changes and not artwork)
                 for pending in self.store.all('tasks'):
-                    if pending['library']==folder['library'] and pending['status'] in {'queued','running','publishing','awaiting_review'} and (asset['id'] in pending['plan'].get('assets',[pending['asset']]) or self.store.get('assets',pending['asset'],{}).get('rating_key')==identity):raise ValueError('This title has active work; finish or cancel it first')
+                    if pending['library']==folder['library'] and pending['status'] in RESERVING and (asset['id'] in pending['plan'].get('assets',[pending['asset']]) or self.store.get('assets',pending['asset'],{}).get('rating_key')==identity):raise ValueError('This title has active work; finish or cancel it first')
                 self._cache_metadata(asset,item)
                 rows.append(dict(asset=asset['id'], title=item.get('title',asset['title']), filename=Path(asset['plex_path']).name,
                     source=asset['fingerprint'], before=before, changes=changes, artwork=artwork, art_before=hashes,
@@ -263,7 +262,7 @@ class FolderWorkflows:
                 if asset['fingerprint'] != row['source'] or asset['plex_path'] != row['plex_path'] or asset['rating_key'] != row['rating_key']:raise ValueError('Source changed; preview again')
                 for task in pending:
                     ids = task['plan'].get('assets',[task['asset']])
-                    if task['status'] in {'queued','running','publishing','awaiting_review'} and (asset['id'] in ids or self.store.get('assets',task['asset'],{}).get('rating_key') == asset['rating_key'] and task['library'] == asset['library']):raise ValueError('A selected title has active work; finish or cancel it before queueing folder changes')
+                    if task['status'] in RESERVING and (asset['id'] in ids or self.store.get('assets',task['asset'],{}).get('rating_key') == asset['rating_key'] and task['library'] == asset['library']):raise ValueError('A selected title has active work; finish or cancel it before queueing folder changes')
             with self.store.transaction():
                 tasks = []
                 for row in rows:

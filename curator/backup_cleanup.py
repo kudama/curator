@@ -9,6 +9,7 @@ from . import tools
 from .paths import map_path
 from .file_workflows import exclusive_move, UNSUPPORTED_MOVE
 from .store import now
+from .rules import ACTIVE
 
 
 def file_identity(path):
@@ -52,7 +53,7 @@ class BackupCleanupWorkflows:
             raise ValueError('Original and replacement identities are ambiguous')
         assets={a['id']:a for a in self.store.all('assets')}
         for other in self.store.all('tasks'):
-            if other['id']==task['id'] or other['status'] not in {'queued','running','publishing'}:continue
+            if other['id']==task['id'] or other['status'] not in ACTIVE:continue
             members=[assets.get(key,{}) for key in other.get('plan',{}).get('assets',[other.get('asset')])]
             if any(member.get('id')==asset['id'] or member.get('local_path')==str(source) or (asset.get('rating_key') and member.get('library')==asset['library'] and member.get('rating_key')==asset['rating_key']) for member in members):
                 raise ValueError('This file has active or waiting work')

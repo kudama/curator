@@ -3,6 +3,7 @@ import copy
 import uuid
 from .plex import Plex
 from .store import now
+from .rules import ACTIVE
 
 
 class MetadataWorkflows:
@@ -62,7 +63,7 @@ class MetadataWorkflows:
             # Task changes during provider reads invalidate the entire preview.
             for row in rows:
                 task = self.get_task(row['task'])
-                if task['version'] != row['version'] or task['status'] in {'queued', 'running', 'publishing'}:
+                if task['version'] != row['version'] or task['status'] in ACTIVE:
                     raise ValueError('A selected task changed during preview')
             self.store.put('settings', receipt['id'], receipt)
         return receipt
@@ -88,13 +89,13 @@ class MetadataWorkflows:
             for row in receipt['rows']:
                 task = self.get_task(row['task'])
                 asset = self.store.get('assets', row['asset'])
-                if task['version'] != row['version'] or task.get('deleted') or task['status'] in {'queued', 'running', 'publishing'} or not asset or asset.get('fingerprint') != row['source'] or asset.get('rating_key') != row['rating_key'] or asset.get('library') != row['library']:
+                if task['version'] != row['version'] or task.get('deleted') or task['status'] in ACTIVE or not asset or asset.get('fingerprint') != row['source'] or asset.get('rating_key') != row['rating_key'] or asset.get('library') != row['library']:
                     raise ValueError('A selected task or source changed; preview again')
                 from .service import identifier
                 destination = self.store.get('tasks', identifier(row['asset'], 'metadata'))
                 if row['changes'] and (destination['version'] if destination else None) != row['destination_version']:
                     raise ValueError('Metadata destination task changed; preview again')
-                if row['changes'] and destination and destination['id'] != task['id'] and destination['status'] in {'queued', 'running', 'publishing'}:
+                if row['changes'] and destination and destination['id'] != task['id'] and destination['status'] in ACTIVE:
                     raise ValueError('An item already has queued metadata work')
             queued = []
             for row in receipt['rows']:

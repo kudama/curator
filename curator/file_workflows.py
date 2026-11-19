@@ -13,9 +13,8 @@ from .paths import map_path
 from .plex import Plex
 from .store import now
 from .quality import assess
+from .rules import ACTIVE, FILE_KINDS
 
-FILE_KINDS = {'rename', 'join', 'group'}
-ACTIVE = {'queued', 'running', 'publishing'}
 UNSUPPORTED_MOVE = {errno.ENOTSUP,errno.EOPNOTSUPP,errno.ENOSYS}
 
 
