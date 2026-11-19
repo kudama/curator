@@ -76,10 +76,20 @@ class BrowserPolicy(unittest.TestCase):
         connection=Connection()
         service=Mock();service.state.return_value={'ok':True};service.save_config.return_value={'ok':True}
         service.change_file_queue_order.return_value={'waiting':1}
+        service.artwork_target_image.return_value=b'\x89PNG\r\n\x1a\nfixture'
         server=SimpleNamespace(server_port=8790,session='test-session',service=service,
             allowed_authorities={'foundry:8790','10.0.0.106:8790'})
         web.Handler(connection,('10.0.0.50',1),server)
         return bytes(connection.output),service
+
+    def test_image_verification_header_works_without_browser_webcrypto(self):
+        import hashlib
+        response,service=self.request(path='/api/artwork/target-image?asset=one&kind=background')
+        self.assertIn(b'200 OK',response)
+        header,body=response.split(b'\r\n\r\n',1)
+        self.assertIn(b'X-Curator-Image-SHA256: '+hashlib.sha256(body).hexdigest().encode(),header)
+        self.assertIn(b"img-src 'self' blob:",header)
+        service.artwork_target_image.assert_called_once_with('one','background')
 
     def test_file_order_endpoint_requires_session_and_exact_request_scope(self):
         data={'expected':[{'id':'file-operation:one','updated':'now'}],'order':['file-operation:one']}

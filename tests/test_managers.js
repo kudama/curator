@@ -11,7 +11,7 @@ const all=root=>[root,...root.children.filter(n=>n instanceof Element).flatMap(a
 function setup(){
  const ids=Object.fromEntries(['task-detail','task-buttons','task-title','task-kind','task-reason'].map(k=>[k,new Element('div')]));
  const context=vm.createContext({URLSearchParams,crypto:{randomUUID:()=>Math.random().toString()},node:(...args)=>new Element(...args),$:id=>ids[id],ARTWORK_LABELS:{cover:'Cover'},state:{config:{mage_configured:true,branding_presets:[{id:'gritty',name:'Gritty',details:'Cinematic',background:'dark',typography:'clear'}]}},selectedAssetId:null,openedTask:'parent',inspectorDirty:true,inspectorMode:'artwork-manager',inspectorBack:null,prepareInspector:()=>true,showInspector(){},catalogIndex:()=>({byId:new Map([['a',{id:'a',title:'Title',item:{}}]])}),fileName:a=>a.title,refresh:async()=>{}});
- for(const file of ['artwork-manager','metadata-manager'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/'+file+'.js'),'utf8'),context);
+ for(const file of ['client-compat','artwork-manager','metadata-manager'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/'+file+'.js'),'utf8'),context);
  context.button=(label,fn,cls)=>{const result=new Element('button',label,cls);result.onclick=fn;return result;};
  context.asset={id:'a',title:'Title',item:{summary:'Context'}};
  return {context,ids,run:code=>vm.runInContext(code,context),find:label=>Object.values(ids).flatMap(all).find(e=>e.textContent===label)};
@@ -64,4 +64,16 @@ test('Mage settings preserve an unavailable saved model and use model-specific r
  h.run("mageDiscovery={model_catalog:[{id:'mango-v2',name:'Mango 2',group:'Mango',supported:true,resolutions:['2K','3K','4K']},{id:'mango-v4',name:'Mango 4',group:'Mango',supported:true,resolutions:['1K','2K']}]}");
  h.context.model=new Element('select');h.context.resolution=new Element('select');h.context.resolution.value='4K';h.context.model.value='mango-v4';h.run('syncMageResolution(model,resolution)');assert.deepEqual(h.context.resolution.children.map(e=>e.value),['1K','2K']);assert.equal(h.context.resolution.value,'1K');
  h.run("fillMageModels(model,'retired-model')");assert.equal(h.context.model.value,'retired-model');assert.equal(h.context.model.children.at(-1).disabled,true);
+});
+
+test('metadata and artwork panels open without secure-context crypto APIs',async()=>{
+ const h=setup();delete h.context.crypto;h.context.state.libraries=[];h.context.screen='artwork';h.context.render=()=>{};Element.prototype.classList={add(){},toggle(){}};
+ await h.run("openMetadataManager([{id:'task',asset:'a',version:1,status:'queued'}])");assert.equal(h.context.inspectorMode,'metadata-manager');assert.ok(h.find('Close'));
+ h.context.managerArtworkCard=(asset,task,kind)=>({section:new Element('section'),asset,kind,dirty:()=>false,ready:()=>false});
+ await h.run('openArtworkManager([asset])');assert.equal(h.context.inspectorMode,'artwork-manager');assert.ok(h.find('Preview changes'));
+});
+
+test('draft identities use getRandomValues on HTTP without randomUUID',()=>{
+ const h=setup();let called=0;h.context.crypto={getRandomValues(bytes){bytes.fill(++called);return bytes;}};
+ const a=h.run('clientId()'),b=h.run('clientId()');assert.match(a,/^[a-f0-9]{32}$/);assert.notEqual(a,b);assert.equal(called,2);
 });
