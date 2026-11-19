@@ -14,8 +14,10 @@ class Metadata(unittest.TestCase):
             self.plex.writes.append(changes)
             for field, value in changes.items():
                 self.plex.rows[0][field.title() if isinstance(value, list) else field] = (
-                    [{'tag': x} for x in reversed(value)] if isinstance(value, list) else value)
+                    [{'tag': x} for x in reversed(value)] if isinstance(value, list) else value
+                )
             return self.plex.item('10')
+
         self.plex.edit = edit
 
     def test_apply_displayed_description_overrides_older_proposal(self):
@@ -34,8 +36,14 @@ class Metadata(unittest.TestCase):
 
     def test_all_requested_fields_verified_and_cached(self):
         self.tagged_adapter()
-        changes = {'summary': 'Description', 'studio': 'Example studio', 'tagline': 'A tagline',
-                   'genre': ['Travel', 'Family'], 'label': ['Private'], 'collection': ['Summer']}
+        changes = {
+            'summary': 'Description',
+            'studio': 'Example studio',
+            'tagline': 'A tagline',
+            'genre': ['Travel', 'Family'],
+            'label': ['Private'],
+            'collection': ['Summer'],
+        }
         result = self.service.apply_metadata(self.task['id'], 1, changes)
         self.assertEqual(result['status'], 'applied')
         actual = self.service.metadata_fields(self.store.get('assets', self.asset['id'])['item'])
@@ -45,7 +53,9 @@ class Metadata(unittest.TestCase):
 
     def test_clear_scalar_and_tag_fields(self):
         self.tagged_adapter()
-        self.plex.rows[0].update(studio='Studio', tagline='Tagline', Genre=[{'tag': 'Old'}], Label=[{'tag': 'Old label'}])
+        self.plex.rows[0].update(
+            studio='Studio', tagline='Tagline', Genre=[{'tag': 'Old'}], Label=[{'tag': 'Old label'}]
+        )
         self.asset['item'] = self.plex.item('10')
         with self.store.transaction():
             self.store.put('assets', self.asset['id'], self.asset)
@@ -84,7 +94,9 @@ class Metadata(unittest.TestCase):
     def test_queued_legacy_snapshot_still_applies_and_refreshes_cache(self):
         task = self.service.edit_task(self.task['id'], {'changes': {'summary': 'Queued'}}, 1)
         task = self.service.action(task['id'], 'queue', task['version'])
-        task['metadata_before'] = {k: v for k, v in task['metadata_before'].items() if k not in {'studio', 'tagline', 'label'}}
+        task['metadata_before'] = {
+            k: v for k, v in task['metadata_before'].items() if k not in {'studio', 'tagline', 'label'}
+        }
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
         self.service._execute(task['id'])
@@ -127,7 +139,17 @@ class Metadata(unittest.TestCase):
         plex = Plex('http://localhost:32400', 'test')
         item = dict(ratingKey='10', type='movie', Label=[{'tag': 'Old label'}], Genre=[{'tag': 'Old genre'}])
         with patch.object(plex, 'request', return_value={}) as request, patch.object(plex, 'item', return_value=item):
-            plex.edit({'key': '1'}, item, {'summary': 'Description', 'studio': 'Studio', 'tagline': 'Tagline', 'label': [], 'genre': ['New genre']})
+            plex.edit(
+                {'key': '1'},
+                item,
+                {
+                    'summary': 'Description',
+                    'studio': 'Studio',
+                    'tagline': 'Tagline',
+                    'label': [],
+                    'genre': ['New genre'],
+                },
+            )
         params = request.call_args.args[2]
         self.assertEqual(params['summary.value'], 'Description')
         self.assertEqual(params['studio.value'], 'Studio')

@@ -1,4 +1,5 @@
 """Shared task rules and identifiers: one definition each, so modules cannot drift apart."""
+
 import hashlib
 import json
 

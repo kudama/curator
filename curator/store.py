@@ -1,4 +1,5 @@
 """Private local queue with transactional state transitions; no broker required."""
+
 import json
 import fcntl
 import os
@@ -92,8 +93,11 @@ class Store:
                 params.append(value)
                 checks.append((field, {value}))
         if not self.json_queries:
-            return [row for row in self.all(table) if isinstance(row, dict)
-                    and all(row.get(field) in allowed for field, allowed in checks)]
+            return [
+                row
+                for row in self.all(table)
+                if isinstance(row, dict) and all(row.get(field) in allowed for field, allowed in checks)
+            ]
         sql = f'SELECT data FROM {table}' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY rowid'
         with self.lock:
             return [json.loads(row[0]) for row in self.db.execute(sql, params)]
@@ -122,31 +126,48 @@ class Store:
 
     def put(self, table, key, value):
         self._table(table)
-        if table=='tasks' and value.get('status')=='queued' and self.get('tasks',key,{}).get('status')!='queued':
-            value['queue_attempt']=uuid.uuid4().hex;value['queued_at']=now()
-            order=self.get('settings','queue-order:global')
+        if (
+            table == 'tasks'
+            and value.get('status') == 'queued'
+            and self.get('tasks', key, {}).get('status') != 'queued'
+        ):
+            value['queue_attempt'] = uuid.uuid4().hex
+            value['queued_at'] = now()
+            order = self.get('settings', 'queue-order:global')
             if order is not None:
-                queued={t['id'] for t in self.where('tasks', status='queued') if not t.get('deleted')}
-                ids=[identity for identity in order['ids'] if identity in queued and identity!=str(key)]+[str(key)]
-                self.put('settings','queue-order:global',dict(ids=ids,updated=now()))
-        self.db.execute(f'INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
-                        (str(key), json.dumps(value, allow_nan=False)))
+                queued = {t['id'] for t in self.where('tasks', status='queued') if not t.get('deleted')}
+                ids = [identity for identity in order['ids'] if identity in queued and identity != str(key)] + [
+                    str(key)
+                ]
+                self.put('settings', 'queue-order:global', dict(ids=ids, updated=now()))
+        self.db.execute(
+            f'INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
+            (str(key), json.dumps(value, allow_nan=False)),
+        )
 
     def event(self, task, data):
         self.db.execute('INSERT INTO events(at,task,data) VALUES(?,?,?)', (now(), task, json.dumps(data)))
 
     def latest_task_events(self):
         with self.lock:
-            rows=self.db.execute('SELECT task,data FROM events WHERE id IN (SELECT MAX(id) FROM events GROUP BY task)').fetchall()
-        return {key:json.loads(data) for key,data in rows}
+            rows = self.db.execute(
+                'SELECT task,data FROM events WHERE id IN (SELECT MAX(id) FROM events GROUP BY task)'
+            ).fetchall()
+        return {key: json.loads(data) for key, data in rows}
 
     def latest_task_actions(self):
-        return {key:data.get('action') for key,data in self.latest_task_events().items()}
+        return {key: data.get('action') for key, data in self.latest_task_events().items()}
 
     def publication_log(self, task):
         with self.lock:
-            rows=self.db.execute('SELECT at,data FROM events WHERE task=? ORDER BY id DESC LIMIT 200',(str(task),)).fetchall()
-        return [{'at':at,**data} for at,raw in reversed(rows) if (data:=json.loads(raw)).get('action','').startswith('publication ')]
+            rows = self.db.execute(
+                'SELECT at,data FROM events WHERE task=? ORDER BY id DESC LIMIT 200', (str(task),)
+            ).fetchall()
+        return [
+            {'at': at, **data}
+            for at, raw in reversed(rows)
+            if (data := json.loads(raw)).get('action', '').startswith('publication ')
+        ]
 
     def _table(self, table):
         if table not in self.TABLES:

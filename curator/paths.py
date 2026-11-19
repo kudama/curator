@@ -1,4 +1,5 @@
 """Translate native Ubuntu Plex paths to explicitly mapped Mac storage roots."""
+
 from pathlib import Path, PurePosixPath
 from .errors import UserError
 
@@ -12,6 +13,7 @@ def map_path(source: str, mappings: list[dict], require_exists: bool = True) -> 
     For require_exists, mapped root must exist as a directory and target a file.
     No match or unavailable mount is an error; never guess an alternative path.
     """
+
     def absolute(value, cls):
         if not isinstance(value, str) or not value or '\x00' in value:
             raise UserError('Invalid mapping path')
@@ -47,24 +49,32 @@ def map_path(source: str, mappings: list[dict], require_exists: bool = True) -> 
 def media_presence(source, mappings, previous=None):
     """Distinguish a missing file from unavailable storage/mapping/access."""
     import stat
+
     try:
-        target=map_path(source,mappings,require_exists=False)
-        plex=PurePosixPath(source)
-        mapping=max((m for m in mappings if plex.is_relative_to(PurePosixPath(m['plex_root']))),
-                    key=lambda m:len(PurePosixPath(m['plex_root']).parts))
-        root=Path(mapping['local_root']).expanduser().resolve()
-        root_stat=root.stat()
-        if not stat.S_ISDIR(root_stat.st_mode):raise UserError('Mapped storage root is unavailable')
+        target = map_path(source, mappings, require_exists=False)
+        plex = PurePosixPath(source)
+        mapping = max(
+            (m for m in mappings if plex.is_relative_to(PurePosixPath(m['plex_root']))),
+            key=lambda m: len(PurePosixPath(m['plex_root']).parts),
+        )
+        root = Path(mapping['local_root']).expanduser().resolve()
+        root_stat = root.stat()
+        if not stat.S_ISDIR(root_stat.st_mode):
+            raise UserError('Mapped storage root is unavailable')
         # A leftover /Volumes directory must not masquerade as its unmounted share.
-        if len(root.parts)>2 and root.parts[1]=='Volumes' and not Path(*root.parts[:3]).is_mount():
+        if len(root.parts) > 2 and root.parts[1] == 'Volumes' and not Path(*root.parts[:3]).is_mount():
             raise UserError('Mapped storage share is not mounted')
         try:
-            result=target.stat()
+            result = target.stat()
         except FileNotFoundError:
-            if previous and previous.get('device')!=root_stat.st_dev:
+            if previous and previous.get('device') != root_stat.st_dev:
                 raise UserError('Mapped storage device changed or is not mounted')
-            return dict(state='missing',path=str(target))
-        if not stat.S_ISREG(result.st_mode):raise UserError('Mapped media path is not a regular file')
-        return dict(state='present',path=str(target))
-    except (OSError,ValueError):
-        return dict(state='unavailable',reason='Mapped storage or file access is unavailable; check the mount, permissions and path mapping')
+            return dict(state='missing', path=str(target))
+        if not stat.S_ISREG(result.st_mode):
+            raise UserError('Mapped media path is not a regular file')
+        return dict(state='present', path=str(target))
+    except (OSError, ValueError):
+        return dict(
+            state='unavailable',
+            reason='Mapped storage or file access is unavailable; check the mount, permissions and path mapping',
+        )

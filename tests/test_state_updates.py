@@ -10,9 +10,12 @@ from unittest.mock import Mock
 class StateUpdateTests(unittest.TestCase):
     def setUp(self):
         self.cache = StateUpdates(capacity=2)
-        self.state = dict(assets=[dict(id='a', title='A'), dict(id='b', title='B')],
-                          tasks=[dict(id='t', status='queued', plan={'large': 'x' * 100000})],
-                          config={'token_configured': True}, queue_running=False)
+        self.state = dict(
+            assets=[dict(id='a', title='A'), dict(id='b', title='B')],
+            tasks=[dict(id='t', status='queued', plan={'large': 'x' * 100000})],
+            config={'token_configured': True},
+            queue_running=False,
+        )
 
     def test_initial_unchanged_and_single_record_change(self):
         initial = self.cache.response(self.state)
@@ -65,7 +68,9 @@ class StateUpdateTests(unittest.TestCase):
 
     def test_upstream_connection_failure_retains_error_response(self):
         handler = object.__new__(Handler)
-        handler.server = SimpleNamespace(service=SimpleNamespace(state=Mock(side_effect=ConnectionResetError('upstream'))))
+        handler.server = SimpleNamespace(
+            service=SimpleNamespace(state=Mock(side_effect=ConnectionResetError('upstream')))
+        )
         handler.path = '/api/state'
         handler.request_host = lambda: True
         handler.allowed = lambda: True

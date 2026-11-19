@@ -1,4 +1,5 @@
 """Fresh-install and publication-boundary regressions using synthetic data only."""
+
 import io
 import tempfile
 import unittest
@@ -22,8 +23,11 @@ class ToolDiscovery(unittest.TestCase):
                 executable = root / name
                 executable.write_text('#!/bin/sh\nexit 0\n')
                 executable.chmod(0o700)
-                with self.subTest(tool=name), patch('curator.tools.TOPAZ', str(root / 'missing') + '/'), \
-                     patch('curator.tools.shutil.which', return_value=str(executable)):
+                with (
+                    self.subTest(tool=name),
+                    patch('curator.tools.TOPAZ', str(root / 'missing') + '/'),
+                    patch('curator.tools.shutil.which', return_value=str(executable)),
+                ):
                     self.assertEqual(tools.executable({}, name), str(executable))
 
     def test_invalid_explicit_tool_never_falls_back_to_path(self):
@@ -54,13 +58,16 @@ class CredentialBoundary(unittest.TestCase):
 
         # Replace only the transport handler, not redirect handling, and never use a socket.
         from curator import plex
+
         real_opener = build_opener
 
         def fixture_opener(*handlers):
             return real_opener(*handlers, RedirectingServer())
 
-        with patch.object(plex, 'build_opener', side_effect=fixture_opener), \
-             patch.object(plex, 'urlopen', real_opener(RedirectingServer()).open, create=True):
+        with (
+            patch.object(plex, 'build_opener', side_effect=fixture_opener),
+            patch.object(plex, 'urlopen', real_opener(RedirectingServer()).open, create=True),
+        ):
             with self.assertRaises(PlexError):
                 Plex('http://plex.test', 'fixture-token').request('/identity')
         self.assertEqual(len(calls), 1, 'A credential-bearing request followed a redirect')
@@ -73,9 +80,16 @@ class PublicationSafety(unittest.TestCase):
     def test_file_created_during_swap_is_preserved_with_original_and_output(self):
         output = self.root / 'result.mkv'
         output.write_bytes(b'processed-video')
-        task = dict(self.task, kind='optimize', status='awaiting_review', output=str(output),
-                    validation=[], source_hash=tools.digest(self.file), output_hash=tools.digest(output),
-                    comparison_loaded=True)
+        task = dict(
+            self.task,
+            kind='optimize',
+            status='awaiting_review',
+            output=str(output),
+            validation=[],
+            source_hash=tools.digest(self.file),
+            output_hash=tools.digest(output),
+            comparison_loaded=True,
+        )
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
         replace = __import__('os').replace
@@ -99,10 +113,16 @@ class PublicationSafety(unittest.TestCase):
 class Startup(unittest.TestCase):
     def test_listener_failure_releases_state_and_explains_next_action(self):
         from unittest.mock import Mock
+
         state = Mock()
-        with patch('sys.argv', ['curator']), patch.object(web, 'Store', return_value=state), \
-             patch.object(web,'Service'), patch.object(web,'configure_logging',return_value=Path('/nonexistent/curator.log')),patch.object(web, 'App', side_effect=OSError('Address already in use')), \
-             patch('sys.stderr', new_callable=io.StringIO) as output:
+        with (
+            patch('sys.argv', ['curator']),
+            patch.object(web, 'Store', return_value=state),
+            patch.object(web, 'Service'),
+            patch.object(web, 'configure_logging', return_value=Path('/nonexistent/curator.log')),
+            patch.object(web, 'App', side_effect=OSError('Address already in use')),
+            patch('sys.stderr', new_callable=io.StringIO) as output,
+        ):
             with self.assertRaises(SystemExit) as error:
                 web.main()
         self.assertEqual(error.exception.code, 2)

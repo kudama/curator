@@ -1,4 +1,5 @@
 """Coordinate a supervised, idle-only restart without replaying work."""
+
 from contextlib import contextmanager
 import os
 import socket
@@ -54,17 +55,35 @@ class ServiceRuntime:
             return 'A library scan is running.'
         if any(item.get('running') for item in tuple(self.service.presence_status.values())):
             return 'A file availability check is running.'
-        if any(task['status'] in {'running','publishing'} for task in self.service.store.all('tasks')):
+        if any(task['status'] in {'running', 'publishing'} for task in self.service.store.all('tasks')):
             return 'A task is processing or publishing.'
         return None
 
     def status(self):
         with self.condition:
-            return {'restart_available':self.managed,'restarting':self.restart_requested,
-                    'instance_id':self.instance_id,'hostname':self.hostname,
-                    'startup':('boot' if os.environ.get('CURATOR_SERVICE_STARTUP')=='boot' else 'after_login') if self.managed else 'manual',
-                    'busy_reason':self.busy_reason(),'restart_error':self.restart_error,
-                    'build':dict(self.build),'capabilities':['bulk_review','backup_cleanup','encoding_controls','queue_order','task_queues','universal_queue','bulk_decisions','continuous_review','unattended_runs']}
+            return {
+                'restart_available': self.managed,
+                'restarting': self.restart_requested,
+                'instance_id': self.instance_id,
+                'hostname': self.hostname,
+                'startup': ('boot' if os.environ.get('CURATOR_SERVICE_STARTUP') == 'boot' else 'after_login')
+                if self.managed
+                else 'manual',
+                'busy_reason': self.busy_reason(),
+                'restart_error': self.restart_error,
+                'build': dict(self.build),
+                'capabilities': [
+                    'bulk_review',
+                    'backup_cleanup',
+                    'encoding_controls',
+                    'queue_order',
+                    'task_queues',
+                    'universal_queue',
+                    'bulk_decisions',
+                    'continuous_review',
+                    'unattended_runs',
+                ],
+            }
 
     def request_restart(self):
         with self.condition:
@@ -76,14 +95,14 @@ class ServiceRuntime:
                 raise RestartBlocked('Another request is changing data; wait and retry.')
             reason = self.busy_reason()
             if reason:
-                raise RestartBlocked(reason+' Finish active work before restarting.')
+                raise RestartBlocked(reason + ' Finish active work before restarting.')
             self.restart_requested = True
             self.restart_error = None
-            return {'accepted':True,'instance_id':self.instance_id}
+            return {'accepted': True, 'instance_id': self.instance_id}
 
     def wait_for_idle(self, timeout=30):
         with self.condition:
-            return self.condition.wait_for(lambda:self.requests == 0, timeout)
+            return self.condition.wait_for(lambda: self.requests == 0, timeout)
 
     def cancel_restart(self):
         with self.condition:

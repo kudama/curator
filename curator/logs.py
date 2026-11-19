@@ -6,6 +6,7 @@ happened. The log directory is 0700, every log file is 0600 and never follows a
 symlink, and known secrets (the Plex token, the Mage key, bearer tokens and
 token-style URL parameters) are redacted before anything is written.
 """
+
 import logging
 import os
 import re

@@ -1,0 +1,15 @@
+# Tool configuration only. Curator has no runtime dependencies and is not installed
+# as a package; see the README for running it.
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["curator/static"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.ruff.lint]
+# Errors only for now: syntax errors and undefined names. Wider rules (unused imports,
+# blind excepts, and so on) need code changes and belong in their own pull requests.
+select = ["E9", "F63", "F7", "F82"]

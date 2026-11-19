@@ -1,4 +1,5 @@
 """Small replaceable Plex adapter. No direct Plex database access."""
+
 import json
 import re
 import hashlib
@@ -39,13 +40,21 @@ class Plex:
         if kind not in Plex.ARTWORK:
             raise UserError('Unknown artwork kind')
         _, _, field, image_type = Plex.ARTWORK[kind]
-        return item.get(field) or next((row.get('url') for row in item.get('Image', [])
-                                       if row.get('type') == image_type), None)
+        return item.get(field) or next(
+            (row.get('url') for row in item.get('Image', []) if row.get('type') == image_type), None
+        )
 
     def __init__(self, url, token, transport=None):
         parsed = urlsplit(url)
-        if (parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username
-                or parsed.password or parsed.query or parsed.fragment or parsed.path not in {'', '/'}):
+        if (
+            parsed.scheme not in {'http', 'https'}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {'', '/'}
+        ):
             raise PlexError('Plex URL must be an HTTP(S) server root without credentials')
         if not isinstance(token, str) or not token or '\n' in token or '\r' in token:
             raise PlexError('Plex token is required')
@@ -57,12 +66,18 @@ class Plex:
         if not path.startswith('/') or path.startswith('//') or '?' in path:
             raise PlexError('Invalid Plex API path')
         query = '?' + urlencode(params, doseq=True) if params else ''
-        headers = {'X-Plex-Token': self.token, 'Accept': 'application/json',
-                   'X-Plex-Product': 'Curator', 'X-Plex-Client-Identifier': 'curator-local'}
+        headers = {
+            'X-Plex-Token': self.token,
+            'Accept': 'application/json',
+            'X-Plex-Product': 'Curator',
+            'X-Plex-Client-Identifier': 'curator-local',
+        }
         if content_type:
             headers['Content-Type'] = content_type
         try:
-            with self.transport(Request(self.url + path + query, data=data, headers=headers, method=method), timeout=20) as r:
+            with self.transport(
+                Request(self.url + path + query, data=data, headers=headers, method=method), timeout=20
+            ) as r:
                 raw = r.read(32 * 1024 * 1024 + 1)
             if len(raw) > 32 * 1024 * 1024:
                 raise PlexError('Plex response is too large')
@@ -82,17 +97,31 @@ class Plex:
         server = self.request('/identity').get('machineIdentifier')
         if not server:
             raise PlexError('Plex server did not return an identity')
-        return [dict(id=f"{server}:{x['key']}", server=server, key=str(x['key']),
-                     title=x['title'], type=x['type'], agent=x.get('agent'), locations=x.get('Location', []))
-                for x in self.request('/library/sections').get('Directory', [])
-                if x.get('type') in {'movie', 'show'}]
+        return [
+            dict(
+                id=f"{server}:{x['key']}",
+                server=server,
+                key=str(x['key']),
+                title=x['title'],
+                type=x['type'],
+                agent=x.get('agent'),
+                locations=x.get('Location', []),
+            )
+            for x in self.request('/library/sections').get('Directory', [])
+            if x.get('type') in {'movie', 'show'}
+        ]
 
     def items(self, library):
         start, seen = 0, set()
         while True:
-            block = self.request('/library/sections/' + quote(library['key'], safe='') + '/all',
-                                 params={'type': 4 if library['type'] == 'show' else 1,
-                                         'X-Plex-Container-Start': start, 'X-Plex-Container-Size': 200})
+            block = self.request(
+                '/library/sections/' + quote(library['key'], safe='') + '/all',
+                params={
+                    'type': 4 if library['type'] == 'show' else 1,
+                    'X-Plex-Container-Start': start,
+                    'X-Plex-Container-Size': 200,
+                },
+            )
             rows = block.get('Metadata', [])
             if not rows:
                 return
@@ -120,11 +149,16 @@ class Plex:
         for field, value in changes.items():
             if field == 'cast':
                 from .cast import validate_rows
+
                 validate_rows(value)
                 if any(set(row) - {'name', 'role', 'thumb'} for row in value):
                     raise PlexError('Cast profiles and uploads must use the cast save workflow')
             elif field in {'genre', 'collection', 'label'}:
-                if not isinstance(value, list) or len(value) > 200 or not all(isinstance(x, str) and x.strip() and len(x) <= 500 for x in value):
+                if (
+                    not isinstance(value, list)
+                    or len(value) > 200
+                    or not all(isinstance(x, str) and x.strip() and len(x) <= 500 for x in value)
+                ):
                     raise PlexError('Tags and labels must be lists of nonempty names')
             elif not isinstance(value, str) or len(value) > 50000:
                 raise PlexError('Metadata fields must be text')
@@ -175,19 +209,30 @@ class Plex:
         plural, singular, _, _ = self.ARTWORK[kind]
         endpoint = base + '/' + plural
         before = {x.get('ratingKey') for x in self.request(endpoint).get('Metadata', [])}
-        self.request(endpoint, 'POST', data=image,
-                     content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg', ignore_body=True)
+        self.request(
+            endpoint,
+            'POST',
+            data=image,
+            content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg',
+            ignore_body=True,
+        )
         after = self.request(endpoint).get('Metadata', [])
-        uploaded = [x for x in after if x.get('ratingKey') not in before and
-                    str(x.get('ratingKey', '')).startswith('upload://')]
+        uploaded = [
+            x for x in after if x.get('ratingKey') not in before and str(x.get('ratingKey', '')).startswith('upload://')
+        ]
         if len(uploaded) != 1:
-            raise PlexError('Upload was sent, but Plex did not identify one new image. Inspect artwork in Plex before retrying.')
+            raise PlexError(
+                'Upload was sent, but Plex did not identify one new image. Inspect artwork in Plex before retrying.'
+            )
         candidate = uploaded[0]['ratingKey']
         # Uploading and selecting are distinct Plex operations.
         field = singular
         self.request(base + '/' + field, 'PUT', params={'url': candidate}, ignore_body=True)
-        selected = [x for x in self.request(endpoint).get('Metadata', [])
-                    if x.get('ratingKey') == candidate and x.get('selected') in (True, 1, '1')]
+        selected = [
+            x
+            for x in self.request(endpoint).get('Metadata', [])
+            if x.get('ratingKey') == candidate and x.get('selected') in (True, 1, '1')
+        ]
         if len(selected) != 1:
             raise PlexError('Image uploaded, but Plex did not confirm its selection. Inspect artwork in Plex.')
         result = self.item(key)
@@ -200,12 +245,22 @@ class Plex:
             raise UserError('Unknown artwork kind')
         item = self.item(key)
         path = self.artwork_path(item, kind)
-        if not isinstance(path, str) or not path.startswith('/library/metadata/') or '..' in path.split('/') or '?' in path or '#' in path:
+        if (
+            not isinstance(path, str)
+            or not path.startswith('/library/metadata/')
+            or '..' in path.split('/')
+            or '?' in path
+            or '#' in path
+        ):
             raise PlexError('No current artwork is available')
         try:
-            with self.transport(Request(self.url + path, headers={'X-Plex-Token': self.token, 'Accept': 'image/*'}), timeout=20) as response:
+            with self.transport(
+                Request(self.url + path, headers={'X-Plex-Token': self.token, 'Accept': 'image/*'}), timeout=20
+            ) as response:
                 image = response.read(10 * 1024 * 1024 + 1)
-            if len(image) > 10 * 1024 * 1024 or not (image.startswith(b'\xff\xd8\xff') or image.startswith(b'\x89PNG\r\n\x1a\n')):
+            if len(image) > 10 * 1024 * 1024 or not (
+                image.startswith(b'\xff\xd8\xff') or image.startswith(b'\x89PNG\r\n\x1a\n')
+            ):
                 raise PlexError('Current artwork is not a supported JPEG/PNG')
             return image
         except (HTTPError, URLError, TimeoutError, OSError):
@@ -215,10 +270,13 @@ class Plex:
         # Only contact the configured Plex server. Never attach the token to an actor's external URL.
         query = '?' + urlencode(params) if params else ''
         try:
-            with self.image_transport(Request(self.url + path + query, headers={'X-Plex-Token': self.token,
-                                                                         'Accept': 'image/*'}), timeout=20) as response:
+            with self.image_transport(
+                Request(self.url + path + query, headers={'X-Plex-Token': self.token, 'Accept': 'image/*'}), timeout=20
+            ) as response:
                 data = response.read(10 * 1024 * 1024 + 1)
-            if len(data) > 10 * 1024 * 1024 or not (data.startswith(b'\xff\xd8\xff') or data.startswith(b'\x89PNG\r\n\x1a\n')):
+            if len(data) > 10 * 1024 * 1024 or not (
+                data.startswith(b'\xff\xd8\xff') or data.startswith(b'\x89PNG\r\n\x1a\n')
+            ):
                 raise PlexError('Plex did not return a JPEG/PNG cast picture')
             return data
         except (HTTPError, URLError, TimeoutError, OSError):
@@ -230,8 +288,14 @@ class Plex:
         parsed = urlsplit(thumb)
         if parsed.username or parsed.password or parsed.fragment or '\n' in thumb or '\r' in thumb:
             raise PlexError('Invalid cast picture reference')
-        if not ((not parsed.scheme and not parsed.netloc and re.fullmatch(r'/library/metadata/[0-9]+/(?:file|thumb(?:/[0-9]+)?)', parsed.path))
-                or (parsed.scheme in {'http', 'https'} and parsed.hostname)):
+        if not (
+            (
+                not parsed.scheme
+                and not parsed.netloc
+                and re.fullmatch(r'/library/metadata/[0-9]+/(?:file|thumb(?:/[0-9]+)?)', parsed.path)
+            )
+            or (parsed.scheme in {'http', 'https'} and parsed.hostname)
+        ):
             raise PlexError('Invalid cast picture reference')
         return self.binary_image('/photo/:/transcode', {'url': thumb, 'width': 300, 'height': 300, 'minSize': 1})
 
@@ -244,11 +308,20 @@ class Plex:
         selected_before = [x.get('ratingKey') for x in before if x.get('selected') in (True, 1, '1')]
         if len(selected_before) != 1:
             raise PlexError('Select a cover in Plex before adding cast pictures')
-        self.request(endpoint, 'POST', data=image,
-                     content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg', ignore_body=True)
+        self.request(
+            endpoint,
+            'POST',
+            data=image,
+            content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg',
+            ignore_body=True,
+        )
         after = self.request(endpoint).get('Metadata', [])
-        candidates = [x.get('ratingKey') for x in after if x.get('ratingKey') not in {r.get('ratingKey') for r in before}
-                      and re.fullmatch(r'upload://posters/[a-fA-F0-9]+', str(x.get('ratingKey', '')))]
+        candidates = [
+            x.get('ratingKey')
+            for x in after
+            if x.get('ratingKey') not in {r.get('ratingKey') for r in before}
+            and re.fullmatch(r'upload://posters/[a-fA-F0-9]+', str(x.get('ratingKey', '')))
+        ]
         selected_after = [x.get('ratingKey') for x in after if x.get('selected') in (True, 1, '1')]
         if selected_after != selected_before:
             if len(selected_after) != 1 or selected_after[0] not in candidates:
@@ -279,12 +352,16 @@ class Plex:
         if existing:
             if len(existing) != 1 or existing[0].get('smart'):
                 raise PlexError('Playlist title is ambiguous or belongs to a smart playlist')
-            observed = self.request('/playlists/' + quote(str(existing[0]['ratingKey']), safe='') + '/items').get('Metadata', [])
+            observed = self.request('/playlists/' + quote(str(existing[0]['ratingKey']), safe='') + '/items').get(
+                'Metadata', []
+            )
             if [str(x['ratingKey']) for x in observed] == keys:
                 return {'verified': True, 'rating_key': str(existing[0]['ratingKey']), 'unchanged': True}
             raise PlexError('A different playlist already uses this title; choose a new title to preserve it')
         uri = 'server://' + server + '/com.plexapp.plugins.library/library/metadata/' + ','.join(keys)
-        made = self.request('/playlists', 'POST', {'title': title, 'type': 'video', 'smart': 0, 'uri': uri}).get('Metadata', [])
+        made = self.request('/playlists', 'POST', {'title': title, 'type': 'video', 'smart': 0, 'uri': uri}).get(
+            'Metadata', []
+        )
         if len(made) != 1:
             raise PlexError('Playlist creation receipt is uncertain; inspect Plex before retry')
         key = str(made[0]['ratingKey'])
@@ -301,31 +378,50 @@ class Plex:
         return False
 
     def scan_folder(self, library, folder):
-        self.request('/library/sections/' + quote(library['key'], safe='') + '/refresh',
-                     params={'path':str(folder)}, ignore_body=True)
+        self.request(
+            '/library/sections/' + quote(library['key'], safe='') + '/refresh',
+            params={'path': str(folder)},
+            ignore_body=True,
+        )
 
     def collections(self, library):
         """List the complete selected-library collection catalog, without mutations."""
         start, seen, rows = 0, set(), []
         while True:
-            payload=self.request('/library/sections/'+quote(str(library['key']),safe='')+'/collections',
-                params={'X-Plex-Container-Start':start,'X-Plex-Container-Size':200})
-            page=payload.get('Metadata',[])
-            total=int(payload['totalSize']) if 'totalSize' in payload else None
+            payload = self.request(
+                '/library/sections/' + quote(str(library['key']), safe='') + '/collections',
+                params={'X-Plex-Container-Start': start, 'X-Plex-Container-Size': 200},
+            )
+            page = payload.get('Metadata', [])
+            total = int(payload['totalSize']) if 'totalSize' in payload else None
             if not page:
-                if total is not None and start<total:raise PlexError('Collection list is incomplete; refresh and try again')
+                if total is not None and start < total:
+                    raise PlexError('Collection list is incomplete; refresh and try again')
                 break
-            fresh=0
+            fresh = 0
             for item in page:
-                identity=str(item.get('ratingKey',''));title=item.get('title')
-                if not identity or not isinstance(title,str) or not title.strip():raise PlexError('Plex returned an invalid collection')
-                if identity in seen:continue
-                seen.add(identity);fresh+=1
-                rows.append(dict(key=identity,title=title,smart=str(item.get('smart',0)).lower() in {'1','true'},count=item.get('childCount')))
-            if not fresh:raise PlexError('Collection pagination did not advance')
-            start+=len(page)
-            if total is not None and start>=total or total is None and len(page)<200:break
-        return sorted(rows,key=lambda row:(row['title'].casefold(),row['key']))
+                identity = str(item.get('ratingKey', ''))
+                title = item.get('title')
+                if not identity or not isinstance(title, str) or not title.strip():
+                    raise PlexError('Plex returned an invalid collection')
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                fresh += 1
+                rows.append(
+                    dict(
+                        key=identity,
+                        title=title,
+                        smart=str(item.get('smart', 0)).lower() in {'1', 'true'},
+                        count=item.get('childCount'),
+                    )
+                )
+            if not fresh:
+                raise PlexError('Collection pagination did not advance')
+            start += len(page)
+            if total is not None and start >= total or total is None and len(page) < 200:
+                break
+        return sorted(rows, key=lambda row: (row['title'].casefold(), row['key']))
 
     def metadata_choices(self, library, field):
         """Read library-scoped categories; selecting a name never writes metadata."""
@@ -335,8 +431,10 @@ class Plex:
             raise PlexError('Unsupported metadata choice field')
         start, seen, rows = 0, set(), []
         while True:
-            payload = self.request('/library/sections/' + quote(str(library['key']), safe='') + '/' + field,
-                params={'X-Plex-Container-Start': start, 'X-Plex-Container-Size': 200})
+            payload = self.request(
+                '/library/sections/' + quote(str(library['key']), safe='') + '/' + field,
+                params={'X-Plex-Container-Start': start, 'X-Plex-Container-Size': 200},
+            )
             page = payload.get('Directory', [])
             total = int(payload['totalSize']) if 'totalSize' in payload else None
             if not page:
@@ -365,12 +463,16 @@ class Plex:
         """Read one non-smart collection/playlist; never adopt by title alone."""
         if kind not in {'collection', 'playlist'}:
             raise PlexError('Unknown grouping type')
-        path = '/playlists' if kind == 'playlist' else '/library/sections/' + quote(library['key'],safe='') + '/collections'
-        payload = self.request(path, params={'X-Plex-Container-Size':1000})
+        path = (
+            '/playlists'
+            if kind == 'playlist'
+            else '/library/sections/' + quote(library['key'], safe='') + '/collections'
+        )
+        payload = self.request(path, params={'X-Plex-Container-Size': 1000})
         rows = payload.get('Metadata', [])
         if int(payload.get('totalSize', len(rows))) > len(rows):
             raise PlexError('Grouping list is incomplete; narrow the library before applying')
-        matches = [x for x in rows if x.get('title','').casefold() == title.casefold()]
+        matches = [x for x in rows if x.get('title', '').casefold() == title.casefold()]
         if not matches:
             if owned:
                 raise PlexError('Managed grouping was removed; inspect Plex before retrying')
@@ -378,13 +480,15 @@ class Plex:
         if len(matches) != 1 or matches[0].get('smart') or not owned or str(matches[0]['ratingKey']) != owned['key']:
             raise PlexError('This title belongs to an unmanaged or ambiguous grouping; choose another title')
         key = str(matches[0]['ratingKey'])
-        base = '/playlists/'+quote(key,safe='') if kind=='playlist' else '/library/metadata/'+quote(key,safe='')
-        payload = self.request(base + ('/items' if kind=='playlist' else '/children'), params={'X-Plex-Container-Size':1000})
+        base = '/playlists/' + quote(key, safe='') if kind == 'playlist' else '/library/metadata/' + quote(key, safe='')
+        payload = self.request(
+            base + ('/items' if kind == 'playlist' else '/children'), params={'X-Plex-Container-Size': 1000}
+        )
         rows = payload.get('Metadata', [])
-        if int(payload.get('totalSize',len(rows))) > len(rows):
+        if int(payload.get('totalSize', len(rows))) > len(rows):
             raise PlexError('Grouping membership is incomplete')
         keys = [str(x['ratingKey']) for x in rows]
-        same = keys == owned['keys'] if kind=='playlist' else set(keys) == set(owned['keys'])
+        same = keys == owned['keys'] if kind == 'playlist' else set(keys) == set(owned['keys'])
         if not same:
             raise PlexError('Grouping changed outside Curator; inspect before replacing membership')
         return dict(key=key, rows=rows, keys=keys, base=base)
@@ -393,31 +497,44 @@ class Plex:
         state = self.group_state(library, kind, title, owned)
         uri = 'server://' + library['server'] + '/com.plexapp.plugins.library/library/metadata/' + ','.join(keys)
         if state is None:
-            params = {'title':title,'smart':0,'uri':uri}
-            if kind=='playlist':
-                params['type']='video';endpoint='/playlists'
+            params = {'title': title, 'smart': 0, 'uri': uri}
+            if kind == 'playlist':
+                params['type'] = 'video'
+                endpoint = '/playlists'
             else:
-                params.update(type=1,sectionId=library['key']);endpoint='/library/collections'
-            made = self.request(endpoint,'POST',params).get('Metadata',[])
-            if len(made)!=1:
+                params.update(type=1, sectionId=library['key'])
+                endpoint = '/library/collections'
+            made = self.request(endpoint, 'POST', params).get('Metadata', [])
+            if len(made) != 1:
                 raise PlexError('Creation outcome uncertain; inspect Plex before retrying')
             key = str(made[0]['ratingKey'])
-            receipt(dict(kind=kind,key=key,keys=keys,uncertain=True))
-            base = '/playlists/'+quote(key,safe='') if kind=='playlist' else '/library/metadata/'+quote(key,safe='')
+            receipt(dict(kind=kind, key=key, keys=keys, uncertain=True))
+            base = (
+                '/playlists/' + quote(key, safe='')
+                if kind == 'playlist'
+                else '/library/metadata/' + quote(key, safe='')
+            )
         else:
-            key,base = state['key'],state['base']
-            if kind=='playlist' and state['keys']!=keys:
+            key, base = state['key'], state['base']
+            if kind == 'playlist' and state['keys'] != keys:
                 for row in state['rows']:
-                    self.request(base+'/items/'+quote(str(row['playlistItemID']),safe=''),'DELETE',ignore_body=True)
-                self.request(base+'/items','PUT',{'uri':uri},ignore_body=True)
-            elif kind=='collection' and set(state['keys'])!=set(keys):
-                for removed in set(state['keys'])-set(keys):
-                    self.request(base+'/items/'+quote(removed,safe=''),'DELETE',ignore_body=True)
-                added=[k for k in keys if k not in state['keys']]
+                    self.request(
+                        base + '/items/' + quote(str(row['playlistItemID']), safe=''), 'DELETE', ignore_body=True
+                    )
+                self.request(base + '/items', 'PUT', {'uri': uri}, ignore_body=True)
+            elif kind == 'collection' and set(state['keys']) != set(keys):
+                for removed in set(state['keys']) - set(keys):
+                    self.request(base + '/items/' + quote(removed, safe=''), 'DELETE', ignore_body=True)
+                added = [k for k in keys if k not in state['keys']]
                 if added:
-                    add_uri='server://'+library['server']+'/com.plexapp.plugins.library/library/metadata/'+','.join(added)
-                    self.request(base+'/items','PUT',{'uri':add_uri},ignore_body=True)
-        result = dict(kind=kind,key=key,keys=keys)
-        self.group_state(library,kind,title,result)
+                    add_uri = (
+                        'server://'
+                        + library['server']
+                        + '/com.plexapp.plugins.library/library/metadata/'
+                        + ','.join(added)
+                    )
+                    self.request(base + '/items', 'PUT', {'uri': add_uri}, ignore_body=True)
+        result = dict(kind=kind, key=key, keys=keys)
+        self.group_state(library, kind, title, result)
         receipt(result)
         return result

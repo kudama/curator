@@ -2,6 +2,7 @@
 
 Catalog-default Gems never price a different model or reference configuration.
 """
+
 import json
 import os
 from pathlib import Path
@@ -84,9 +85,12 @@ class Mage:
     def discover(self):
         catalog = self.get('/architectures')
         from .mage_catalog import models
-        catalog_models=models(catalog)
-        mango = next((r for r in catalog.get('architectures', []) if isinstance(r,dict) and r.get('id')=='mango'), {})
-        model_ids=[r['id'] for r in catalog_models]
+
+        catalog_models = models(catalog)
+        mango = next(
+            (r for r in catalog.get('architectures', []) if isinstance(r, dict) and r.get('id') == 'mango'), {}
+        )
+        model_ids = [r['id'] for r in catalog_models]
         balance = None
         balance_status = 'unavailable'
         try:
@@ -95,98 +99,152 @@ class Mage:
                 balance, balance_status = value, 'available'
         except ValueError:
             pass  # Balance is optional; discovery and manual artwork remain usable.
-        return dict(models=model_ids, model_catalog=catalog_models, default_model=DEFAULT_MODEL if DEFAULT_MODEL in model_ids else None,
-                    options=mango.get('options', {}), options_by_model=mango.get('options_by_model', {}),
-                    balance=balance, balance_status=balance_status, generation_enabled=False,
-                    reason='Paid generation requires a saved plan, usable pre-submit estimate and explicit consent. Exact catalog defaults use catalog pricing. Other configurations require a usable request-specific MCP estimate; unsupported schemas stay blocked.')
+        return dict(
+            models=model_ids,
+            model_catalog=catalog_models,
+            default_model=DEFAULT_MODEL if DEFAULT_MODEL in model_ids else None,
+            options=mango.get('options', {}),
+            options_by_model=mango.get('options_by_model', {}),
+            balance=balance,
+            balance_status=balance_status,
+            generation_enabled=False,
+            reason='Paid generation requires a saved plan, usable pre-submit estimate and explicit consent. Exact catalog defaults use catalog pricing. Other configurations require a usable request-specific MCP estimate; unsupported schemas stay blocked.',
+        )
 
     def _job_request(self, method, path, body=None, idempotency_key=None):
         import re
-        allowed = method == 'POST' and re.fullmatch(r'/[a-z][a-z0-9_-]{0,60}/generate',path) or re.fullmatch(r'/requests/[a-f0-9-]{36}/' + ('status' if method == 'GET' else 'cancel'), path)
-        if not allowed or method not in {'GET','POST'}:
+
+        allowed = (
+            method == 'POST'
+            and re.fullmatch(r'/[a-z][a-z0-9_-]{0,60}/generate', path)
+            or re.fullmatch(r'/requests/[a-f0-9-]{36}/' + ('status' if method == 'GET' else 'cancel'), path)
+        )
+        if not allowed or method not in {'GET', 'POST'}:
             raise UserError('Unsupported Mage job operation')
-        if not self.configured():raise UserError('Configure a Mage API key first')
-        headers={'Authorization':'Bearer '+self.job_credential(),'Content-Type':'application/json'}
-        if idempotency_key:headers['Idempotency-Key']=idempotency_key
-        request=Request(BASE+path,method=method,data=json.dumps(body).encode() if body is not None else None,headers=headers)
+        if not self.configured():
+            raise UserError('Configure a Mage API key first')
+        headers = {'Authorization': 'Bearer ' + self.job_credential(), 'Content-Type': 'application/json'}
+        if idempotency_key:
+            headers['Idempotency-Key'] = idempotency_key
+        request = Request(
+            BASE + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers=headers
+        )
         try:
-            with self.opener.open(request,timeout=30) as response:data=response.read(2*1024*1024+1)
-            if len(data)>2*1024*1024:raise UserError('Mage job response too large')
-            value=json.loads(data)
-            if not isinstance(value,dict):raise UserError('Invalid Mage job response')
+            with self.opener.open(request, timeout=30) as response:
+                data = response.read(2 * 1024 * 1024 + 1)
+            if len(data) > 2 * 1024 * 1024:
+                raise UserError('Mage job response too large')
+            value = json.loads(data)
+            if not isinstance(value, dict):
+                raise UserError('Invalid Mage job response')
             return value
         except HTTPError as error:
-            code=error.code;error.close()
-            raise UserError('Mage job HTTP '+str(code)+'; inspect request state before retrying') from None
-        except (OSError,URLError,json.JSONDecodeError):
+            code = error.code
+            error.close()
+            raise UserError('Mage job HTTP ' + str(code) + '; inspect request state before retrying') from None
+        except (OSError, URLError, json.JSONDecodeError):
             raise UserError('Mage job outcome is uncertain; resume with the same saved request identity') from None
 
     def job_credential(self):
         if self._job_credential is None:
-            if not self.configured():raise UserError('Configure a Mage API key first')
-            self._job_credential=self.key_path.read_text().strip()
+            if not self.configured():
+                raise UserError('Configure a Mage API key first')
+            self._job_credential = self.key_path.read_text().strip()
         return self._job_credential
 
     def credential_identity(self):
         import hashlib
-        if not self.configured():raise UserError('Configure a Mage API key first')
+
+        if not self.configured():
+            raise UserError('Configure a Mage API key first')
         return hashlib.sha256(self.job_credential().encode()).hexdigest()
 
     def quote(self, settings, references=0, reference_images=None):
-        catalog=self.get('/architectures')
-        from .mage_catalog import resolve,request_body
-        mango,row=resolve(catalog,settings['model'])
+        catalog = self.get('/architectures')
+        from .mage_catalog import resolve, request_body
+
+        mango, row = resolve(catalog, settings['model'])
         if references:
-            if not isinstance(reference_images,list) or len(reference_images)!=references:
+            if not isinstance(reference_images, list) or len(reference_images) != references:
                 raise UserError('No verified pre-submit price without the exact reference images')
-            if any(not isinstance(image,str) or len(image)>4*1024*1024 for image in reference_images):
+            if any(not isinstance(image, str) or len(image) > 4 * 1024 * 1024 for image in reference_images):
                 raise UserError('Mage pricing references must be at most 3 MiB each')
-        properties=mango.get('input_schema',{}).get('properties',{})
-        body=request_body(mango,row,settings,reference_images or [])
-        defaults=dict(mango.get('base_config',{}))
-        for field,value in properties.items():
-            if isinstance(value,dict) and 'default' in value:defaults.setdefault(field,value['default'])
+        properties = mango.get('input_schema', {}).get('properties', {})
+        body = request_body(mango, row, settings, reference_images or [])
+        defaults = dict(mango.get('base_config', {}))
+        for field, value in properties.items():
+            if isinstance(value, dict) and 'default' in value:
+                defaults.setdefault(field, value['default'])
         # The only documented pre-submit price is for exact architecture defaults.
         # Never apply it to Mango 3 merely because Mango 4 is the API default.
-        if references or '@' in settings['prompt'] or any(defaults.get(field)!=value for field,value in body.items() if field!='prompt'):
+        if (
+            references
+            or '@' in settings['prompt']
+            or any(defaults.get(field) != value for field, value in body.items() if field != 'prompt')
+        ):
             from .mage_mcp import MagePricing
-            pricing=MagePricing(self.job_credential(),self.opener)
-            return pricing.quote(body) if row['architecture']=='mango' else pricing.quote(body,row['architecture'])
-        gems=mango.get('gems')
-        if type(gems) not in (int,float) or gems<0 or not __import__('math').isfinite(gems):raise UserError('Mage has no usable pre-submit price')
-        return {'gems':gems,'body':body,**({'architecture':row['architecture']} if row['architecture']!='mango' else {}),'basis':'Live catalog price for exact architecture defaults; estimate, not a provider-enforced spend cap'}
+
+            pricing = MagePricing(self.job_credential(), self.opener)
+            return pricing.quote(body) if row['architecture'] == 'mango' else pricing.quote(body, row['architecture'])
+        gems = mango.get('gems')
+        if type(gems) not in (int, float) or gems < 0 or not __import__('math').isfinite(gems):
+            raise UserError('Mage has no usable pre-submit price')
+        return {
+            'gems': gems,
+            'body': body,
+            **({'architecture': row['architecture']} if row['architecture'] != 'mango' else {}),
+            'basis': 'Live catalog price for exact architecture defaults; estimate, not a provider-enforced spend cap',
+        }
 
     def _retry_job(self, method, path, body=None, key=None):
         import time
+
         for attempt in range(3):
-            try:return self._job_request(method,path,body,key)
+            try:
+                return self._job_request(method, path, body, key)
             except ValueError as error:
-                transient = 'outcome is uncertain' in str(error) or any('HTTP '+str(code) in str(error) for code in (408,429,500,502,503,504))
+                transient = 'outcome is uncertain' in str(error) or any(
+                    'HTTP ' + str(code) in str(error) for code in (408, 429, 500, 502, 503, 504)
+                )
                 # Submission retries always carry the original persisted idempotency key.
-                if attempt==2 or not transient:raise
+                if attempt == 2 or not transient:
+                    raise
                 time.sleep(2**attempt)
 
     def submit(self, body, key, architecture='mango'):
         import re
-        if not isinstance(architecture,str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,60}',architecture):raise UserError('Invalid Mage image architecture')
-        return self._retry_job('POST','/'+architecture+'/generate',body,key)
+
+        if not isinstance(architecture, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,60}', architecture):
+            raise UserError('Invalid Mage image architecture')
+        return self._retry_job('POST', '/' + architecture + '/generate', body, key)
 
     def status(self, request_id):
-        return self._retry_job('GET','/requests/'+request_id+'/status')
+        return self._retry_job('GET', '/requests/' + request_id + '/status')
 
     def cancel(self, request_id):
-        return self._retry_job('POST','/requests/'+request_id+'/cancel',{})
+        return self._retry_job('POST', '/requests/' + request_id + '/cancel', {})
 
     def download(self, url):
         from urllib.parse import urlsplit
-        parsed=urlsplit(url)
-        if parsed.scheme!='https' or parsed.username or parsed.password or parsed.port not in (None,443) or not parsed.hostname or not (parsed.hostname=='mage.space' or parsed.hostname.endswith('.mage.space')):
+
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != 'https'
+            or parsed.username
+            or parsed.password
+            or parsed.port not in (None, 443)
+            or not parsed.hostname
+            or not (parsed.hostname == 'mage.space' or parsed.hostname.endswith('.mage.space'))
+        ):
             raise UserError('Unverified Mage result host; retained request identity is available for manual recovery')
         try:
             # No API authorization header on asset downloads, and no redirects.
-            with self.opener.open(Request(url,headers={'User-Agent':'Curator/0.5.0','Accept':'image/png,image/jpeg'}),timeout=30) as response:data=response.read(10*1024*1024+1)
-            if len(data)>10*1024*1024 or not data.startswith((b'\x89PNG\r\n\x1a\n',b'\xff\xd8\xff')):
+            with self.opener.open(
+                Request(url, headers={'User-Agent': 'Curator/0.5.0', 'Accept': 'image/png,image/jpeg'}), timeout=30
+            ) as response:
+                data = response.read(10 * 1024 * 1024 + 1)
+            if len(data) > 10 * 1024 * 1024 or not data.startswith((b'\x89PNG\r\n\x1a\n', b'\xff\xd8\xff')):
                 raise UserError('Mage result is not a supported JPEG/PNG under 10 MiB')
             return data
-        except (OSError,URLError):
+        except (OSError, URLError):
             raise UserError('Mage result download failed; request retained for recovery') from None
