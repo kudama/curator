@@ -150,3 +150,8 @@ For reference-based family and pet artwork, use the exact automatic template `re
 Check cost must report the estimated total Gems and number of options even when the batch exceeds its budget, together with the applicable budget and Gems over budget. Reservation/submission failures likewise report the estimate and remaining monthly allowance. Existing rejection gates remain in force: no generation approval, reservation or paid submission occurs from a failed cost check.
 
 Artwork previews must fetch the current selected Plex images on reopening. If a verified Curator rename is pending and the old Plex key returns 404, resolve only a unique exact destination in the same verified library after checking the unchanged local fingerprint. Refresh the cached Plex identity/artwork and invalidate old thumbnails, preserving Curator asset/task IDs and all approvals. Refuse ambiguous or changed sources. This refresh never uploads, selects or replaces artwork in Plex.
+
+
+## Artwork approval handoff — 2026-11-18
+
+After Approve & queue accepts every artwork change, close that preview panel immediately, before background refresh. Keep it open for failed or partially failed queueing, and do not close a different panel opened while requests were in flight. No additional success popup is needed.
