@@ -39,3 +39,16 @@ class PricingTests(unittest.TestCase):
         opener=Opener();p=MagePricing('fixture-key',opener);p.initialize();p.tools['estimate_cost']['inputSchema']['required'].append('unknown')
         with self.assertRaisesRegex(ValueError,'schema changed'):p.quote({'prompt':'Synthetic'})
         self.assertEqual(opener.calls[-1][1]['method'],'tools/list')
+
+    def test_live_estimate_envelope_prices_only_the_selected_model(self):
+        opener=Opener();opener.price={'estimate':{'architecture':'mango','model_id':'mango-v3','status':'priced','gems':135,'balance':1000,'enough_gems':True}}
+        result=MagePricing('fixture-key',opener).quote({'prompt':'Synthetic','model_id':'mango-v3'})
+        self.assertEqual(result['gems'],135);self.assertNotIn('balance',result)
+        self.assertEqual(opener.calls[-1][1]['params']['name'],'estimate_cost')
+
+    def test_invalid_nested_estimates_never_fall_back_to_another_price(self):
+        valid={'architecture':'mango','model_id':'mango-v3','status':'priced','gems':135}
+        invalid=[None,{},*[{**valid,**change} for change in ({'status':'unpriced'},{'architecture':'other'},{'model_id':'mango-v4'},{'gems':True},{'gems':-1},{'gems':float('nan')})]]
+        for estimate in invalid:
+            opener=Opener();opener.price={'estimate':estimate,'estimated_gems':1}
+            with self.subTest(estimate=estimate),self.assertRaises(ValueError):MagePricing('fixture-key',opener).quote({'model_id':'mango-v3'})
