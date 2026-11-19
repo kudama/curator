@@ -22,16 +22,16 @@ function setup(){
  return {context,state,calls,cards,elements,add,target:id=>{target=id;},run:code=>vm.runInContext(code,context)};
 }
 function all(node){return [node,...node.children.flatMap(all)];}
-test('four lanes keep all concurrent jobs and render the waiting head once',()=>{
+test('visible lanes keep all concurrent jobs and render the waiting head once',()=>{
  const h=setup();h.add('up','upscale','running');h.add('enc1','optimize','running');h.add('enc2','optimize','running');h.add('later','optimize');
- const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,4);assert.deepEqual(new Set(h.cards),new Set(['up','enc1','enc2','later']));
+ const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,2);assert.deepEqual(new Set(h.cards),new Set(['up','enc1','enc2','later']));
  assert.equal(all(board).filter(e=>e.className.includes('queue-head')).length,2);
  const waiting=setup();waiting.add('first','upscale');waiting.run('renderProcessing()');assert.deepEqual(waiting.cards,['first']);
 });
 test('publication is counted once and other tasks do not replace the board',()=>{
  const h=setup();h.add('publication','optimize','publishing');h.state.file_jobs=[{id:'file',phase:'running',operation:'publish',title:'Publication',library:'one',payload:{task:'publication'}}];
  assert.equal(h.run('queueCountRows().length'),1);h.run('renderProcessing()');assert.equal(h.cards.includes('publication'),false);
- h.add('metadata','metadata');assert.equal(h.run('queueBoardAvailable()'),true);const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,4);assert.equal(sections.length,2);assert.ok(h.cards.includes('metadata'));
+ h.add('metadata','metadata');assert.equal(h.run('queueBoardAvailable()'),true);const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,2);assert.equal(sections.length,1);assert.ok(h.cards.includes('metadata'));
 });
 test('filtered move preserves hidden slots and other operation types',async()=>{
  const h=setup();h.add('a','optimize');h.add('hidden','optimize','queued','two');h.add('up','upscale');h.add('b','optimize');h.run("queueLibrary='one';waitingSelection.add('b')");
@@ -49,35 +49,44 @@ test('file reordering has no removal action and uses the full file snapshot',asy
  const controls=h.run("queueLaneSelection('file_operations')");assert.equal(controls.children.some(e=>e.textContent==='Remove from queue'),false);
  await controls.children.find(e=>e.textContent==='Move to top').onclick();assert.equal(h.calls[0].endpoint,'file-queue/order');assert.equal(h.calls[0].data.order.join(','),'f2,hidden,f1');assert.equal(h.calls[0].data.expected.length,3);
 });
-test('ready link preserves artwork review visibility instead of sending it to the video-only inbox',()=>{
+test('ready link sends all review kinds to the unified inbox',()=>{
  const h=setup();h.add('art','artwork','awaiting_review');h.context.prepareInspector=()=>true;h.context.closeInspector=()=>{};h.context.setScreen=value=>h.calls.push({screen:value});
- h.run('renderQueueStatusLinks()');h.elements.get('queue-status-links').children.find(e=>e.textContent==='Ready to review 1').onclick();assert.equal(h.calls[0].screen,'processing');assert.equal(h.context.queueStatus,'awaiting_review');
+ h.run('renderQueueStatusLinks()');h.elements.get('queue-status-links').children.find(e=>e.textContent==='Ready to review 1').onclick();assert.equal(h.calls[0].screen,'review');assert.equal(h.context.queueStatus,'awaiting_review');
 });
 
 test('queued joins stay in the file lane and retain task-order controls',async()=>{
  const h=setup();h.add('join1','join');h.add('encode','optimize');h.add('join2','join');
- const sections=h.run('renderProcessing()'),file=sections[0].children[2];assert.equal(sections.length,1);
+ const sections=h.run('renderProcessing()'),file=sections[0].children.find(l=>l.attrs['aria-label']==='File operations');assert.equal(sections.length,1);
  assert.equal(all(file).filter(e=>e.className.includes('queue-head')).length,1);assert.ok(h.cards.includes('join1'));assert.ok(h.cards.includes('join2'));
  h.run("waitingSelection.add('join2')");const controls=h.run("queueLaneSelection('join')");await controls.children.find(e=>e.textContent==='Move to top').onclick();
  assert.equal(h.calls[0].endpoint,'queue/change');assert.equal(h.calls[0].data.order.join(','),'join2,encode,join1');
 });
 test('join publication transfers ownership to file job without double counting',()=>{
  const h=setup();h.add('join','join','publishing');h.state.file_jobs=[{id:'publish',phase:'running',operation:'publish',title:'Join',library:'one',payload:{task:'join'}}];
- const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,4);assert.equal(h.run('queueCountRows().length'),1);assert.equal(h.cards.includes('join'),false);
+ const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,1);assert.equal(h.run('queueCountRows().length'),1);assert.equal(h.cards.includes('join'),false);
 });
 test('unowned interrupted cleanup remains visible once without replacing the board',()=>{
  const h=setup();h.state.cleanup_jobs=[{id:'orphan',phase:'interrupted',library:'one'},{id:'owned',phase:'deleting',library:'one'}];h.state.file_jobs=[{id:'cleanup',phase:'running',operation:'backup_cleanup',title:'Cleanup',library:'one',payload:{receipt:'owned'}}];
  const sections=h.run('renderProcessing()'),ids=all(sections[0]).filter(e=>e.dataset.cleanupId).map(e=>e.dataset.cleanupId);
- assert.equal(sections[0].children.length,4);assert.deepEqual(ids,['orphan']);assert.equal(h.run('queueCountRows().length'),2);
+ assert.equal(sections[0].children.length,1);assert.deepEqual(ids,['orphan']);assert.equal(h.run('queueCountRows().length'),2);
 });
 
 test('mixed artwork and video review remains visible in the processing review filter',()=>{
  const h=setup();h.add('art','artwork','awaiting_review');h.add('enc','optimize','awaiting_review');h.add('joined','join','awaiting_review');h.context.queueStatus='awaiting_review';
- const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,4);assert.equal(sections.length,2);assert.deepEqual(new Set(h.cards),new Set(['art','enc','joined']));
+ const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,2);assert.equal(sections.length,2);assert.deepEqual(new Set(h.cards),new Set(['art','enc','joined']));
 });
 
 
 test('artwork generation has its own lane including parallel jobs and completed candidates',()=>{
  const h=setup();h.add('image-one','mage_generation','running');h.add('image-two','mage_generation','running');h.add('image-wait','mage_generation');const done=h.add('image-review','artwork','awaiting_review');done.provider={request_id:'existing'};
- const sections=h.run('renderProcessing()');assert.equal(sections.length,1);assert.equal(sections[0].children.length,4);assert.equal(sections[0].children[3].attrs['aria-label'],'Artwork generation');assert.deepEqual(new Set(h.cards),new Set(['image-one','image-two','image-wait','image-review']));
+ const sections=h.run('renderProcessing()');assert.equal(sections.length,1);assert.equal(sections[0].children.length,1);assert.equal(sections[0].children[0].attrs['aria-label'],'Artwork generation');assert.deepEqual(new Set(h.cards),new Set(['image-one','image-two','image-wait','image-review']));
+});
+
+test('five populated columns include AI assist in Metadata and retain failed file work',()=>{
+ const h=setup();for(const [id,kind,status] of [['u','upscale','running'],['e','optimize','queued'],['r','rename','blocked'],['a','mage_generation','running'],['m','metadata','queued'],['ai','home','queued']])h.add(id,kind,status);
+ const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,5);assert.equal(board.children[4].attrs['aria-label'],'Metadata');assert.ok(h.cards.includes('ai'));assert.ok(h.cards.includes('r'));
+ h.context.queueStatus='attention';const filtered=h.run('renderProcessing()')[0];assert.equal(filtered.children.length,1);assert.equal(filtered.children[0].attrs['aria-label'],'File operations');
+});
+test('empty board has no columns and all review types are available in the inbox',()=>{
+ const h=setup();assert.equal(h.run('renderProcessing().length'),0);h.add('metadata','home','awaiting_review');h.add('art','artwork','awaiting_review');assert.equal(h.run('reviewInboxRows().length'),2);
 });

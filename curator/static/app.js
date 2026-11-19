@@ -1,7 +1,7 @@
 'use strict';
 let state={libraries:[],assets:[],tasks:[],config:{}},libraryId=null,filter='all',selected=new Set(),openedTask=null;
 const expandedFiles=new Set();let queueStatus='all',activeGrouping='folder';let screen='library',libraryView='attention',searchText='',selectedAssetId=null,inspectorMode=null,inspectorDirty=false;
-const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'Home-movie analysis',metadata:'Metadata',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Artwork generation'};
+const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'AI assist',metadata:'Metadata',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Artwork generation'};
 const $=id=>document.getElementById(id);
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function feedbackTarget(){return $($('config-dialog').open?'config-feedback':$('library-dialog').open?'library-feedback':inspectorOpen()?'task-feedback':'workspace-feedback');}
@@ -323,12 +323,12 @@ function recommendation(t,asset){
   next=t.plan.handbrake_preset?`Task preset: ${t.plan.handbrake_preset}. Approve and queue this encode, then review the output.`:'Choose an installed preset below, then Approve & queue to save the choice and queue this task. Actual savings and quality must be checked on the output.';
  }else if(t.kind==='home'){
   const result=t.result;
-  title=result?'Suggested home-movie metadata':'Analyze this home movie';
-  description=result?(result.summary||'Review the suggested title and collection assignments below.'):'Use existing metadata, useful filenames, folders and sampled video frames to suggest a title, description, themed collections and cover candidates.';
-  next=result?'Edit the proposed fields below, then apply them to Plex or queue the metadata changes.':'Select “Queue analysis”, then “Run queue”. Suggestions will appear here after local analysis; they have not been generated yet.';
+  title=result?'AI metadata suggestions':'AI assist';
+  description=result?(result.summary||'Review the suggested title and collection assignments below.'):'Use local AI to suggest a title, description, collections and cover frames.';
+  next=result?'Edit the proposed fields below, then apply them to Plex or queue the metadata changes.':'Select “Queue AI assist”, then “Run queue”. Suggestions will appear here after local analysis; they have not been generated yet.';
  }else if(t.kind==='metadata'){
   const missing=[];if(!asset?.item.summary)missing.push('a description');if(!asset?.item.thumb)missing.push('cover artwork');
-  title=missing.length?'Add '+missing.join(' and '):'Review Plex metadata';description=t.plan.changes?'A metadata proposal is saved. Review the proposed fields below before applying it.':'The scan identified missing metadata. Fill in a proposed correction below, or use a home-movie analysis task to generate suggestions.';
+  title=missing.length?'Add '+missing.join(' and '):'Review Plex metadata';description=t.plan.changes?'A metadata proposal is saved. Review the proposed fields below before applying it.':'The scan identified missing metadata. Fill in a proposed correction below, or use AI assist to generate suggestions.';
   next='Apply the displayed metadata to Plex now, queue it for later, or save a draft. Import finished artwork separately if needed.';
  }else if(t.kind==='playlist'){
   title='Create the proposed viewing order';description=`Review ${t.evidence?.ordered?.length||0} ordered items and any missing-episode warnings below.`;next='Approve and queue the playlist only when its order is correct.';
@@ -340,7 +340,7 @@ function recommendation(t,asset){
 }
 async function openTask(id,workspace='metadata'){
  if(!prepareInspector())return;inspectorMode='task';
- openedTask=id;$('task-feedback').hidden=true;$('task-reason').hidden=false;const t=state.tasks.find(t=>t.id===id),asset=state.assets.find(a=>a.id===t.asset);$('task-kind').textContent=t.kind.toUpperCase()+' · '+taskStatusLabel(t.status);$('task-title').textContent=t.title;$('task-reason').textContent=t.error||t.reason;selectedAssetId=t.asset;
+ openedTask=id;$('task-feedback').hidden=true;$('task-reason').hidden=false;const t=state.tasks.find(t=>t.id===id),asset=state.assets.find(a=>a.id===t.asset);$('task-kind').textContent=(TASK_LABELS[t.kind]||t.kind).toUpperCase()+' · '+taskStatusLabel(t.status);$('task-title').textContent=t.title;$('task-reason').textContent=t.error||t.reason;selectedAssetId=t.asset;
  if(t.kind==='folder_metadata')return openFolderTask(t);
  if(t.kind==='artwork'&&t.evidence?.discovery&&!t.plan?.candidate)return openArtworkManager([asset],{task:t});
  if(['artwork','mage_generation','portrait'].includes(t.kind))return openArtworkTask(t);
@@ -389,7 +389,7 @@ async function openTask(id,workspace='metadata'){
  if(t.kind==='join'&&['blocked','awaiting_review'].includes(t.status)&&t.output&&!t.validation?.length)actions.append(button('Refresh metadata preview',async()=>{await api('task/action',{id:t.id,version:t.version,action:'refresh_join_metadata'});await refresh();closeInspector(true);await openTask(t.id);},'subtle'));
  if(t.kind==='join'&&t.status==='blocked'&&t.output&&!t.validation?.length)actions.append(button(t.published?'Resume Plex verification':'Return joined output to review',async()=>{await api('task/action',{id:t.id,version:t.version,action:'resume_join'});await refresh();closeInspector(true);await openTask(t.id);},'primary'));
  if(!(t.kind==='rename'&&t.rename_started)&&!(t.kind==='join'&&t.output)&&!resumable&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','metadata'].includes(t.kind)){
-  const approve=button(t.kind==='home'?'Queue local AI analysis':'Approve & queue',()=>taskAction(t,'queue',processingSelector?{handbrake_preset:processingSelector.value(),remember_preset:processingSelector.remember?.()}:{}),'primary');
+  const approve=button(t.kind==='home'?'Queue AI assist':'Approve & queue',()=>taskAction(t,'queue',processingSelector?{handbrake_preset:processingSelector.value(),remember_preset:processingSelector.remember?.()}:{}),'primary');
   if(processingSelector){processingSelector.updateQueue=()=>{approve.disabled=!processingSelector.ready;};processingSelector.updateQueue();}actions.append(approve);
  }
  if(t.status==='awaiting_review'){
@@ -429,7 +429,7 @@ function renderFilePlan(detail,t){
  if(e.renames){const table=node('table'),head=node('tr');head.append(node('th','Current filename'),node('th','New filename'));table.append(head);for(const move of e.renames){const row=node('tr');row.append(node('td',move.before),node('td',move.after));table.append(row);}detail.append(table);}
  if(t.kind!=='rename'){const order=node('ol');for(const row of e.ordered)order.append(node('li',row.filename+' · '+row.title));detail.append(node('h3','Confirmed part order'),order);}
  if(t.kind==='join'){if(t.plan.media?.some(m=>m.streams.some(s=>s.codec_type==='data'&&s.codec_tag_string==='tmcd')))detail.append(node('p','Editing timecode tracks (tmcd) are omitted from the joined output. Video, audio, subtitles and chapters are retained; original files keep their timecode tracks.','muted'));detail.append(node('p','Output: '+e.filename),node('p',e.mode),node('p','Metadata and artwork from: '+e.metadata_title),node('p','Source parts: '+formatBytes(e.total_bytes)+' · '+(e.total_seconds/60).toFixed(1)+' minutes'));const chapters=node('ol');for(const chapter of e.chapters)chapters.append(node('li',chapter.title+' · '+chapter.start.toFixed(2)+' seconds'));detail.append(node('h3','Chapters'),chapters);}
- if(t.rename_started)detail.append(node('p',t.rename_verified?'Renamed and verified in Plex.':t.rename_restored?'Original filenames restored. Inspect Plex before making a new plan.':'Rename outcome needs inspection. Keep the retained files and recovery receipt.','muted'));
+ if(t.rename_started)detail.append(node('p',t.rename_verified?(t.rename_plex_verified===false?'Files renamed and verified on disk. Plex will catch up on its scheduled refresh.':'Renamed and verified in Plex.'):t.rename_restored?'Original filenames restored. Inspect Plex before making a new plan.':'Rename outcome needs inspection. Keep the retained files and recovery receipt.','muted'));
  if(t.kind==='join'&&t.plan.metadata_snapshot){const metadata=t.plan.metadata_snapshot.metadata,box=node('details');box.append(node('summary','Metadata to copy'));for(const [name,label] of [['title','Source title'],['summary','Description'],['studio','Studio'],['tagline','Tagline'],['genre','Genres'],['label','Labels'],['collection','Collections']])box.append(node('p',label+': '+(Array.isArray(metadata[name])?metadata[name].join(', '):metadata[name]||'—')));box.append(node('p','Cast: '+(metadata.cast.map(c=>c.name+(c.role?' ('+c.role+')':'')).join(', ')||'—')));detail.append(box);if(t.metadata_refreshed)detail.append(node('p','Metadata preview refreshed. The joined video and comparison are retained. Review the details before publishing.','muted'));}
  if(t.error)detail.append(node('p',t.error,'error'));
 }

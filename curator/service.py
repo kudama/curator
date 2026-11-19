@@ -119,7 +119,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         file_jobs=self.file_jobs()
         return dict(config=public, libraries=libraries, assets=self.store.all('assets')+self.artwork_targets(),file_queue_paused=self.file_queue_paused(),file_queue=[dict(id=j['id'],updated=j.get('updated')) for j in file_jobs if j['phase']=='waiting'],
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=file_jobs,processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=file_jobs,processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),review_batches=self.review_batches(None),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
         with self.lock:active=tuple(self.active)
@@ -241,9 +241,11 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         reserved, reserved_keys = self.file_reservations(library['id'])
         existing_ids = {a['id'] for a in self.store.all('assets')}
         state['skipped_reserved'] = len(reserved)
-        known={}
+        known={};pending_renames=[]
         for a in self.store.all('assets'):
-            if a['library']==library['id']:known.setdefault((a['rating_key'],a['plex_path']),[]).append(a)
+            if a['library']==library['id']:
+                known.setdefault((a['rating_key'],a['plex_path']),[]).append(a)
+                if a.get('rename_pending_plex'):pending_renames.append(a)
         try:
             for item in self.checked_client(library).items(library):
                 if str(item['ratingKey']) in reserved_keys:continue
@@ -254,7 +256,12 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                         aid = identifier(library['server'], library['key'], item['ratingKey'], part.get('id'), part['file'])
                         # A verified rename retains the existing asset/task identity.
                         aliases=known.get((str(item['ratingKey']),part['file']),[])
-                        if len(aliases)==1:aid=aliases[0]['id']
+                        pending=[a for a in pending_renames if part['file']==a['plex_path'] or part['file'] in a['rename_pending_plex']['previous_paths']]
+                        if len(pending)==1:
+                            aid=pending[0]['id']
+                            if part['file']!=pending[0]['plex_path']:
+                                seen.add(aid);state['count']+=1;continue
+                        elif len(aliases)==1:aid=aliases[0]['id']
                         seen.add(aid)
                         old = self.store.get('assets', aid, {})
                         asset = dict(id=aid, library=library['id'], rating_key=str(item['ratingKey']),
@@ -285,7 +292,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                         if not item.get('thumb'):
                             findings.append(dict(kind='artwork', reason='Cover artwork is missing', evidence={'discovery': True}))
                         if library['profile'] == 'home':
-                            findings.append(dict(kind='home', reason='Review home-movie metadata, themes and cover candidates', evidence={}))
+                            findings.append(dict(kind='home', reason='Suggest a title, description, collections and cover frames using local AI', evidence={}))
                         with self.store.transaction():
                             self.store.put('assets', aid, asset)
                             self.reconcile_findings(asset, findings)
@@ -296,7 +303,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     if asset['library'] == library['id'] and asset['id'] in existing_ids and asset['id'] not in seen and asset['id'] not in reserved:
                         presence=media_presence(asset['plex_path'],library['mappings'],asset.get('fingerprint'))
                         if presence['state']=='unavailable':asset['availability_error']=presence['reason']
-                        else:asset.update(present=False,missing_file=presence['state']=='missing')
+                        else:asset.update(present=bool(asset.get('rename_pending_plex')) and presence['state']=='present',missing_file=presence['state']=='missing')
                         self.store.put('assets', asset['id'], asset)
             state['finished'] = now()
         except Exception:
@@ -331,7 +338,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     asset['availability_error']=presence['reason']
                 else:
                     asset.pop('availability_error',None)
-                    in_catalog=(asset['rating_key'],asset['plex_path']) in paths
+                    in_catalog=(asset['rating_key'],asset['plex_path']) in paths or bool(asset.get('rename_pending_plex'))
                     was_missing=asset.get('present') is False
                     asset['present']=in_catalog and presence['state']=='present'
                     asset['missing_file']=presence['state']=='missing'

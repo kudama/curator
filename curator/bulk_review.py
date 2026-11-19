@@ -19,7 +19,8 @@ class BulkReviewWorkflows:
 
     def review_batches(self,library):
         batches=[batch for batch in self.store.all('settings') if isinstance(batch,dict) and batch.get('record_type')=='review_batch' and (library is None or batch.get('library')==library)]
-        return [{'id':b['id'],'phase':b['phase'],'created':b['created'],'count':len(b['items'])} for b in sorted(batches,key=lambda b:b['created'],reverse=True)[:30]]
+        pending={t['id'] for t in self.store.all('tasks') if t.get('status')=='awaiting_review' and not t.get('deleted')}
+        return [{'id':b['id'],'phase':b['phase'],'created':b['created'],'library':b.get('library'),'pending':any(item['id'] in pending for item in b['items']),'count':len(b['items'])} for b in sorted(batches,key=lambda b:b['created'],reverse=True)[:30]]
 
     def _save_review_batch(self,batch,preserve_stop=False):
         with self.store.transaction():
