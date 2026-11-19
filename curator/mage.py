@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from .logs import register_secret
+from .errors import UserError
 
 BASE = 'https://api.mage.space/v1'
 DEFAULT_MODEL = 'mango-v3'
@@ -28,9 +29,9 @@ class Mage:
     def save_key(self, key):
         self._job_credential = None
         if not isinstance(key, str) or len(key) > 1000 or any(c.isspace() for c in key):
-            raise ValueError('Enter a valid Mage API key without whitespace')
+            raise UserError('Enter a valid Mage API key without whitespace')
         if self.key_path.is_symlink():
-            raise ValueError('Mage key storage cannot be a symlink')
+            raise UserError('Mage key storage cannot be a symlink')
         if not key:
             self.key_path.unlink(missing_ok=True)
             return
@@ -55,30 +56,30 @@ class Mage:
 
     def get(self, path):
         if path not in {'/architectures', '/account'}:
-            raise ValueError('Unsupported Mage discovery endpoint')
+            raise UserError('Unsupported Mage discovery endpoint')
         if not self.configured():
-            raise ValueError('Configure a Mage API key first')
+            raise UserError('Configure a Mage API key first')
         key = self.key_path.read_text().strip()
         request = Request(BASE + path, headers={'Authorization': 'Bearer ' + key, 'Accept': 'application/json'})
         try:
             with self.opener.open(request, timeout=20) as response:
                 data = response.read(2 * 1024 * 1024 + 1)
             if len(data) > 2 * 1024 * 1024:
-                raise ValueError('Mage discovery response is too large')
+                raise UserError('Mage discovery response is too large')
             value = json.loads(data)
             if not isinstance(value, dict):
-                raise ValueError('Invalid Mage discovery response')
+                raise UserError('Invalid Mage discovery response')
             return value
         except HTTPError as error:
             error.close()
             # Do not echo provider bodies, headers, tokens or redirect URLs.
             if error.code == 401:
-                raise ValueError('Mage API key was refused') from None
+                raise UserError('Mage API key was refused') from None
             if error.code == 429:
-                raise ValueError('Mage rate limit reached; retry discovery later') from None
-            raise ValueError('Mage discovery failed (HTTP ' + str(error.code) + ')') from None
+                raise UserError('Mage rate limit reached; retry discovery later') from None
+            raise UserError('Mage discovery failed (HTTP ' + str(error.code) + ')') from None
         except (OSError, URLError, json.JSONDecodeError):
-            raise ValueError('Mage is unavailable or returned an invalid response') from None
+            raise UserError('Mage is unavailable or returned an invalid response') from None
 
     def discover(self):
         catalog = self.get('/architectures')
@@ -103,32 +104,32 @@ class Mage:
         import re
         allowed = method == 'POST' and re.fullmatch(r'/[a-z][a-z0-9_-]{0,60}/generate',path) or re.fullmatch(r'/requests/[a-f0-9-]{36}/' + ('status' if method == 'GET' else 'cancel'), path)
         if not allowed or method not in {'GET','POST'}:
-            raise ValueError('Unsupported Mage job operation')
-        if not self.configured():raise ValueError('Configure a Mage API key first')
+            raise UserError('Unsupported Mage job operation')
+        if not self.configured():raise UserError('Configure a Mage API key first')
         headers={'Authorization':'Bearer '+self.job_credential(),'Content-Type':'application/json'}
         if idempotency_key:headers['Idempotency-Key']=idempotency_key
         request=Request(BASE+path,method=method,data=json.dumps(body).encode() if body is not None else None,headers=headers)
         try:
             with self.opener.open(request,timeout=30) as response:data=response.read(2*1024*1024+1)
-            if len(data)>2*1024*1024:raise ValueError('Mage job response too large')
+            if len(data)>2*1024*1024:raise UserError('Mage job response too large')
             value=json.loads(data)
-            if not isinstance(value,dict):raise ValueError('Invalid Mage job response')
+            if not isinstance(value,dict):raise UserError('Invalid Mage job response')
             return value
         except HTTPError as error:
             code=error.code;error.close()
-            raise ValueError('Mage job HTTP '+str(code)+'; inspect request state before retrying') from None
+            raise UserError('Mage job HTTP '+str(code)+'; inspect request state before retrying') from None
         except (OSError,URLError,json.JSONDecodeError):
-            raise ValueError('Mage job outcome is uncertain; resume with the same saved request identity') from None
+            raise UserError('Mage job outcome is uncertain; resume with the same saved request identity') from None
 
     def job_credential(self):
         if self._job_credential is None:
-            if not self.configured():raise ValueError('Configure a Mage API key first')
+            if not self.configured():raise UserError('Configure a Mage API key first')
             self._job_credential=self.key_path.read_text().strip()
         return self._job_credential
 
     def credential_identity(self):
         import hashlib
-        if not self.configured():raise ValueError('Configure a Mage API key first')
+        if not self.configured():raise UserError('Configure a Mage API key first')
         return hashlib.sha256(self.job_credential().encode()).hexdigest()
 
     def quote(self, settings, references=0, reference_images=None):
@@ -137,9 +138,9 @@ class Mage:
         mango,row=resolve(catalog,settings['model'])
         if references:
             if not isinstance(reference_images,list) or len(reference_images)!=references:
-                raise ValueError('No verified pre-submit price without the exact reference images')
+                raise UserError('No verified pre-submit price without the exact reference images')
             if any(not isinstance(image,str) or len(image)>4*1024*1024 for image in reference_images):
-                raise ValueError('Mage pricing references must be at most 3 MiB each')
+                raise UserError('Mage pricing references must be at most 3 MiB each')
         properties=mango.get('input_schema',{}).get('properties',{})
         body=request_body(mango,row,settings,reference_images or [])
         defaults=dict(mango.get('base_config',{}))
@@ -152,7 +153,7 @@ class Mage:
             pricing=MagePricing(self.job_credential(),self.opener)
             return pricing.quote(body) if row['architecture']=='mango' else pricing.quote(body,row['architecture'])
         gems=mango.get('gems')
-        if type(gems) not in (int,float) or gems<0 or not __import__('math').isfinite(gems):raise ValueError('Mage has no usable pre-submit price')
+        if type(gems) not in (int,float) or gems<0 or not __import__('math').isfinite(gems):raise UserError('Mage has no usable pre-submit price')
         return {'gems':gems,'body':body,**({'architecture':row['architecture']} if row['architecture']!='mango' else {}),'basis':'Live catalog price for exact architecture defaults; estimate, not a provider-enforced spend cap'}
 
     def _retry_job(self, method, path, body=None, key=None):
@@ -167,7 +168,7 @@ class Mage:
 
     def submit(self, body, key, architecture='mango'):
         import re
-        if not isinstance(architecture,str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,60}',architecture):raise ValueError('Invalid Mage image architecture')
+        if not isinstance(architecture,str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,60}',architecture):raise UserError('Invalid Mage image architecture')
         return self._retry_job('POST','/'+architecture+'/generate',body,key)
 
     def status(self, request_id):
@@ -180,12 +181,12 @@ class Mage:
         from urllib.parse import urlsplit
         parsed=urlsplit(url)
         if parsed.scheme!='https' or parsed.username or parsed.password or parsed.port not in (None,443) or not parsed.hostname or not (parsed.hostname=='mage.space' or parsed.hostname.endswith('.mage.space')):
-            raise ValueError('Unverified Mage result host; retained request identity is available for manual recovery')
+            raise UserError('Unverified Mage result host; retained request identity is available for manual recovery')
         try:
             # No API authorization header on asset downloads, and no redirects.
             with self.opener.open(Request(url,headers={'User-Agent':'Curator/0.5.0','Accept':'image/png,image/jpeg'}),timeout=30) as response:data=response.read(10*1024*1024+1)
             if len(data)>10*1024*1024 or not data.startswith((b'\x89PNG\r\n\x1a\n',b'\xff\xd8\xff')):
-                raise ValueError('Mage result is not a supported JPEG/PNG under 10 MiB')
+                raise UserError('Mage result is not a supported JPEG/PNG under 10 MiB')
             return data
         except (OSError,URLError):
-            raise ValueError('Mage result download failed; request retained for recovery') from None
+            raise UserError('Mage result download failed; request retained for recovery') from None

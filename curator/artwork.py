@@ -8,66 +8,67 @@ from . import branding
 from .plex import Plex
 from .store import now
 from .mage_budget import over_budget_message
+from .errors import UserError
 
 RATIOS = {'21:9', '16:9', '3:2', '5:4', '1:1', '4:5', '2:3', '9:16', '9:21'}
 
 
 def resolve_style(preset, item, profile, kind, overrides, has_reference=False):
     if kind not in Plex.ARTWORK:
-        raise ValueError('Unsupported artwork destination')
+        raise UserError('Unsupported artwork destination')
     if not isinstance(overrides, dict) or set(overrides) - {'prompt', 'negative_prompt', 'model', 'ratio', 'resolution'}:
-        raise ValueError('Invalid artwork settings')
+        raise UserError('Invalid artwork settings')
     if any(not isinstance(v, str) or len(v) > 12000 for v in overrides.values()):
-        raise ValueError('Invalid artwork setting value')
+        raise UserError('Invalid artwork setting value')
     # Destination defaults take precedence over style defaults; explicit overrides win.
     ratio = '2:3' if kind=='cover' and item.get('type')=='collection' else '16:9' if kind=='logo' else '1:1' if kind=='square' else '16:9' if kind == 'background' or profile == 'home' else '2:3'
     result = dict(model=preset.get('model') or 'mango-v3', ratio=ratio,
                   resolution=preset.get('resolution') or '2K', negative_prompt=preset.get('negative_prompt',''))
     result.update(overrides)
     if result['ratio'] not in RATIOS or not __import__('re').fullmatch(r'[A-Za-z0-9_.-]{0,40}',result['resolution']):
-        raise ValueError('Choose a supported ratio and resolution')
+        raise UserError('Choose a supported ratio and resolution')
     title, summary = item.get('title',''), item.get('summary','')
     if has_reference:result.setdefault('prompt', 're-imagine this image in style guidance '+preset['details'])
     result.setdefault('prompt', f"Create {kind} artwork for {title}. Context: {summary}\n{preset['details']}\nBackground: {preset['background']}. Typography: {preset['typography']}\nTarget ratio: {result['ratio']}; resolution: {result['resolution']}. Preserve reference proportions.")
     if not result['prompt'].strip():
-        raise ValueError('A prompt is required')
+        raise UserError('A prompt is required')
     return dict(style=copy.deepcopy(preset), settings=result, context=dict(title=title, summary=summary), kind=kind)
 
 
 class ArtworkWorkflows:
     def artwork_plan(self, asset_ids, kind, preset_id, overrides=None, images=None, originals=None, references=None):
         if not isinstance(asset_ids, list) or not asset_ids or len(asset_ids) > 100 or len(set(asset_ids)) != len(asset_ids):
-            raise ValueError('Select between one and 100 distinct titles')
+            raise UserError('Select between one and 100 distinct titles')
         references=references or []
-        if not isinstance(references,list) or len(references)>10:raise ValueError('Choose at most ten local reference images')
+        if not isinstance(references,list) or len(references)>10:raise UserError('Choose at most ten local reference images')
         reference_photos=[self._folder_photo(encoded=image) for image in references]
-        if any(not photo for photo in reference_photos):raise ValueError('Reference images cannot be empty')
+        if any(not photo for photo in reference_photos):raise UserError('Reference images cannot be empty')
         images = images or {}
         originals = originals or {}
         if not isinstance(originals,dict) or set(originals)-set(images):
-            raise ValueError('Originals must belong to selected imported images')
+            raise UserError('Originals must belong to selected imported images')
         if not isinstance(images, dict) or set(images) - set(asset_ids):
-            raise ValueError('Artwork may only be assigned to selected titles')
+            raise UserError('Artwork may only be assigned to selected titles')
         presets = self.config().get('branding_presets', branding.DEFAULT_PRESETS)
         preset = next((p for p in presets if p['id'] == preset_id), None)
         if not preset:
-            raise ValueError('Style changed; reload and select an available style')
+            raise UserError('Style changed; reload and select an available style')
         tasks, skipped, seen = [], [], set()
         # Resolve every title before committing any task, preserving batch atomicity.
         for aid in asset_ids:
             asset = self.asset({'asset':aid}, check=False)
             identity = (asset['library'], asset['rating_key'])
             if identity in seen:
-                raise ValueError('Select each Plex title only once')
+                raise UserError('Select each Plex title only once')
             seen.add(identity)
             person=asset.get('artwork_target')=='person'
-            if person and kind!='square':raise ValueError('Person portraits use square artwork')
+            if person and kind!='square':raise UserError('Person portraits use square artwork')
             client = None if person else self.checked_client(self.library(asset['library']))
             item = asset['item'] if person else client.item(asset['rating_key'])
             profile=self.store.get('settings','cast_profiles',{}).get(asset.get('profile_id')) if person else None
-            if person and not profile:raise ValueError('Person no longer exists')
+            if person and not profile:raise UserError('Person no longer exists')
             if str(item.get('ratingKey')) != asset['rating_key']:
-                raise ValueError('Plex title identity changed; rescan before planning')
+                raise UserError('Plex title identity changed; rescan before planning')
             plan = resolve_style(preset, item, self.library(asset['library'])['profile'], kind, overrides or {}, has_reference=bool(reference_photos))
             plan.update(assets=[aid], rating_key=asset['rating_key'], reference_photos=reference_photos, target=dict(guid=item.get('guid'),paths=sorted(part.get('file','') for media in item.get('Media',[]) for part in media.get('Part',[]))))
             if person:plan.update(profile_id=asset['profile_id'],profile_revision=profile['revision'],original=self._folder_photo(encoded=base64.b64encode(self.cast_profile_image(asset['profile_id'])).decode()) if profile.get('photo') else None)
@@ -75,7 +76,7 @@ class ArtworkWorkflows:
             if aid in images:
                 candidate = self._folder_photo(encoded=images[aid])
                 if not candidate:
-                    raise ValueError('Choose an image for each imported title')
+                    raise UserError('Choose an image for each imported title')
                 original = plan.get('original') if person else self._folder_photo(encoded=base64.b64encode(client.image(asset['rating_key'],kind)).decode()) if Plex.artwork_path(item,kind) else None
                 if candidate == original:
                     skipped.append(aid);continue
@@ -98,9 +99,9 @@ class ArtworkWorkflows:
     def save_artwork_style(self, key, name):
         task = self.get_task(key)
         if task['kind'] not in {'artwork','mage_generation'}:
-            raise ValueError('Choose an artwork plan')
+            raise UserError('Choose an artwork plan')
         if not isinstance(name,str) or not name.strip() or len(name)>500:
-            raise ValueError('Name the new style')
+            raise UserError('Name the new style')
         settings = task['plan']['settings']
         style = dict(task['plan']['style'], id='style-'+uuid.uuid4().hex[:16], name=name.strip(),
                      details=settings['prompt'], model=settings['model'], ratio=settings['ratio'],
@@ -112,7 +113,7 @@ class ArtworkWorkflows:
         self.archive_artwork_task(task)
         plan = task['plan'];kind = plan['kind']
         if plan['rating_key'] != asset['rating_key']:
-            raise ValueError('Artwork destination changed; create a fresh review')
+            raise UserError('Artwork destination changed; create a fresh review')
         image = self.folder_image(plan['candidate'])
         if asset.get('artwork_target')=='person':
             from .image_contract import editor_png
@@ -127,16 +128,16 @@ class ArtworkWorkflows:
         target=plan.get('target',{})
         paths=sorted(part.get('file','') for media in item.get('Media',[]) for part in media.get('Part',[]))
         if str(item.get('ratingKey'))!=plan['rating_key'] or target.get('guid')!=item.get('guid') or target.get('paths',paths)!=paths:
-            raise ValueError('Plex destination identity changed after artwork review')
+            raise UserError('Plex destination identity changed after artwork review')
         current = hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest() if Plex.artwork_path(item,kind) else None
         if current == plan['candidate']:
             self._save(task,status='applied',result={'verified':True,'no_changes_needed':True});return
         if current != plan['original']:
-            raise ValueError('Plex artwork changed after preview; retain this draft and create a fresh review')
+            raise UserError('Plex artwork changed after preview; retain this draft and create a fresh review')
         result = client.artwork(asset['rating_key'], image, kind)
         self._save(task,result={'uploaded':True},progress={'phase':'Verifying selected Plex artwork'})
         if not Plex.artwork_path(result,kind) or hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest() != plan['candidate']:
-            raise ValueError('Plex image readback differs; candidate and original are retained for recovery')
+            raise UserError('Plex image readback differs; candidate and original are retained for recovery')
         self._cache_metadata(asset,result)
         self._save(task,status='applied',result={'verified':True},error=None)
 
@@ -149,11 +150,11 @@ class ArtworkWorkflows:
         with self.store.transaction():
             profiles=self.store.get('settings','cast_profiles',{})
             if any(p['name'].strip().casefold()==name.casefold() for p in profiles.values()):
-                raise ValueError('A saved person already has this name; choose that profile or use a distinct name')
+                raise UserError('A saved person already has this name; choose that profile or use a distinct name')
             if image:
                 directory=self.store.root/'cast';directory.mkdir(mode=0o700,exist_ok=True)
                 target=directory/photo
-                if target.is_symlink():raise ValueError('Invalid portrait storage')
+                if target.is_symlink():raise UserError('Invalid portrait storage')
                 if not target.exists():
                     import os
                     fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
@@ -172,11 +173,11 @@ class ArtworkWorkflows:
             profiles = self.store.get('settings','cast_profiles',{})
             profile = profiles.get(profile_id)
             if not profile or profile['revision'] != revision:
-                raise ValueError('Saved person changed; reload before replacing the portrait')
+                raise UserError('Saved person changed; reload before replacing the portrait')
             # Keep the same identity; do not touch credits or publish anything.
             directory = self.store.root/'cast';directory.mkdir(mode=0o700,exist_ok=True)
             target = directory/photo
-            if target.is_symlink():raise ValueError('Invalid portrait storage')
+            if target.is_symlink():raise UserError('Invalid portrait storage')
             if not target.exists():
                 import os
                 fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
@@ -191,21 +192,21 @@ class ArtworkWorkflows:
         profiles=self.store.get('settings','cast_profiles',{})
         profile=profiles.get(profile_id)
         if not profile or profile['revision']!=revision or not profile.get('photo'):
-            raise ValueError('Saved portrait changed; reload and preview again')
+            raise UserError('Saved portrait changed; reload and preview again')
         if not isinstance(targets,list) or not 1<=len(targets)<=100:
-            raise ValueError('Choose explicit portrait targets')
+            raise UserError('Choose explicit portrait targets')
         encoded=base64.b64encode(self.cast_profile_image(profile_id)).decode()
         photo=self._folder_photo(encoded=encoded);tasks=[];seen=set()
         for target in targets:
             if not isinstance(target,dict) or set(target)!={'asset','index'} or type(target['index']) is not int:
-                raise ValueError('Select an exact credited person in each target')
+                raise UserError('Select an exact credited person in each target')
             asset=self.asset({'asset':target['asset']},check=False)
             identity=(asset['library'],asset['rating_key'])
-            if identity in seen:raise ValueError('Select each target title once')
+            if identity in seen:raise UserError('Select each target title once')
             seen.add(identity);client=self.checked_client(self.library(asset['library']))
             item=client.item(asset['rating_key']);rows=cast.fields(item);index=target['index']
             if not 0<=index<len(rows) or rows[index]['name'].casefold()!=profile['name'].casefold():
-                raise ValueError('Target credit identity changed; preview again')
+                raise UserError('Target credit identity changed; preview again')
             original=self._folder_photo(encoded=base64.b64encode(client.cast_image(rows[index]['thumb'])).decode()) if rows[index]['thumb'] else None
             if original==photo:continue
             tasks.append(dict(id=uuid.uuid4().hex,asset=asset['id'],library=asset['library'],title=asset['title'],kind='portrait',
@@ -219,11 +220,11 @@ class ArtworkWorkflows:
     def publish_portrait(self, task, asset):
         client=self.checked_client(self.library(asset['library']))
         if isinstance(client,Plex):
-            raise ValueError('Native Plex portrait transport is unverified. Download the retained portrait and apply it manually; no Plex credit was changed.')
+            raise UserError('Native Plex portrait transport is unverified. Download the retained portrait and apply it manually; no Plex credit was changed.')
         from . import cast
         plan=task['plan'];item=client.item(asset['rating_key']);rows=cast.fields(item)
         if asset['rating_key']!=plan['rating_key'] or rows!=plan['before']:
-            raise ValueError('Cast changed after review; create a fresh portrait preview')
+            raise UserError('Cast changed after review; create a fresh portrait preview')
         image=self.folder_image(plan['candidate'])
         thumb=client.cast_photo(asset['rating_key'],image)
         self._save(task,result={'uploaded':True})
@@ -231,7 +232,7 @@ class ArtworkWorkflows:
         self._write_metadata(client,asset,{'cast':rows},{'cast':plan['before']})
         observed=cast.fields(client.item(asset['rating_key']))
         if observed!=rows or hashlib.sha256(client.cast_image(observed[plan['index']]['thumb'])).hexdigest()!=plan['candidate']:
-            raise ValueError('Portrait image readback differs; original and candidate retained')
+            raise UserError('Portrait image readback differs; original and candidate retained')
         self._save(task,status='applied',result={'verified':True},error=None)
 
     def mage_references(self, task):
@@ -246,11 +247,11 @@ class ArtworkWorkflows:
         from .mage_budget import gems
         provider=Mage(self.store.root);rows=[]
         if not isinstance(targets,list) or not 1<=len(targets)<=20 or len({t['id'] for t in targets})!=len(targets):
-            raise ValueError('Choose between one and twenty distinct generation plans')
+            raise UserError('Choose between one and twenty distinct generation plans')
         for target in targets:
             task=self.get_task(target['id'])
             if task['kind']!='mage_generation' or task['version']!=target['version'] or task['status'] not in {'recommendation','cancelled'} or task.get('provider'):
-                raise ValueError('Generation plan changed or has already been submitted')
+                raise UserError('Generation plan changed or has already been submitted')
             reference_images=self.mage_references(task)
             quote=provider.quote(task['plan']['settings'],len(reference_images),reference_images=reference_images) if reference_images else provider.quote(task['plan']['settings'],0)
             gems(quote.get('gems'),'Generation estimate')
@@ -259,23 +260,23 @@ class ArtworkWorkflows:
         gems(receipt['total'],'Generation estimate')
         limit=batch_limit if batch_limit is not None else self.config().get('mage_batch_budget') or receipt['total']
         receipt['batch_limit']=gems(limit,'Batch budget')
-        if receipt['total']>receipt['batch_limit']:raise ValueError(over_budget_message(receipt['total'], receipt['batch_limit'], 'Curator batch budget', receipt['count']))
+        if receipt['total']>receipt['batch_limit']:raise UserError(over_budget_message(receipt['total'], receipt['batch_limit'], 'Curator batch budget', receipt['count']))
         with self.store.transaction():self.store.put('settings','mage-quote:'+receipt['id'],receipt)
         return {k:v for k,v in receipt.items() if k!='credential'}
 
     def authorize_mage(self, quote_id, consent):
         from .mage import Mage
         import time
-        if consent is not True:raise ValueError('Explicit cost and outbound prompt approval required')
+        if consent is not True:raise UserError('Explicit cost and outbound prompt approval required')
         provider=Mage(self.store.root)
         with self.store.transaction():
             receipt=self.store.get('settings','mage-quote:'+quote_id)
             if not receipt or receipt.get('used') or time.time()-receipt['created']>120 or receipt['credential']!=provider.credential_identity():
-                raise ValueError('Quote expired, used or credential changed; request a fresh quote')
+                raise UserError('Quote expired, used or credential changed; request a fresh quote')
             for row in receipt['rows']:
                 task=self.get_task(row['id'])
                 if task['version']!=row['version'] or task['status'] not in {'recommendation','cancelled'} or task.get('provider'):
-                    raise ValueError('Plan changed after quotation')
+                    raise UserError('Plan changed after quotation')
             period=self.reserve_mage_budget(receipt)
             for row in receipt['rows']:
                 task=self.get_task(row['id'])
@@ -291,16 +292,16 @@ class ArtworkWorkflows:
         provider=provider or Mage(self.store.root);wait=wait or time.sleep
         receipt=task.get('provider')
         if not receipt or receipt['credential']!=provider.credential_identity():
-            raise ValueError('Mage credential changed or consent is missing; no submission made')
+            raise UserError('Mage credential changed or consent is missing; no submission made')
         asset=self.asset(task,check=False)
         if asset['library']!=task['library'] or asset['rating_key']!=task['plan']['rating_key']:
-            raise ValueError('Generation destination changed; no new request submitted')
+            raise UserError('Generation destination changed; no new request submitted')
         self.ensure_mage_budget_for_submission(task)
         if not receipt.get('request_id') and not receipt.get('attempted'):
             reference_images=self.mage_references(task)
             fresh=provider.quote(task['plan']['settings'],len(reference_images),reference_images=reference_images) if reference_images else provider.quote(task['plan']['settings'],0)
             if fresh['gems']>receipt['estimate'] or fresh['body']!=receipt['body'] or fresh.get('architecture','mango')!=receipt.get('architecture','mango'):
-                raise ValueError('Mage price or supported settings changed; obtain fresh approval')
+                raise UserError('Mage price or supported settings changed; obtain fresh approval')
             # Persist the uncertain-outcome boundary before the first paid request.
             receipt['attempted']=True;self._save(task,provider=receipt)
         body=copy.deepcopy(receipt['body'])
@@ -315,8 +316,8 @@ class ArtworkWorkflows:
         for attempt in range(30):
             import re
             request_id=request.get('request_id')
-            if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9-]{36}',request_id):raise ValueError('Mage returned an invalid request identity; retain this idempotency key for recovery')
-            if receipt.get('request_id') and receipt['request_id']!=request_id:raise ValueError('Mage request identity differs')
+            if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9-]{36}',request_id):raise UserError('Mage returned an invalid request identity; retain this idempotency key for recovery')
+            if receipt.get('request_id') and receipt['request_id']!=request_id:raise UserError('Mage request identity differs')
             receipt.update(request_id=request_id,status=request.get('status'),billing=request.get('billing',{}))
             self._save(task,provider=receipt,progress={'phase':'Mage '+str(request.get('status'))})
             self.reconcile_mage_budget(task['id'],receipt,terminal=request.get('status') in {'completed','failed','cancelled'})
@@ -334,36 +335,36 @@ class ArtworkWorkflows:
                 self.queue_artwork_archive(task);return
             if request.get('status') in {'failed','cancelled'}:
                 self._save(task,status='cancelled' if request['status']=='cancelled' else 'failed',error='Mage '+request['status']+'; inspect billed/refunded Gems',result={'billing':receipt['billing']});return
-            if request.get('status') not in {'queued','in_progress'}:raise ValueError('Unknown Mage state; check request before retrying')
+            if request.get('status') not in {'queued','in_progress'}:raise UserError('Unknown Mage state; check request before retrying')
             if task['id'] in self.cancels or self.get_task(task['id']).get('mage_cancel_requested'):
                 request=provider.cancel(request_id);self.cancels.discard(task['id']);continue
             wait(min(2*1.5**attempt,15));request=provider.status(request_id)
-        raise ValueError('Mage is still running; request retained. Explicit resume polls without resubmitting.')
+        raise UserError('Mage is still running; request retained. Explicit resume polls without resubmitting.')
 
     def resume_mage(self, key, version):
         with self.store.transaction():
             task=self.get_task(key)
             if task['kind']!='mage_generation' or task['version']!=version or task['status']!='blocked' or not task.get('provider'):
-                raise ValueError('No interrupted Mage request to resume')
+                raise UserError('No interrupted Mage request to resume')
             # If submission lost its response, the same immutable body/key is replayed.
             task.update(status='queued',approval=version,error=None);self.store.put('tasks',key,task)
         return task
 
     def remember_portrait_identity(self, asset_id, index):
         from . import cast
-        if type(index) is not int:raise ValueError('Select a credited person')
+        if type(index) is not int:raise UserError('Select a credited person')
         asset=self.asset({'asset':asset_id},check=False)
         client=self.checked_client(self.library(asset['library']));item=client.item(asset['rating_key']);rows=cast.fields(item)
-        if not 0<=index<len(rows):raise ValueError('Credit no longer exists')
+        if not 0<=index<len(rows):raise UserError('Credit no longer exists')
         row=rows[index]
-        if not row['name'].strip():raise ValueError('Credit needs a name in Metadata Manager first')
+        if not row['name'].strip():raise UserError('Credit needs a name in Metadata Manager first')
         photo=None
         if row['thumb']:
             image=client.cast_image(row['thumb']);photo=self._folder_photo(encoded=base64.b64encode(image).decode())
         with self.store.transaction():
             profiles=self.store.get('settings','cast_profiles',{})
             if any(p['name'].casefold()==row['name'].casefold() for p in profiles.values()):
-                raise ValueError('A saved person already has this name; select the existing profile or disambiguate the credit first')
+                raise UserError('A saved person already has this name; select the existing profile or disambiguate the credit first')
             pid=uuid.uuid4().hex
             profiles[pid]=dict(name=row['name'],photo=None,revision=1,identity=dict(library=asset['library'],rating_key=asset['rating_key'],credit_index=index))
             self.store.put('settings','cast_profiles',profiles)
@@ -372,11 +373,11 @@ class ArtworkWorkflows:
 
     def artwork_candidates(self, key, version, count):
         if type(count) is not int or not 1<=count<=4:
-            raise ValueError('Choose one through four candidates')
+            raise UserError('Choose one through four candidates')
         with self.store.transaction():
             source=self.get_task(key)
             if source['kind']!='mage_generation' or source['status']!='recommendation' or source['version']!=version or source.get('provider'):
-                raise ValueError('Create candidates from an unsubmitted generation plan')
+                raise UserError('Create candidates from an unsubmitted generation plan')
             group=uuid.uuid4().hex;tasks=[]
             for index in range(count):
                 task=copy.deepcopy(source)

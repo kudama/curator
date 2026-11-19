@@ -6,6 +6,7 @@ import statistics
 from pathlib import Path
 from . import tools
 from .store import now
+from .errors import UserError
 
 
 class RunReadiness:
@@ -15,10 +16,10 @@ class RunReadiness:
     def save_processing_defaults(self,library,kind,values):
         self.library(library)
         allowed={'optimize':{'handbrake_preset'},'upscale':{'topaz_filter','topaz_rate_control','topaz_quality','topaz_bitrate_mbps'}}
-        if kind not in allowed or not isinstance(values,dict) or not values or set(values)-allowed[kind] or any(not isinstance(v,(str,int,float)) or isinstance(v,bool) for v in values.values()):raise ValueError('Invalid processing defaults')
-        if kind=='optimize' and (not isinstance(values.get('handbrake_preset'),str) or not values['handbrake_preset'].strip() or len(values['handbrake_preset'])>512):raise ValueError('Choose an installed encoding preset')
+        if kind not in allowed or not isinstance(values,dict) or not values or set(values)-allowed[kind] or any(not isinstance(v,(str,int,float)) or isinstance(v,bool) for v in values.values()):raise UserError('Invalid processing defaults')
+        if kind=='optimize' and (not isinstance(values.get('handbrake_preset'),str) or not values['handbrake_preset'].strip() or len(values['handbrake_preset'])>512):raise UserError('Choose an installed encoding preset')
         if kind=='upscale':
-            if 'topaz_filter' in values and (not isinstance(values['topaz_filter'],str) or len(values['topaz_filter'])>8192):raise ValueError('Invalid upscale filter')
+            if 'topaz_filter' in values and (not isinstance(values['topaz_filter'],str) or len(values['topaz_filter'])>8192):raise UserError('Invalid upscale filter')
             tools.topaz_encoding({**self.config(),**values})
         with self.store.transaction():
             key='processing-defaults:'+library;record=self.store.get('settings',key,dict(id=key,record_type='processing_defaults',library=library,values={}))
@@ -75,7 +76,7 @@ class RunReadiness:
                     task=self.get_task(job['payload']['task']);asset=self.asset(task,check=task['kind'] not in {'artwork','portrait'})
                     if task['kind'] in {'upscale','optimize','join'}:
                         size=Path(task['output']).stat().st_size;destination=volume(Path(asset['local_path']).parent,'Destination: '+self.library(asset['library']).get('title',asset['library']))
-                        if destination is None:raise ValueError('Destination unavailable')
+                        if destination is None:raise UserError('Destination unavailable')
                         destination['estimated_extra_bytes']+=size
                 elif job['operation']=='cleanup':
                     receipt=self.cleanup_receipt(job['payload']['receipt'])

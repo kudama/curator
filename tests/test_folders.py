@@ -10,6 +10,7 @@ from unittest.mock import patch
 import test_curator
 from curator.folders import combine
 from curator.tools import fingerprint
+from curator.plex import PlexError
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=')
 
@@ -225,7 +226,7 @@ class Folders(unittest.TestCase):
         def finish(*args):
             try:return original(*args)
             finally:finished.set()
-        with patch.object(self.service,'publish_join',side_effect=ValueError('Provider unavailable')),patch.object(self.service,'_finish_review',finish):
+        with patch.object(self.service,'publish_join',side_effect=PlexError('Provider unavailable')),patch.object(self.service,'_finish_review',finish):
             self.service.review(task['id'],1,'manual',background=True);self.assertTrue(finished.wait(2))
         saved=self.service.get_task(task['id']);self.assertEqual(saved['status'],'blocked');self.assertIn('Provider unavailable',saved['error'])
 

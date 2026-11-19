@@ -38,6 +38,7 @@ from .artwork_targets import ArtworkTargets
 from .mage_budget import MageBudgets, gems
 from .artwork_archive import ArtworkArchives, archive_root
 from .logs import log, register_secret
+from .errors import UserError
 from .rules import ACTIVE, RESERVING, reserves_source, stable_id
 
 
@@ -83,7 +84,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
     def checked_client(self, library):
         client = self.client()
         if isinstance(client, Plex) and client.request('/identity').get('machineIdentifier') != library['server']:
-            raise ValueError('Configured Plex server differs from this library; reconnect and select the correct server')
+            raise UserError('Configured Plex server differs from this library; reconnect and select the correct server')
         return client
 
     def save_config(self, data):
@@ -92,9 +93,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                    'max_mbps_1080', 'max_mbps_4k', 'branding_presets',
                    'topaz_rate_control','topaz_quality','topaz_bitrate_mbps','mage_monthly_budget','mage_batch_budget','artwork_archive_path','mage_default_model','mage_default_resolution','magick'}
         if set(data) - allowed:
-            raise ValueError('Unknown configuration field')
+            raise UserError('Unknown configuration field')
         if any(not isinstance(v, (str, int, float)) for k, v in data.items() if k != 'branding_presets'):
-            raise ValueError('Invalid configuration value')
+            raise UserError('Invalid configuration value')
         if 'branding_presets' in data:
             branding.validate_presets(data['branding_presets'])
         if 'artwork_archive_path' in data:
@@ -103,7 +104,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         for field in ('mage_monthly_budget','mage_batch_budget'):
             if field in data:gems(data[field],field.replace('_',' '))
         for field in ('mage_default_model','mage_default_resolution'):
-            if field in data and (not isinstance(data[field],str) or len(data[field])>180 or not re.fullmatch(r'[A-Za-z0-9_:.-]*',data[field])):raise ValueError('Choose a valid Mage default')
+            if field in data and (not isinstance(data[field],str) or len(data[field])>180 or not re.fullmatch(r'[A-Za-z0-9_:.-]*',data[field])):raise UserError('Choose a valid Mage default')
         cfg = self.config()
         if not data.get('plex_token'):
             data.pop('plex_token', None)
@@ -143,14 +144,14 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
 
     def library_metadata_choices(self, key, field):
         if field not in {'genre', 'label', 'collection'}:
-            raise ValueError('Unsupported metadata choice field')
+            raise UserError('Unsupported metadata choice field')
         library = self.library(key)
         return {'choices': self.checked_client(library).metadata_choices(library, field)}
 
     def refresh_library_locations(self, key):
         library = self.library(key)
         fresh = next((row for row in self.checked_client(library).libraries() if row['id']==key),None)
-        if not fresh:raise ValueError('Plex no longer lists this library; refresh libraries')
+        if not fresh:raise UserError('Plex no longer lists this library; refresh libraries')
         with self.store.transaction():
             latest = self.library(key)
             for field in ('locations','title','type','agent'):
@@ -161,21 +162,21 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
     def library(self, key):
         row = self.store.get('libraries', key)
         if not row:
-            raise ValueError('Select a connected Plex library')
+            raise UserError('Select a connected Plex library')
         return row
 
     def save_library(self, key, data):
         if set(data) - {'profile', 'mappings', 'themes'} or data.get('profile') not in {'commercial', 'home'}:
-            raise ValueError('Invalid library settings')
+            raise UserError('Invalid library settings')
         mappings = data.get('mappings', [])
         if not isinstance(mappings, list) or len(mappings) > 30:
-            raise ValueError('Invalid mappings')
+            raise UserError('Invalid mappings')
         # Validate every mapping even when no media has been scanned.
         for mapping in mappings:
             map_path(mapping.get('plex_root'), mappings, require_exists=False)
         themes = data.get('themes', [])
         if not isinstance(themes, list) or not all(isinstance(x, str) for x in themes):
-            raise ValueError('Themes must be a list of names')
+            raise UserError('Themes must be a list of names')
         row = self.library(key)
         row.update(profile=data['profile'], mappings=mappings, themes=themes)
         with self.store.transaction():
@@ -248,9 +249,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         library = self.library(key)
         with self.lock:
             if self.presence_status.get(key,{}).get('running'):
-                raise ValueError('Catalog refresh is running; wait a moment before scanning')
+                raise UserError('Catalog refresh is running; wait a moment before scanning')
             if self.scan_status.get(key, {}).get('running'):
-                raise ValueError('This library is already scanning')
+                raise UserError('This library is already scanning')
             self.scan_status[key] = dict(running=True, count=0, error=None)
         thread = threading.Thread(target=self._scan, args=(library,), daemon=True)
         thread.start()
@@ -397,36 +398,36 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
     def get_task(self, key):
         task = self.store.get('tasks', key)
         if not task:
-            raise ValueError('Task not found')
+            raise UserError('Task not found')
         return task
 
     def asset(self, task, check=True):
         asset = self.store.get('assets', task['asset']) or self.store.get('settings', 'artwork-target:'+task['asset'])
         if check and asset and asset.get('artwork_target'):
-            raise ValueError('Collection artwork has no media-file operation')
+            raise UserError('Collection artwork has no media-file operation')
         if not asset or not asset.get('present', True):
-            raise ValueError('Media item is no longer available')
+            raise UserError('Media item is no longer available')
         if check:
             path = map_path(asset['plex_path'], self.library(asset['library'])['mappings'])
             if str(path) != asset.get('local_path') or tools.fingerprint(path) != asset.get('fingerprint'):
-                raise ValueError('Source or mapping changed; rescan before approving')
+                raise UserError('Source or mapping changed; rescan before approving')
         return asset
 
     def edit_task(self, key, plan, version):
         if not isinstance(plan, dict) or set(plan) - {'changes', 'title', 'preserve_quality', 'handbrake_preset'}:
-            raise ValueError('Unsupported plan settings')
+            raise UserError('Unsupported plan settings')
         with self.store.transaction():
             task = self.get_task(key)
             if task['kind'] in FILE_KINDS | {'artwork','mage_generation','portrait'}:
-                raise ValueError('Preview a new file operation to change its plan')
+                raise UserError('Preview a new file operation to change its plan')
             if 'handbrake_preset' in plan and (task['kind'] != 'optimize' or
                     not isinstance(plan['handbrake_preset'], str) or not plan['handbrake_preset'].strip()):
-                raise ValueError('A HandBrake preset can only be selected for an optimization task')
+                raise UserError('A HandBrake preset can only be selected for an optimization task')
             if task['version'] != version or task['status'] in {'running', 'publishing'}:
-                raise ValueError('Task changed or is running; refresh first')
+                raise UserError('Task changed or is running; refresh first')
             if 'changes' in plan:
                 if task['kind'] not in {'metadata', 'home'}:
-                    raise ValueError('Metadata edits require a metadata task')
+                    raise UserError('Metadata edits require a metadata task')
                 Plex.validate_changes(plan['changes'])
             reviewing_home = task['kind'] == 'home' and task['status'] == 'awaiting_review'
             task.update(plan=plan, version=version + 1, status='awaiting_review' if reviewing_home else 'recommendation', updated=now(), error=None)
@@ -442,55 +443,55 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         if action == 'repair_quicktime':
             return self.repair_quicktime(key, version)
         prepared = None
-        if handbrake_preset is not None and (action != 'queue' or self.get_task(key)['kind'] != 'optimize' or not isinstance(handbrake_preset,str) or not handbrake_preset.strip()):raise ValueError('Choose an installed preset for this optimization task')
+        if handbrake_preset is not None and (action != 'queue' or self.get_task(key)['kind'] != 'optimize' or not isinstance(handbrake_preset,str) or not handbrake_preset.strip()):raise UserError('Choose an installed preset for this optimization task')
         if action == 'queue':
             candidate = self.get_task(key)
-            if candidate['version'] != version:raise ValueError('Stale task version; refresh first')
-            if candidate['kind'] in {'artwork','mage_generation','portrait'}:raise ValueError('Use artwork review; paid generation requires a verified configuration quote')
-            if candidate['kind'] == 'folder_metadata':raise ValueError('Review a fresh folder preview before queueing these changes')
+            if candidate['version'] != version:raise UserError('Stale task version; refresh first')
+            if candidate['kind'] in {'artwork','mage_generation','portrait'}:raise UserError('Use artwork review; paid generation requires a verified configuration quote')
+            if candidate['kind'] == 'folder_metadata':raise UserError('Review a fresh folder preview before queueing these changes')
             prepared_status = candidate['status']
             prepared = self._prepare_queue(candidate, handbrake_preset)
         if action == 'resume_join':
             candidate = self.get_task(key)
-            if candidate['kind']!='join' or candidate['status']!='blocked' or candidate['version']!=version or not candidate.get('output') or candidate.get('validation'):raise ValueError('No validated join is available')
+            if candidate['kind']!='join' or candidate['status']!='blocked' or candidate['version']!=version or not candidate.get('output') or candidate.get('validation'):raise UserError('No validated join is available')
             self.file_sources(candidate)
-            if tools.digest(candidate['output'])!=candidate['output_hash']:raise ValueError('Joined output changed')
+            if tools.digest(candidate['output'])!=candidate['output_hash']:raise UserError('Joined output changed')
         with self.store.transaction():
             task = self.get_task(key)
             if task['version'] != version:
-                raise ValueError('Stale task version; refresh first')
-            if task.get('deleted') and action != 'restore_task':raise ValueError('Task is deleted; restore it before making changes')
+                raise UserError('Stale task version; refresh first')
+            if task.get('deleted') and action != 'restore_task':raise UserError('Task is deleted; restore it before making changes')
             if handbrake_preset is not None and (action != 'queue' or task['kind'] != 'optimize' or
                                                    not isinstance(handbrake_preset, str) or not handbrake_preset.strip()):
-                raise ValueError('Choose an installed preset for this optimization task')
+                raise UserError('Choose an installed preset for this optimization task')
             if action == 'delete':
-                if task['status'] in {'running','publishing'}:raise ValueError('Finish or cancel running work before deleting its task')
+                if task['status'] in {'running','publishing'}:raise UserError('Finish or cancel running work before deleting its task')
                 task.update(deleted=True, deleted_status=task['status'], status='deleted', version=version+1)
                 task.pop('approval',None)
                 self.cancels.discard(key)
             elif action == 'restore_task':
-                if not task.get('deleted'):raise ValueError('Task is not deleted')
+                if not task.get('deleted'):raise UserError('Task is not deleted')
                 previous=task.pop('deleted_status','recommendation')
                 task.update(deleted=False,status='cancelled' if previous=='queued' else previous,version=version+1)
                 task.pop('approval',None)
             elif action == 'remove_queue':
-                if task['status']!='queued':raise ValueError('This task is no longer waiting in the queue; refresh first')
+                if task['status']!='queued':raise UserError('This task is no longer waiting in the queue; refresh first')
                 task.update(status='recommendation',version=version+1,error=None)
                 task.pop('approval',None)
                 self.cancels.discard(key)
             elif action == 'resume_join':
                 if task['kind']!='join' or task['status']!='blocked' or not task.get('output') or task.get('validation'):
-                    raise ValueError('No validated join is available')
+                    raise UserError('No validated join is available')
                 task.update(status='awaiting_review',comparison_loaded=False,error=None)
             elif action == 'resume_review':
                 if task['status'] != 'blocked' or task['kind'] not in {'optimize', 'upscale'} or task.get('published') or task.get('validation') or not task.get('source_hash') or not task.get('output_hash') or not Path(task.get('output', '')).is_file():
-                    raise ValueError('No validated, unpublished output is available to review')
+                    raise UserError('No validated, unpublished output is available to review')
                 self.asset(task)
                 task.update(status='awaiting_review', error=None)
             elif action == 'cancel':
-                if task['status'] not in ACTIVE:raise ValueError('This task is no longer queued or running; refresh first')
-                if task['status']=='publishing':raise ValueError('Publication is finishing; its file changes cannot be cancelled safely')
-                if task['status']=='running' and task['kind'] not in {'upscale','optimize','join','mage_generation'}:raise ValueError('This operation is finishing; remove its task after it completes')
+                if task['status'] not in ACTIVE:raise UserError('This task is no longer queued or running; refresh first')
+                if task['status']=='publishing':raise UserError('Publication is finishing; its file changes cannot be cancelled safely')
+                if task['status']=='running' and task['kind'] not in {'upscale','optimize','join','mage_generation'}:raise UserError('This operation is finishing; remove its task after it completes')
                 self.cancels.add(key)
                 if task['kind']=='mage_generation':task['mage_cancel_requested']=True
                 if task['status'] not in {'running', 'publishing'}:
@@ -505,29 +506,29 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                                 self.store.put('settings','mage-budget:'+period,ledger)
             elif action == 'queue':
                 if task['kind'] == 'folder_metadata':
-                    raise ValueError('Review a fresh folder preview before queueing these changes')
+                    raise UserError('Review a fresh folder preview before queueing these changes')
                 if task['status'] != prepared_status:
-                    raise ValueError('Task changed during queue validation; refresh first')
+                    raise UserError('Task changed during queue validation; refresh first')
                 self.check_busy_sources(task)
                 if task['kind'] in FILE_KINDS:
                     self._file_conflicts(task)
-                    if self.scan_status.get(task['library'],{}).get('running') or self.presence_status.get(task['library'],{}).get('running'):raise ValueError('Wait for the library scan before queueing file operations')
+                    if self.scan_status.get(task['library'],{}).get('running') or self.presence_status.get(task['library'],{}).get('running'):raise UserError('Wait for the library scan before queueing file operations')
                 else:
                     for pending in self.store.where('tasks', kind=FILE_KINDS, status=RESERVING):
-                        if reserves_source(pending, task['asset']):raise ValueError('A file operation reserves this source; finish or cancel it first')
+                        if reserves_source(pending, task['asset']):raise UserError('A file operation reserves this source; finish or cancel it first')
                 task = prepared
                 version = task['version']
                 self.cancels.discard(key)
             elif action == 'reject' and task['status'] == 'awaiting_review':
                 if task['kind'] in {'upscale','optimize'}:
-                    if task.get('published'):raise ValueError('Published results cannot be reset')
+                    if task.get('published'):raise UserError('Published results cannot be reset')
                     self.store.event(key,dict(action='result rejected and retained',version=version,output=task.get('output'),output_hash=task.get('output_hash')))
                     task.update(status='recommendation',version=version+1,error=None)
                     for field in ('approval','comparison_loaded','validation','progress','result','source_hash','output_hash','output','publication_error'):
                         task.pop(field,None)
                 else:task['status'] = 'rejected'
             else:
-                raise ValueError('Action is unavailable in this state')
+                raise UserError('Action is unavailable in this state')
             task['updated'] = now()
             self.store.put('tasks', key, task)
             self.store.event(key, dict(action=action, version=version))
@@ -550,19 +551,19 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         self.check_busy_sources(task)
         version = task['version']
         if task['status'] not in {'recommendation', 'failed', 'blocked', 'cancelled'}:
-            raise ValueError('Task cannot be queued in its current state')
+            raise UserError('Task cannot be queued in its current state')
         asset = self.asset(task)
         if task['kind'] in FILE_KINDS:
             self.queue_file_task(task)
         else:
             for pending in self.store.where('tasks', kind=FILE_KINDS, status=RESERVING):
                 if reserves_source(pending, task['asset']):
-                    raise ValueError('A file operation reserves this source; finish or cancel it first')
+                    raise UserError('A file operation reserves this source; finish or cancel it first')
         if handbrake_preset is not None and handbrake_preset != task['plan'].get('handbrake_preset'):
             task.update(plan={**task['plan'], 'handbrake_preset': handbrake_preset}, version=version + 1)
             version = task['version']
         if task['kind'] == 'inspect':
-            raise ValueError('Resolve this inspection finding and rescan first')
+            raise UserError('Resolve this inspection finding and rescan first')
         if task['kind'] in {'upscale', 'optimize'}:
             task['tool_settings'] = {**self.config(),**self.processing_defaults().get(task['library'],{}).get(task['kind'],{})}
             # Do not persist an unrelated Plex credential into processing plans.
@@ -573,7 +574,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     self.store.root / 'presets' / task['id'], asset.get('technical')))
             tools.command(task['kind'], asset['local_path'], '/tmp/curator-output.mkv', task['tool_settings'])
         if task['kind'] == 'metadata' and not task['plan'].get('changes'):
-            raise ValueError('Preview/edit metadata changes before queueing')
+            raise UserError('Preview/edit metadata changes before queueing')
         task.update(status='queued', approval=version, source=asset['fingerprint'],
                     metadata_before=self.metadata_fields(asset['item']), error=None,preflight_retry_count=0,retry_at=None)
         return task
@@ -603,14 +604,14 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     if head is None and queue_kind is not None:return 'source_busy'
                     if not head or head['id']!=key:return
                 if task.get('approval') != task['version'] or key in self.cancels:
-                    raise ValueError('Approval changed or job cancelled')
+                    raise UserError('Approval changed or job cancelled')
                 try:self.check_busy_sources(task)
                 except SourceBusy:
                     if queue_head:return 'source_busy'
                     raise
                 asset = self.asset(task,check=task['kind']!='mage_generation')
                 if task['kind']!='mage_generation' and asset['fingerprint'] != task.get('source'):
-                    raise ValueError('Source changed since queue approval')
+                    raise UserError('Source changed since queue approval')
                 task.update(status='running', updated=now(),retry_at=None,error=None)
                 self.store.put('tasks', key, task)
             side_effects_started=True;started=time.monotonic()
@@ -636,7 +637,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 for aid in task['plan']['assets']:
                     member = self.store.get('assets', aid)
                     if not member or member['library'].split(':')[0] != self.library(task['library'])['server']:
-                        raise ValueError('Playlist member changed or belongs to another server')
+                        raise UserError('Playlist member changed or belongs to another server')
                     self.checked_client(self.library(member['library'])).item(member['rating_key'])
                 result = self.checked_client(self.library(task['library'])).playlist(
                     self.library(task['library'])['server'], task['plan']['title'], keys)
@@ -649,7 +650,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             if task.get('kind')=='mage_generation' and task.get('provider') and not task['provider'].get('attempted') and not task['provider'].get('request_id'):
                 self.reconcile_mage_budget(key,task['provider'],unsubmitted=True)
             if self.schedule_preflight_retry(task,e,side_effects_started):return 'retry_scheduled'
-            reason = str(e) if isinstance(e, ValueError) else 'Operation failed; inspect configuration/output before retry'
+            reason = str(e) if isinstance(e, UserError) else 'Operation failed; inspect configuration/output before retry'
             if not side_effects_started and isinstance(e,OSError):
                 reason='Source access failed: '+(os.strerror(e.errno) if e.errno else 'read timeout')+('; automatic retries exhausted' if task.get('preflight_retry_count',0)>=2 else '')
             self._save(task, status='cancelled' if key in self.cancels else 'blocked', error=reason[:300])
@@ -678,7 +679,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         Plex.validate_changes(changes)
         current = client.item(asset['rating_key'])
         if not self._same_metadata(self.metadata_fields(current), before):
-            raise ValueError('Plex metadata changed; rescan and review again')
+            raise UserError('Plex metadata changed; rescan and review again')
         result = client.edit(self.library(asset['library']), current, changes)
         self._cache_metadata(asset, result)
         observed = self.metadata_fields(result)
@@ -686,7 +687,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         if differing:
             labels = {'summary': 'Description', 'genre': 'Categories', 'label': 'Labels', 'collection': 'Collections'}
             names = ', '.join(labels.get(field, field.title()) for field in differing)
-            raise ValueError('Plex readback differs (' + names + '); inspect before retrying')
+            raise UserError('Plex readback differs (' + names + '); inspect before retrying')
         if 'cast' in changes:
             previous_pictures = {row['thumb'] for row in (before or {}).get('cast', [])}
             for row in changes['cast']:
@@ -719,14 +720,14 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
     def cast_profile_image(self, profile_id):
         profile = self.store.get('settings', 'cast_profiles', {}).get(profile_id)
         if not profile or not profile.get('photo') or not re.fullmatch(r'[a-f0-9]{64}', profile['photo']):
-            raise ValueError('No saved cast picture')
+            raise UserError('No saved cast picture')
         return tools.image_bytes(self.store.root / 'cast' / profile['photo'])
 
     def cast_item_image(self, key, index):
         asset = self.asset(self.get_task(key), check=False)
         rows = cast.fields(asset['item'])
         if not 0 <= index < len(rows):
-            raise ValueError('Unknown cast member')
+            raise UserError('Unknown cast member')
         return self.checked_client(self.library(asset['library'])).cast_image(rows[index]['thumb'])
 
     def apply_cast(self, key, version, rows):
@@ -738,17 +739,17 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             with self.store.transaction():
                 task = self.get_task(key)
                 if task['version'] != version or task['kind'] not in {'home', 'metadata'} or task['status'] in ACTIVE:
-                    raise ValueError('Task changed or is running; refresh before saving cast')
+                    raise UserError('Task changed or is running; refresh before saving cast')
                 asset = self.asset(task)
                 before = self.metadata_fields(asset['item'])
                 for row in rows:
                     profile_id = row.get('profile_id')
                     profile = profiles.get(profile_id) if profile_id else None
                     if profile_id and (not profile or profile['revision'] != row.get('revision')):
-                        raise ValueError('Saved cast profile changed; reopen the editor')
+                        raise UserError('Saved cast profile changed; reopen the editor')
                     thumb = row.get('thumb', '')
                     if thumb and thumb not in {r['thumb'] for r in before['cast']}:
-                        raise ValueError('Unknown cast picture; upload a picture or choose a saved profile')
+                        raise UserError('Unknown cast picture; upload a picture or choose a saved profile')
                     image = cast.photo_bytes(row['image']) if row.get('image') else None
                     if row.get('clear_photo'):
                         image, thumb = None, ''
@@ -762,7 +763,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             try:
                 client = self.checked_client(self.library(asset['library']))
                 if not self._same_metadata(self.metadata_fields(client.item(asset['rating_key'])), before):
-                    raise ValueError('Plex metadata changed; reopen the editor before saving cast')
+                    raise UserError('Plex metadata changed; reopen the editor before saving cast')
                 changes, remembered = [], []
                 for row, image, thumb in prepared:
                     if row.get('remember') and not image and thumb and not row.get('clear_photo'):
@@ -813,14 +814,14 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 return dict(version=task['version'], cast=changes, profiles=self.cast_profiles())
             except Exception as error:
                 log.exception('Cast save failed for task %s', task['id'])
-                message = str(error) if isinstance(error, ValueError) else 'Cast save failed; inspect Plex before retrying'
+                message = str(error) if isinstance(error, UserError) else 'Cast save failed; inspect Plex before retrying'
                 self._save(task, status='blocked', error=message[:300])
-                raise ValueError(message) from None
+                raise UserError(message) from None
 
     def metadata_task(self, asset_id):
         asset = self.store.get('assets', asset_id)
         if not asset or not asset.get('present', True):
-            raise ValueError('Media item is no longer available')
+            raise UserError('Media item is no longer available')
         with self.store.transaction():
             task=self.task(asset, dict(kind='metadata', reason='Review Plex metadata'))
             if task.get('deleted'):
@@ -835,11 +836,11 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         with self.store.transaction():
             source = self.get_task(key)
             if source['version'] != version or source['kind'] not in {'home', 'metadata'} or source['status'] in ACTIVE:
-                raise ValueError('Task changed or is running; refresh before queueing metadata')
+                raise UserError('Task changed or is running; refresh before queueing metadata')
             asset = self.asset(source)
             task = self.task(asset, dict(kind='metadata', reason='Apply reviewed metadata changes'))
             if task['status'] in ACTIVE:
-                raise ValueError('This item already has an active metadata task')
+                raise UserError('This item already has an active metadata task')
             next_version = task['version'] + 1
             task.update(version=next_version, status='queued', plan={'changes': changes}, approval=next_version,
                         source=asset['fingerprint'], metadata_before=self.metadata_fields(asset['item']),
@@ -854,7 +855,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         with self.store.transaction():
             task = self.get_task(key)
             if task['version'] != version or task['kind'] not in {'home', 'metadata'} or task['status'] in {'running', 'publishing', 'queued'}:
-                raise ValueError('Task changed or is running; refresh before applying metadata')
+                raise UserError('Task changed or is running; refresh before applying metadata')
             asset = self.asset(task)
             before = self.metadata_fields(asset['item'])
             task.update(version=version + 1, status='publishing', plan={**task['plan'], 'changes': changes},
@@ -868,9 +869,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             self._save(task, status='applied', result={**(task.get('result') or {}), 'metadata_verified': True})
         except Exception as error:
             log.exception('Metadata apply failed for task %s', task['id'])
-            message = str(error) if isinstance(error, ValueError) else 'Metadata apply failed; inspect Plex before retrying'
+            message = str(error) if isinstance(error, UserError) else 'Metadata apply failed; inspect Plex before retrying'
             self._save(task, status='blocked', error=message[:300])
-            raise ValueError(message) from None
+            raise UserError(message) from None
         return {**task, 'metadata': self.metadata_fields(observed)}
 
     def _process(self, task, asset):
@@ -878,7 +879,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         folder.mkdir(parents=True, mode=0o700)
         suffix = Path(asset['local_path']).suffix.lower()
         if suffix not in {'.mkv', '.mp4', '.m4v', '.mov'}:
-            raise ValueError('Processing currently supports MKV, MP4, M4V and MOV containers')
+            raise UserError('Processing currently supports MKV, MP4, M4V and MOV containers')
         output = folder / ('processed' + suffix)
         # A new encode must not reuse samples or review readiness from its previous output.
         for side in ('source', 'output'):
@@ -901,7 +902,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                             process.wait(timeout=10)
                         except subprocess.TimeoutExpired:
                             process.kill()
-                        raise ValueError('Cancelled; original preserved')
+                        raise UserError('Cancelled; original preserved')
                     self._save(task, progress={'phase': 'Processing video', 'output_bytes': output.stat().st_size if output.exists() else 0, **telemetry.read(log,time.monotonic()-started)})
                     time.sleep(1)
             finally:
@@ -909,7 +910,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     process.kill()
                 process.wait()
         if process.returncode:
-            raise ValueError(tools.processing_failure(log))
+            raise UserError(tools.processing_failure(log))
         self._save(task, progress={'phase': 'Validating output', 'output_bytes': output.stat().st_size})
         self.asset(task)
         result = tools.probe(output, task['tool_settings'])
@@ -922,7 +923,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         if decode.returncode:
             issues.append('Independent output decode failed')
         if task['id'] in self.cancels:
-            raise ValueError('Cancelled during validation; original preserved')
+            raise UserError('Cancelled during validation; original preserved')
         self._save(task, output=str(output), output_hash=tools.digest(output), source_hash=source_hash,
                    result=result, validation=issues, status='blocked' if issues else 'awaiting_review',
                    error='; '.join(issues) if issues else None)
@@ -961,7 +962,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             result['themes'] = [x for x in result.get('themes', []) if x in allowed]
         except Exception:
             log.exception('Local frame analysis failed for task %s', task['id'])
-            raise ValueError('Local frame analysis unavailable or invalid; frames remain available for manual review') from None
+            raise UserError('Local frame analysis unavailable or invalid; frames remain available for manual review') from None
         self.asset(task)
         self._save(task, status='awaiting_review', candidates=candidates, result=result,
                    provenance=['existing metadata', 'descriptive filename' if descriptive else 'filename ignored',
@@ -980,7 +981,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         asset = self.asset(self.get_task(key))
         library = self.library(asset['library'])
         if library['profile'] != 'home':
-            raise ValueError('Folder branding is for home-movie libraries')
+            raise UserError('Folder branding is for home-movie libraries')
         # Repeat the longest-prefix selection used by map_path, never walk above its root.
         matches = [m for m in library['mappings'] if Path(asset['plex_path']).is_relative_to(m['plex_root'])]
         root = Path(max(matches, key=lambda m: len(Path(m['plex_root']).parts))['local_root']).resolve()
@@ -1009,22 +1010,22 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         folders = self.branding_folders(key)
         target = next((p for p in folders if str(p) == folder), None)
         if target is None:
-            raise ValueError('Choose a parent folder inside the mapped library')
+            raise UserError('Choose a parent folder inside the mapped library')
         # Compare before creating any logo file. Never replace an existing unrelated file.
         old = branding.read(target)
         if (branding.revision(old) if old else None) != expected:
-            raise ValueError('Folder branding changed; reload before saving')
+            raise UserError('Folder branding changed; reload before saving')
         template = dict(template)
         branding.validate(template)
         if logo:
             if len(logo) > 10 * 1024 * 1024 or not (logo.startswith(b'\x89PNG\r\n\x1a\n') or logo.startswith(b'\xff\xd8\xff')):
-                raise ValueError('Logo must be a JPEG or PNG under 10 MiB')
+                raise UserError('Logo must be a JPEG or PNG under 10 MiB')
             name = '.curator-logo-' + hashlib.sha256(logo).hexdigest() + ('.png' if logo.startswith(b'\x89PNG') else '.jpg')
             path = target / name
             if path.is_symlink():
-                raise ValueError('Folder logo cannot be a symlink')
+                raise UserError('Folder logo cannot be a symlink')
             if path.exists() and (not path.is_file() or path.stat().st_size != len(logo) or path.read_bytes() != logo):
-                raise ValueError('Saved logo content differs; inspect the folder before saving')
+                raise UserError('Saved logo content differs; inspect the folder before saving')
             if not path.exists():
                 with path.open('xb') as out:
                     out.write(logo)
@@ -1034,11 +1035,11 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
 
     def confirm_branding(self, key, folder, revision, use=True):
         if not isinstance(use, bool):
-            raise ValueError('Branding confirmation must be true or false')
+            raise UserError('Branding confirmation must be true or false')
         info = self.folder_branding(key)
         row = next((r for r in info['folders'] if r['folder'] == folder and r['revision'] == revision and r['template']), None)
         if use and row is None:
-            raise ValueError('Folder branding changed; reload and confirm again')
+            raise UserError('Folder branding changed; reload and confirm again')
         asset = self.asset(self.get_task(key))
         with self.store.transaction():
             self.store.put('settings', 'branding:' + asset['id'],
@@ -1048,21 +1049,21 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
     def save_branding_choice(self, key, data, logo=None):
         allowed = {'folder', 'revision', 'preset_id', 'remember', 'creator', 'use_folder'}
         if not isinstance(data, dict) or set(data) - allowed or not isinstance(data.get('remember'), bool) or not isinstance(data.get('use_folder'), bool):
-            raise ValueError('Invalid branding choice')
+            raise UserError('Invalid branding choice')
         preset = data.get('preset_id')
         if preset not in {r['id'] for r in self.config().get('branding_presets', branding.DEFAULT_PRESETS)}:
-            raise ValueError('Branding preset changed; reload Settings and choose a preset')
+            raise UserError('Branding preset changed; reload Settings and choose a preset')
         info = self.folder_branding(key)
         row = next((r for r in info['folders'] if r['folder'] == data.get('folder') and r['revision'] == data.get('revision')), None)
         if row is None:
-            raise ValueError('Folder defaults changed; reopen the editor before saving')
+            raise UserError('Folder defaults changed; reopen the editor before saving')
         if data['remember']:
             old = row['template'] or {}
             template = dict(version=2, creator=data.get('creator', old.get('creator', '')), preset_id=preset, logo=old.get('logo', ''))
             info = self.save_branding(key, row['folder'], template, row['revision'], logo)
             row = next(r for r in info['folders'] if r['folder'] == row['folder'])
         elif logo is not None or data.get('creator', '') != (row['template'] or {}).get('creator', ''):
-            raise ValueError('Creator name and logo are folder defaults; select Remember for this folder to change them')
+            raise UserError('Creator name and logo are folder defaults; select Remember for this folder to change them')
         asset = self.asset(self.get_task(key))
         decision = dict(folder=row['folder'], revision=row['revision'], declined=not data['use_folder'])
         if not data['remember']:
@@ -1091,21 +1092,21 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         info = self.folder_branding(key)
         row = next((r for r in info['folders'] if r['folder'] == folder and r['template']), None)
         if row is None or not row['template'].get('logo'):
-            raise ValueError('No folder logo available')
+            raise UserError('No folder logo available')
         path = Path(folder) / row['template']['logo']
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 10 * 1024 * 1024:
-            raise ValueError('Folder logo is unavailable')
+            raise UserError('Folder logo is unavailable')
         return path
 
     def review(self, key, version, mode, background=False):
         with self.store.transaction():
             task = self.get_task(key)
             if task.get('deleted') or task['status'] != 'awaiting_review' or task['version'] != version:
-                raise ValueError('Result is not awaiting review, or its version changed')
+                raise UserError('Result is not awaiting review, or its version changed')
             self.check_busy_sources(task)
             asset = self.asset(task, check=task['kind'] not in {'artwork','portrait'})
             if task['kind'] in {'upscale', 'optimize', 'join'} and not task.get('comparison_loaded'):
-                raise ValueError('Load the source/output comparison before publishing')
+                raise UserError('Load the source/output comparison before publishing')
             task['status'] = 'publishing'
             self.store.put('tasks', key, task)
             self.store.event(key, dict(action='accept', version=version, mode=mode))
@@ -1131,46 +1132,46 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             elif task['kind'] in {'upscale', 'optimize'}:
                 self._publish(task, asset)
             else:
-                raise ValueError('Unsupported review type')
+                raise UserError('Unsupported review type')
         except Exception as e:
             log.exception('Publication failed for task %s', task['id'])
             phase=task.get('progress',{}).get('phase','Publishing')
             number=getattr(e,'errno',None)
-            detail=str(e)[:250] if isinstance(e,ValueError) else (os.strerror(number) if number else 'Unexpected publication error')
-            message=detail if isinstance(e,ValueError) else f'{phase}: {detail}'+(f' (errno {number})' if number else '')+'. Retained output and originals are available.'
+            detail=str(e)[:250] if isinstance(e, UserError) else (os.strerror(number) if number else 'Unexpected publication error')
+            message=detail if isinstance(e, UserError) else f'{phase}: {detail}'+(f' (errno {number})' if number else '')+'. Retained output and originals are available.'
             with self.store.transaction():
                 self.store.event(key,dict(action='publication failed',phase=phase,error_type=type(e).__name__,errno=number,detail=detail))
             self._save(task,status='blocked',error=message[:400],publication_error=dict(phase=phase,error_type=type(e).__name__,errno=number,detail=detail))
-            if propagate:raise ValueError(task['error']) from None
+            if propagate:raise UserError(task['error']) from None
         return task
 
     def _publish(self, task, asset):
         if not task.get('comparison_loaded'):
-            raise ValueError('Load the source/output comparison before publishing')
+            raise UserError('Load the source/output comparison before publishing')
         self._save(task, progress={'phase': 'Verifying source and output'})
         client = self.checked_client(self.library(asset['library']))
         output = Path(task['output'])
         if task.get('validation') or tools.digest(output) != task['output_hash']:
-            raise ValueError('Output failed validation or changed after review')
+            raise UserError('Output failed validation or changed after review')
         if tools.digest(asset['local_path']) != task['source_hash']:
-            raise ValueError('Source changed after processing')
+            raise UserError('Source changed after processing')
         source = Path(asset['local_path'])
         # A replacement keeps the source container/extension; avoid mislabeled MKV files.
         if source.suffix.lower() not in {'.mkv', '.mp4', '.m4v', '.mov'} or source.suffix.lower() != output.suffix.lower():
-            raise ValueError('Source and processed containers must match')
+            raise UserError('Source and processed containers must match')
         saved = source.with_name(source.stem + '-old' + source.suffix)
         legacy_saved = source.with_name(source.name + '-old')
         if any(path.exists() or path.is_symlink() for path in (saved, legacy_saved)):
-            raise ValueError('An -old original already exists beside this file; move it before publishing another version')
+            raise UserError('An -old original already exists beside this file; move it before publishing another version')
         stage = source.parent / ('.curator-' + uuid.uuid4().hex + source.suffix)
         try:
             self._copy_with_progress(task, output, stage, 'Staging processed video')
             self._save(task, progress={'phase': 'Verifying staged video'})
             if tools.digest(stage) != task['output_hash']:
-                raise ValueError('Staged output verification failed')
+                raise UserError('Staged output verification failed')
             self.asset(task)
             if tools.digest(source) != task['source_hash']:
-                raise ValueError('Source changed during staging')
+                raise UserError('Source changed during staging')
             self._save(task, progress={'phase': 'Preserving original as -old'})
             # Reserve the backup name exclusively so an existing backup is never replaced.
             with saved.open('xb'):
@@ -1193,7 +1194,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             result = client.item(asset['rating_key'])
             files = [p.get('file') for m in result.get('Media', []) for p in m.get('Part', [])]
             if asset['plex_path'] not in files:
-                raise ValueError('Plex readback does not include the published media path')
+                raise UserError('Plex readback does not include the published media path')
             self._save(task, status='applied', plex_verified=True)
         finally:
             stage.unlink(missing_ok=True)
@@ -1207,14 +1208,14 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             with self.store.transaction():
                 task = self.get_task(key)
                 if task['version'] != version or task['status'] != 'applied' or not task.get('published'):
-                    raise ValueError('Only an unchanged published video can be repaired')
+                    raise UserError('Only an unchanged published video can be repaired')
                 asset = self.asset(task, check=False)
                 source = Path(asset['local_path'])
                 if source.suffix.lower() not in {'.mov', '.mp4', '.m4v'}:
-                    raise ValueError('QuickTime repair requires MOV or MP4')
+                    raise UserError('QuickTime repair requires MOV or MP4')
                 if any(t.get('asset') == task['asset'] and t['status'] in ACTIVE
                        for t in self.store.all('tasks')):
-                    raise ValueError('Wait for this file’s active jobs before repairing')
+                    raise UserError('Wait for this file’s active jobs before repairing')
                 previous = dict(output=task.get('output'), output_hash=task.get('output_hash'), result=task.get('result'))
                 task.update(status='publishing', version=version + 1, error=None)
                 self.store.put('tasks', key, task)
@@ -1223,11 +1224,11 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             try:
                 # The old processed output is the exact rollback copy; the -old source is untouched.
                 if not previous['output'] or tools.digest(previous['output']) != previous['output_hash'] or tools.digest(source) != previous['output_hash']:
-                    raise ValueError('Published file or retained output changed; rescan and inspect before repair')
+                    raise UserError('Published file or retained output changed; rescan and inspect before repair')
                 before = tools.probe(source, self.config())
                 videos = [s for s in before['streams'] if s.get('codec_type') == 'video']
                 if len(videos) != 1 or videos[0].get('codec_name') != 'hevc' or videos[0].get('codec_tag_string') != 'hev1':
-                    raise ValueError('This file does not have the HEVC hev1 compatibility problem')
+                    raise UserError('This file does not have the HEVC hev1 compatibility problem')
                 directory = self.store.root / 'outputs' / key / ('quicktime-' + uuid.uuid4().hex)
                 directory.mkdir(parents=True, mode=0o700)
                 repaired = directory / ('processed' + source.suffix.lower())
@@ -1235,16 +1236,16 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 run = subprocess.run(tools.quicktime_remux(source, repaired, self.config()),
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600)
                 if run.returncode:
-                    raise ValueError('QuickTime container repair failed; original published file retained')
+                    raise UserError('QuickTime container repair failed; original published file retained')
                 result = tools.probe(repaired, self.config())
                 issues = tools.validate(before, result)
                 if issues or next((s.get('codec_tag_string') for s in result['streams'] if s.get('codec_type') == 'video'), None) != 'hvc1':
-                    raise ValueError('QuickTime repaired output failed verification; published file retained')
+                    raise UserError('QuickTime repaired output failed verification; published file retained')
                 repaired_hash = tools.digest(repaired)
                 stage = source.parent / ('.curator-quicktime-' + uuid.uuid4().hex + source.suffix)
                 self._copy_with_progress(task, repaired, stage, 'Staging QuickTime repair')
                 if tools.digest(stage) != repaired_hash or tools.digest(source) != previous['output_hash']:
-                    raise ValueError('File changed during QuickTime repair; published file retained')
+                    raise UserError('File changed during QuickTime repair; published file retained')
                 os.replace(stage, source)
                 self._save(task, quicktime_repair_previous=previous, output=str(repaired), output_hash=repaired_hash,
                            result=result, quicktime_repaired=True)
@@ -1263,9 +1264,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 self._save(task, status='applied', quicktime_repair_warning=warning, progress={'phase':'QuickTime container repaired'})
             except Exception as error:
                 log.exception('QuickTime repair failed for task %s', task['id'])
-                message = str(error) if isinstance(error, ValueError) else 'QuickTime repair failed; inspect retained files before retrying'
+                message = str(error) if isinstance(error, UserError) else 'QuickTime repair failed; inspect retained files before retrying'
                 self._save(task, status='blocked', error=message[:300])
-                raise ValueError(message) from None
+                raise UserError(message) from None
             finally:
                 if stage:
                     stage.unlink(missing_ok=True)
@@ -1294,9 +1295,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
 
     def apply_cover(self, key, image, kind='cover'):
         if kind not in Plex.ARTWORK:
-            raise ValueError('Unknown artwork kind')
+            raise UserError('Unknown artwork kind')
         if len(image) > 10 * 1024 * 1024 or not (image.startswith(b'\xff\xd8\xff') or image.startswith(b'\x89PNG\r\n\x1a\n')):
-            raise ValueError('Select a JPEG or PNG image under 10 MiB')
+            raise UserError('Select a JPEG or PNG image under 10 MiB')
         task = self.get_task(key)
         # Artwork belongs to the Plex item; it does not depend on probing the media file.
         asset = self.asset(task, check=False)
@@ -1308,31 +1309,31 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             result = client.artwork(asset['rating_key'], image, kind)
             observed = Plex.artwork_path(result, kind)
             if not observed:
-                raise ValueError('Plex did not return the requested artwork field after upload')
+                raise UserError('Plex did not return the requested artwork field after upload')
             self._cache_metadata(asset, result)
             with self.store.transaction():
                 self.store.event(key, dict(action=kind + ' uploaded and selected', observed_artwork=observed))
             return {'observed_artwork': observed, 'kind': kind, 'selected': True}
         except Exception as error:
             log.exception('Artwork upload failed for %s', key)
-            message = str(error) if isinstance(error, ValueError) else 'Artwork upload failed; check Plex connectivity'
+            message = str(error) if isinstance(error, UserError) else 'Artwork upload failed; check Plex connectivity'
             with self.store.transaction():
                 self.store.event(key, dict(action=kind + ' upload failed', error=message[:300]))
-            raise ValueError(message) from None
+            raise UserError(message) from None
 
     def comparison(self, key):
         # Concurrent browser retries must not invalidate each other's frame cache.
         with self.operation_lock(key):
             task = self.get_task(key)
             if task.get('deleted') or task['status'] != 'awaiting_review' or task['kind'] not in {'upscale', 'optimize'}:
-                raise ValueError('No processed video awaiting review')
+                raise UserError('No processed video awaiting review')
             asset = self.asset(task)
             def identity(row):
                 return tuple(row.get(field) for field in ('version','kind','asset','source','output','source_hash','output_hash'))
             def current_review():
                 current = self.get_task(key)
                 if current.get('deleted') or current['status'] != 'awaiting_review' or identity(current) != identity(task):
-                    raise ValueError('Review changed while preparing comparisons; reopen the task')
+                    raise UserError('Review changed while preparing comparisons; reopen the task')
                 return current
             with self.store.transaction():
                 current = current_review()
@@ -1344,7 +1345,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 samples = tools.frames(path, folder, media, self.config())
                 if len(samples) != 4 or {sample['file'] for sample in samples} != {'0.jpg','1.jpg','2.jpg','3.jpg'}:
                     label = 'Original' if side == 'source' else 'Processed'
-                    raise ValueError(label+' comparison is incomplete; could not extract all four images. Retry the comparison after checking file access and decoding.')
+                    raise UserError(label+' comparison is incomplete; could not extract all four images. Retry the comparison after checking file access and decoding.')
             with self.store.transaction():
                 current = current_review()
                 current.update(comparison_loaded=True, updated=now())
@@ -1354,10 +1355,10 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
     def kometa(self, library_id, title, asset_ids, mode='collection'):
         library = self.library(library_id)
         if not title.strip() or not asset_ids:
-            raise ValueError('Select content and supply a title')
+            raise UserError('Select content and supply a title')
         assets = [self.store.get('assets', x) for x in asset_ids]
         if any(not x or x['library'] != library_id for x in assets):
-            raise ValueError('Collection members must belong to the selected library')
+            raise UserError('Collection members must belong to the selected library')
         # JSON is valid YAML. Use ratings keys through the documented plex_search builder.
         # Export only; a reviewed Kometa run is separate until installed behavior is verified.
         return dict(collections={title: dict(plex_search={'all': {'title.is': [x['title'] for x in assets]}},
@@ -1370,7 +1371,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         key = identifier(library_id, 'playlist', title)
         old = self.store.get('tasks', key)
         if old and old['status'] in {'running', 'publishing', 'queued'}:
-            raise ValueError('This playlist already has active work')
+            raise UserError('This playlist already has active work')
         task = dict(id=key, asset=ordered[0]['id'], library=library_id, title=title, kind='playlist',
                     reason='Review interleaved episode order and missing pairings',
                     evidence={'ordered': [dict(title=x['item'].get('grandparentTitle'),

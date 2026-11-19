@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from .quality import display_geometry
 from . import tools
+from .errors import UserError
 
 PART = re.compile(r'(?i)^(.*?)[\s._-]+(?:part|pt|disc|cd)[\s._-]*(\d+)(?:\b|_)(.*)$')
 
@@ -13,9 +14,9 @@ def basename(value, suffix=None):
     if (not isinstance(value, str) or not value.strip() or value != value.strip()
             or len(value.encode()) > 240 or value in {'.', '..'} or value.startswith('.')
             or any(ord(c) < 32 or c in '/\\:' for c in value)):
-        raise ValueError('Enter a filename only, without folders or control characters')
+        raise UserError('Enter a filename only, without folders or control characters')
     if suffix and Path(value).suffix != suffix:
-        raise ValueError('Keep the original file extension, including its case')
+        raise UserError('Keep the original file extension, including its case')
     return value
 
 
@@ -52,7 +53,7 @@ def playback_streams(media):
         if stream.get('codec_type')=='data' and stream.get('codec_tag_string')=='tmcd':
             continue
         if stream.get('codec_type') not in {'video','audio','subtitle','attachment'}:
-            raise ValueError('Unsupported ancillary/data track; inspect it before joining')
+            raise UserError('Unsupported ancillary/data track; inspect it before joining')
         streams.append(stream)
     return streams
 
@@ -88,14 +89,14 @@ def normalization(media):
     tracks = lambda m: [(s['codec_type'], s.get('tags', {}).get('language', 'und')) for s in playback_streams(m)]
     for m in media:
         if tracks(m) != tracks(first) or any(s['codec_type'] not in {'video', 'audio', 'subtitle'} or s.get('disposition',{}).get('attached_pic') for s in playback_streams(m)):
-            raise ValueError('Normalization needs the same track types, order and languages in every part')
+            raise UserError('Normalization needs the same track types, order and languages in every part')
         if sum(s['codec_type'] == 'video' for s in m['streams']) != 1:
-            raise ValueError('Each part needs exactly one video stream')
+            raise UserError('Each part needs exactly one video stream')
         if m.get('color_transfer') in {'smpte2084', 'arib-std-b67'} or '10' in (m.get('pix_fmt') or ''):
-            raise ValueError('HDR/10-bit normalization needs a dedicated reviewed preset; use compatible parts')
+            raise UserError('HDR/10-bit normalization needs a dedicated reviewed preset; use compatible parts')
         old_subs = [s.get('codec_name') for s in first['streams'] if s['codec_type']=='subtitle']
         if [s.get('codec_name') for s in m['streams'] if s['codec_type']=='subtitle'] != old_subs:
-            raise ValueError('Subtitle formats differ; normalize the subtitles before joining')
+            raise UserError('Subtitle formats differ; normalize the subtitles before joining')
     return dict(width=width, height=height, description=f'{width} × {height}, H.264 8-bit SDR, 30 fps; AAC stereo 48 kHz; preserve subtitle tracks; letterbox without stretching')
 
 
@@ -104,7 +105,7 @@ def chapters(media, titles):
     for m, title in zip(media, titles):
         duration = m['duration_seconds']
         if not math.isfinite(duration) or duration <= 0:
-            raise ValueError('Every part needs a valid positive duration')
+            raise UserError('Every part needs a valid positive duration')
         rows.append(dict(start=offset, end=offset+duration, title=title))
         for chapter in m.get('chapters', []):
             start, end = float(chapter['start_time']), float(chapter['end_time'])
@@ -131,7 +132,7 @@ def concat_command(inputs, manifest, metadata, output, settings, media=None):
     def quote(path):
         value = str(path)
         if '\n' in value or '\r' in value:
-            raise ValueError('Source paths with newlines cannot be joined')
+            raise UserError('Source paths with newlines cannot be joined')
         return "'" + value.replace("'", "'\\''") + "'"
     Path(manifest).write_text('ffconcat version 1.0\n'+''.join('file '+quote(p)+'\n' for p in inputs))
     # hvc1 only applies to HEVC, added by the caller after probing the first video.
@@ -143,11 +144,11 @@ def concat_command(inputs, manifest, metadata, output, settings, media=None):
 def normalization_encoder(settings):
     result=subprocess.run([tools.executable(settings,'ffmpeg'),'-hide_banner','-encoders'],capture_output=True,text=True,timeout=15)
     if result.returncode or len(result.stdout)>4*1024*1024:
-        raise ValueError('Could not query FFmpeg encoders')
+        raise UserError('Could not query FFmpeg encoders')
     names={line.split()[1] for line in result.stdout.splitlines() if len(line.split())>1}
     if 'libx264' in names:return 'libx264'
     if 'h264_videotoolbox' in names:return 'h264_videotoolbox'
-    raise ValueError('The selected FFmpeg needs libx264 or macOS h264_videotoolbox for normalization')
+    raise UserError('The selected FFmpeg needs libx264 or macOS h264_videotoolbox for normalization')
 
 
 def normalize_command(source, output, canvas, settings, media=None):

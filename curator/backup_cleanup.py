@@ -10,12 +10,13 @@ from .paths import map_path
 from .file_workflows import exclusive_move, UNSUPPORTED_MOVE
 from .store import now
 from .logs import log
+from .errors import UserError
 from .rules import ACTIVE
 
 
 def file_identity(path):
     info=path.lstat()
-    if not stat.S_ISREG(info.st_mode):raise ValueError('Expected a regular file; symlinks are not eligible')
+    if not stat.S_ISREG(info.st_mode):raise UserError('Expected a regular file; symlinks are not eligible')
     return dict(device=info.st_dev,inode=info.st_ino,size=info.st_size,mtime=info.st_mtime_ns)
 
 
@@ -41,30 +42,30 @@ class BackupCleanupWorkflows:
 
     def backup_candidate(self,task):
         if task.get('deleted') or task['kind'] not in {'upscale','optimize'} or task['status']!='applied' or not all(task.get(k) for k in ('published','plex_verified','original_renamed')) or task.get('archive_deleted'):
-            raise ValueError('No verified retained original is eligible')
-        if task.get('cleanup_pending'):raise ValueError('An unfinished cleanup needs recovery first')
+            raise UserError('No verified retained original is eligible')
+        if task.get('cleanup_pending'):raise UserError('An unfinished cleanup needs recovery first')
         asset=self.asset(task,check=False);source=Path(asset['local_path'])
         if str(map_path(asset['plex_path'],self.library(asset['library'])['mappings']))!=str(source):
-            raise ValueError('Media mapping changed; inspect before cleanup')
+            raise UserError('Media mapping changed; inspect before cleanup')
         backup=source.with_name(source.stem+'-old'+source.suffix)
-        if task.get('archive')!=str(backup):raise ValueError('Retained original does not match its publication receipt')
-        if any(not isinstance(task.get(k),str) or len(task[k])!=64 for k in ('source_hash','output_hash')):raise ValueError('Publication hashes unavailable')
+        if task.get('archive')!=str(backup):raise UserError('Retained original does not match its publication receipt')
+        if any(not isinstance(task.get(k),str) or len(task[k])!=64 for k in ('source_hash','output_hash')):raise UserError('Publication hashes unavailable')
         source_identity=file_identity(source);backup_identity=file_identity(backup)
         if (source_identity['device'],source_identity['inode'])==(backup_identity['device'],backup_identity['inode']):
-            raise ValueError('Original and replacement identities are ambiguous')
+            raise UserError('Original and replacement identities are ambiguous')
         assets={a['id']:a for a in self.store.all('assets')}
         for other in self.store.all('tasks'):
             if other['id']==task['id'] or other['status'] not in ACTIVE:continue
             members=[assets.get(key,{}) for key in other.get('plan',{}).get('assets',[other.get('asset')])]
             if any(member.get('id')==asset['id'] or member.get('local_path')==str(source) or (asset.get('rating_key') and member.get('library')==asset['library'] and member.get('rating_key')==asset['rating_key']) for member in members):
-                raise ValueError('This file has active or waiting work')
+                raise UserError('This file has active or waiting work')
         return dict(id=task['id'],version=task['version'],title=asset.get('title') or source.name,
                     backup=str(backup),source=str(source),bytes=backup_identity['size'],
                     source_identity=source_identity,backup_identity=backup_identity,status='available')
 
     def cleanup_receipt(self,identity):
         record=self.store.get('settings',identity)
-        if not isinstance(record,dict) or record.get('record_type')!='backup_cleanup':raise ValueError('Cleanup preview unavailable')
+        if not isinstance(record,dict) or record.get('record_type')!='backup_cleanup':raise UserError('Cleanup preview unavailable')
         return record
 
     def cleanup_preview(self,library):
@@ -73,7 +74,7 @@ class BackupCleanupWorkflows:
             if task.get('library')!=library or not task.get('archive') or task.get('archive_deleted'):continue
             try:items.append(self.backup_candidate(task))
             except (ValueError,OSError) as error:
-                blocked.append(dict(id=task['id'],reason=str(error) if isinstance(error,ValueError) else 'Retained file unavailable',recoverable=bool(task.get('cleanup_pending'))))
+                blocked.append(dict(id=task['id'],reason=str(error) if isinstance(error, UserError) else 'Retained file unavailable',recoverable=bool(task.get('cleanup_pending'))))
         record=dict(id='backup-cleanup:'+uuid.uuid4().hex,record_type='backup_cleanup',library=library,
                     phase='preview',created=now(),items=items,blocked=blocked)
         history=[r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record_type')=='backup_cleanup' and r.get('library')==library and r.get('phase')!='preview']
@@ -83,12 +84,12 @@ class BackupCleanupWorkflows:
 
     def delete_backups(self,identity,ids,count,confirmation,background=True):
         if not isinstance(ids,list) or not ids or any(not isinstance(k,str) for k in ids) or len(ids)!=len(set(ids)) or type(count) is not int or count!=len(ids) or confirmation!='DELETE RETAINED ORIGINALS':
-            raise ValueError('Confirm the exact selected backup count')
+            raise UserError('Confirm the exact selected backup count')
         with self.lock:
             with self.store.transaction():
                 record=self.cleanup_receipt(identity)
                 if record['phase']!='preview' or set(ids)-{item['id'] for item in record['items']}:
-                    raise ValueError('Cleanup selection changed; create a fresh preview')
+                    raise UserError('Cleanup selection changed; create a fresh preview')
                 record.update(phase='queued',selected=ids,approved_count=count,approved_at=now())
                 self.store.put('settings',identity,record)
         self.queue_file_operation('cleanup',{'receipt':identity},background=background)
@@ -104,7 +105,7 @@ class BackupCleanupWorkflows:
                 try:self._delete_one_backup(row,identity);row['status']='deleted'
                 except Exception as error:
                     log.exception('Backup cleanup failed for one file')
-                    message=str(error)[:300] if isinstance(error,ValueError) else ('Filesystem error '+str(error.errno)+': '+str(error.strerror) if isinstance(error,OSError) else 'Cleanup failed; retained files require inspection')
+                    message=str(error)[:300] if isinstance(error, UserError) else ('Filesystem error '+str(error.errno)+': '+str(error.strerror) if isinstance(error,OSError) else 'Cleanup failed; retained files require inspection')
                     row.update(status='failed',error=message)
                 with self.store.transaction():
                     record['updated']=now();self.store.put('settings',identity,record)
@@ -123,16 +124,16 @@ class BackupCleanupWorkflows:
             with self.store.transaction():
                 task=self.get_task(row['id']);candidate=self.backup_candidate(task)
                 if any(candidate[k]!=row[k] for k in ('version','source','backup','source_identity','backup_identity')):
-                    raise ValueError('File or task changed since preview; backup preserved')
+                    raise UserError('File or task changed since preview; backup preserved')
                 source=Path(row['source']);backup=Path(row['backup'])
                 stage=backup.parent/('.curator-cleanup-'+uuid.uuid4().hex+backup.suffix)
                 task.update(cleanup_in_progress=True,cleanup_pending=dict(original=str(backup),staged=str(stage),receipt=receipt))
                 self.store.put('tasks',task['id'],task);self.store.event(task['id'],dict(action='backup cleanup requested',receipt=receipt,bytes=row['bytes']))
             try:
                 if tools.digest(source)!=task['output_hash'] or tools.digest(backup)!=task['source_hash']:
-                    raise ValueError('Original or published replacement changed; backup preserved')
+                    raise UserError('Original or published replacement changed; backup preserved')
                 if file_identity(source)!=row['source_identity'] or file_identity(backup)!=row['backup_identity']:
-                    raise ValueError('File changed during verification; backup preserved')
+                    raise UserError('File changed during verification; backup preserved')
                 copied=False
                 try:exclusive_move(backup,stage)
                 except OSError as error:
@@ -144,13 +145,13 @@ class BackupCleanupWorkflows:
                         recovery.flush();os.fsync(recovery.fileno())
                     copied=True
                 if tools.digest(stage)!=task['source_hash'] or tools.digest(source)!=task['output_hash']:
-                    raise ValueError('Files changed during cleanup; retained original requires recovery')
+                    raise UserError('Files changed during cleanup; retained original requires recovery')
                 staged=file_identity(stage)
                 if file_identity(source)!=row['source_identity'] or (not copied and staged!=row['backup_identity']):
-                    raise ValueError('File identity changed; retained original requires recovery')
+                    raise UserError('File identity changed; retained original requires recovery')
                 if copied:
                     if file_identity(backup)!=row['backup_identity'] or tools.digest(backup)!=task['source_hash']:
-                        raise ValueError('Original changed during recovery copy; both files preserved')
+                        raise UserError('Original changed during recovery copy; both files preserved')
                     backup.unlink()
                 stage.unlink()
                 with self.store.transaction():
@@ -173,14 +174,14 @@ class BackupCleanupWorkflows:
         if not allow_active:return self.queue_file_operation('restore_cleanup',{'task':key})
         with self.operation_lock(key):
             task=self.get_task(key);pending=task.get('cleanup_pending')
-            if not pending:raise ValueError('No unfinished backup cleanup')
-            if not allow_active and pending['receipt'] in self.active:raise ValueError('Wait for the current cleanup to finish')
+            if not pending:raise UserError('No unfinished backup cleanup')
+            if not allow_active and pending['receipt'] in self.active:raise UserError('Wait for the current cleanup to finish')
             original=Path(pending['original']);stage=Path(pending['staged']);asset=self.asset(task,check=False);source=Path(asset['local_path'])
             if original!=source.with_name(source.stem+'-old'+source.suffix) or stage.parent!=original.parent or not stage.name.startswith('.curator-cleanup-'):
-                raise ValueError('Cleanup paths do not match the publication receipt')
+                raise UserError('Cleanup paths do not match the publication receipt')
             if stage.exists() or stage.is_symlink():
                 file_identity(stage)
-                if tools.digest(stage)!=task['source_hash']:raise ValueError('Staged original changed; inspect it before recovery')
+                if tools.digest(stage)!=task['source_hash']:raise UserError('Staged original changed; inspect it before recovery')
                 if original.exists() or original.is_symlink():
                     file_identity(original)
                     if tools.digest(original)!=task['source_hash']:raise FileExistsError('Original path contains a different file; both files preserved')
@@ -192,11 +193,11 @@ class BackupCleanupWorkflows:
                         with stage.open('rb') as recovery,original.open('xb') as output:
                             shutil.copyfileobj(recovery,output,1024*1024)
                             output.flush();os.fsync(output.fileno())
-                        if tools.digest(original)!=task['source_hash']:raise ValueError('Recovery copy did not verify; staging retained')
+                        if tools.digest(original)!=task['source_hash']:raise UserError('Recovery copy did not verify; staging retained')
                         stage.unlink()
             elif not original.is_file() or original.is_symlink():
-                raise ValueError('Retained original unavailable; inspect cleanup receipt before recovery')
-            if tools.digest(original)!=task['source_hash']:raise ValueError('Restored original differs from its receipt')
+                raise UserError('Retained original unavailable; inspect cleanup receipt before recovery')
+            if tools.digest(original)!=task['source_hash']:raise UserError('Restored original differs from its receipt')
             with self.store.transaction():
                 task=self.get_task(key);task.update(cleanup_in_progress=False,cleanup_pending=None,updated=now())
                 self.store.put('tasks',key,task);self.store.event(key,dict(action='backup cleanup restored'))

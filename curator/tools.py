@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from .quality import display_geometry
+from .errors import UserError
 
 
 TOPAZ = '/Applications/Topaz Video.app/Contents/MacOS/'
@@ -37,18 +38,18 @@ def executable(config, name):
         found = next((p for p in candidates if p and Path(p).is_absolute()
                       and Path(p).is_file() and os.access(p, os.X_OK)), None)
         if not found:
-            raise ValueError(f'{name} was not found. Install FFmpeg or set its absolute path in Settings.')
+            raise UserError(f'{name} was not found. Install FFmpeg or set its absolute path in Settings.')
         return found
     if name == 'handbrake' and not config.get(name):
         candidates = ['/Applications/HandBrakeCLI', shutil.which('HandBrakeCLI'),
                       '/opt/homebrew/bin/HandBrakeCLI', '/usr/local/bin/HandBrakeCLI']
         found = next((p for p in candidates if p and Path(p).is_file() and os.access(p, os.X_OK)), None)
         if not found:
-            raise ValueError('HandBrakeCLI was not found. Install the CLI or set its path in Settings; the GUI app cannot run these jobs.')
+            raise UserError('HandBrakeCLI was not found. Install the CLI or set its path in Settings; the GUI app cannot run these jobs.')
         return found
     path = Path(config.get(name) or fallback[name])
     if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
-        raise ValueError(f'{name} executable unavailable; configure its installed path')
+        raise UserError(f'{name} executable unavailable; configure its installed path')
     return str(path)
 
 
@@ -84,7 +85,7 @@ def _preset_import_args(settings):
         return ['--preset-import-gui']
     path = Path(configured)
     if not path.is_absolute() or not path.is_file() or path.suffix.lower() != '.json':
-        raise ValueError('Custom preset import must be an existing absolute JSON file path')
+        raise UserError('Custom preset import must be an existing absolute JSON file path')
     return ['--preset-import-file', str(path)]
 
 
@@ -95,35 +96,35 @@ def handbrake_presets(settings):
                                 text=True, timeout=15)
         text = result.stdout + '\n' + result.stderr
         if result.returncode or len(text) > 2 * 1024 * 1024:
-            raise ValueError('HandBrake preset discovery failed')
+            raise UserError('HandBrake preset discovery failed')
         presets = parse_handbrake_presets(text)
         if not presets:
-            raise ValueError('HandBrake returned no recognizable presets')
+            raise UserError('HandBrake returned no recognizable presets')
         warning = ('HandBrake could not load GUI custom presets; the list contains the presets it could read.'
                    if 'Failed to load GUI presets' in text or 'Preset import failed' in text else None)
         return dict(available=True, executable=exe, presets=presets, warning=warning)
     except (OSError, subprocess.SubprocessError):
-        raise ValueError('HandBrake preset query failed or timed out') from None
+        raise UserError('HandBrake preset query failed or timed out') from None
 
 
 def freeze_handbrake_preset(settings, preset, folder, source=None):
     if not isinstance(preset, str) or not preset.strip() or len(preset) > 500:
-        raise ValueError('Choose an installed HandBrake preset on this task')
+        raise UserError('Choose an installed HandBrake preset on this task')
     available = handbrake_presets(settings)
     if preset not in {p['path'] for p in available['presets']}:
-        raise ValueError('The selected HandBrake preset is no longer available; refresh the task preset list')
+        raise UserError('The selected HandBrake preset is no longer available; refresh the task preset list')
     name = 'Curator approved preset'
     try:
         result = subprocess.run([available['executable'], *_preset_import_args(settings), '--preset', preset,
                                  '--preset-export', name], capture_output=True, text=True, timeout=15)
         if result.returncode or len(result.stdout) > 2 * 1024 * 1024:
-            raise ValueError('Could not capture the selected HandBrake preset')
+            raise UserError('Could not capture the selected HandBrake preset')
         payload = json.loads(result.stdout)
         rows = payload.get('PresetList', [])
         if len(rows) != 1 or rows[0].get('PresetName') != name or rows[0].get('Folder'):
-            raise ValueError('Unexpected HandBrake preset export')
+            raise UserError('Unexpected HandBrake preset export')
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-        raise ValueError('Could not export the selected HandBrake preset') from None
+        raise UserError('Could not export the selected HandBrake preset') from None
     adjustment = None
     if source:
         width, height = display_geometry(source)
@@ -149,7 +150,7 @@ def probe(path, config):
     result = subprocess.run([executable(config, 'ffprobe'), '-v', 'error', '-show_format', '-show_streams', '-show_chapters', '-show_data_hash', 'sha256',
                              '-of', 'json', str(path)], capture_output=True, timeout=60)
     if result.returncode or len(result.stdout) > 4 * 1024 * 1024:
-        raise ValueError('Video probe failed')
+        raise UserError('Video probe failed')
     try:
         info = json.loads(result.stdout)
         video = next(x for x in info['streams'] if x['codec_type'] == 'video'
@@ -161,7 +162,7 @@ def probe(path, config):
                     bitrate=int(fmt.get('bit_rate', 0)), chapters=info.get('chapters', []), container=fmt.get('format_name', ''), streams=info['streams'],
                     color_transfer=video.get('color_transfer'), pix_fmt=video.get('pix_fmt'))
     except (KeyError, ValueError, StopIteration):
-        raise ValueError('No usable video stream') from None
+        raise UserError('No usable video stream') from None
 
 
 def validate(source, output):
@@ -218,13 +219,13 @@ def processing_environment(kind, settings):
     bundled = Path(executable(settings, 'topaz')).parent.parent / 'Resources' / 'models'
     models = Path(env.get('TVAI_MODEL_DIR') or bundled).expanduser().resolve()
     if not models.is_dir():
-        raise ValueError('Topaz model folder unavailable; verify the Topaz FFmpeg app path and installed models')
+        raise UserError('Topaz model folder unavailable; verify the Topaz FFmpeg app path and installed models')
     data = Path(env.get('TVAI_MODEL_DATA_DIR') or Path.home()/'Library'/'Caches'/'Curator'/'Topaz').expanduser().resolve()
     try:
         data.mkdir(mode=0o700,parents=True,exist_ok=True)
         with tempfile.TemporaryFile(dir=data):pass
     except OSError:
-        raise ValueError('Topaz model data directory is not writable; choose a writable cache location') from None
+        raise UserError('Topaz model data directory is not writable; choose a writable cache location') from None
     env['TVAI_MODEL_DIR'] = str(models)
     env['TVAI_MODEL_DATA_DIR'] = str(data)
     return env
@@ -232,7 +233,7 @@ def processing_environment(kind, settings):
 
 def topaz_encoding(settings):
     mode=settings.get('topaz_rate_control') or 'quality'
-    if mode not in {'quality','bitrate'}:raise ValueError('Choose quality or bitrate encoding')
+    if mode not in {'quality','bitrate'}:raise UserError('Choose quality or bitrate encoding')
     value=settings.get('topaz_quality',65) if mode=='quality' else settings.get('topaz_bitrate_mbps')
     try:
         if isinstance(value,bool):raise ValueError()
@@ -240,7 +241,7 @@ def topaz_encoding(settings):
         import math
         if not math.isfinite(value) or not (1<=value<=100 if mode=='quality' else .1<=value<=500):raise ValueError()
     except (TypeError,ValueError):
-        raise ValueError('Topaz quality must be 1–100' if mode=='quality' else 'Enter a Topaz bitrate target between 0.1 and 500 Mbps') from None
+        raise UserError('Topaz quality must be 1–100' if mode=='quality' else 'Enter a Topaz bitrate target between 0.1 and 500 Mbps') from None
     if mode=='quality':return ['-q:v',format(value,'g')]
     bitrate=round(value*1_000_000)
     return ['-b:v',str(bitrate),'-maxrate',str(bitrate),'-bufsize',str(bitrate*2)]
@@ -250,10 +251,10 @@ def command(kind, source, output, settings):
     if kind == 'optimize':
         preset = settings.get('handbrake_preset')
         if not isinstance(preset, str) or not preset.strip():
-            raise ValueError('Select a HandBrake preset before processing')
+            raise UserError('Select a HandBrake preset before processing')
         snapshot = settings.get('handbrake_preset_file')
         if not snapshot or not Path(snapshot).is_file() or digest(snapshot) != settings.get('handbrake_preset_hash'):
-            raise ValueError('Approved preset snapshot is missing or changed; select and approve the preset again')
+            raise UserError('Approved preset snapshot is missing or changed; select and approve the preset again')
         container = {'.mkv':'av_mkv', '.mov':'av_mov'}.get(Path(output).suffix.lower(), 'av_mp4')
         return [executable(settings, 'handbrake'), '-i', str(source), '-o', str(output),
                 '--preset-import-file', snapshot, '--preset', preset, '--format', container,
@@ -262,20 +263,20 @@ def command(kind, source, output, settings):
         # Settings contain exported filter/encoder choices, never executable shell commands.
         vf = settings.get('topaz_filter', '')
         if not isinstance(vf, str) or not vf.startswith('tvai_up=') or any(x in vf for x in ';[]\n'):
-            raise ValueError('Configure a reviewed tvai_up filter from Topaz Export Command')
+            raise UserError('Configure a reviewed tvai_up filter from Topaz Export Command')
         if len(vf) > 2000 or not all(x.replace('.', '').replace('-', '').replace('_', '').isalnum()
                                       for x in vf.replace('=', ':').replace(',', ':').split(':') if x):
-            raise ValueError('Invalid Topaz filter')
+            raise UserError('Invalid Topaz filter')
         apple = ['-tag:v', 'hvc1', '-movflags', '+faststart'] if Path(output).suffix.lower() in {'.mov', '.mp4', '.m4v'} else []
         return [executable(settings, 'topaz'), '-nostdin', '-n', '-i', str(source), '-map', '0:v:0',
                 '-map', '0:a?', '-map', '0:s?', '-vf', vf, '-c:v', 'hevc_videotoolbox',
                 '-allow_sw', '1', *topaz_encoding(settings), '-c:a', 'copy', '-c:s', 'copy', *apple, str(output)]
-    raise ValueError('This task does not use a video processing tool')
+    raise UserError('This task does not use a video processing tool')
 
 
 def quicktime_remux(source, output, settings):
     if Path(output).suffix.lower() not in {'.mov', '.mp4', '.m4v'}:
-        raise ValueError('QuickTime repair requires a MOV or MP4 container')
+        raise UserError('QuickTime repair requires a MOV or MP4 container')
     return [executable(settings, 'ffmpeg'), '-nostdin', '-n', '-i', str(source), '-map', '0',
             '-c', 'copy', '-tag:v', 'hvc1', '-movflags', '+faststart', str(output)]
 
@@ -283,13 +284,13 @@ def quicktime_remux(source, output, settings):
 def frames(path, folder, media, settings):
     folder = Path(folder)
     if folder.is_symlink():
-        raise ValueError('Frame cache must not be a symlink')
+        raise UserError('Frame cache must not be a symlink')
     folder.mkdir(parents=True, exist_ok=True)
     manifest = folder / '.manifest.json'
     targets = [folder / f'{index}.jpg' for index in range(4)]
     for target in [manifest, *targets]:
         if target.is_symlink() or (target.exists() and not target.is_file()):
-            raise ValueError('Frame cache must contain regular files')
+            raise UserError('Frame cache must contain regular files')
     identity = dict(version=1, path=str(Path(path).resolve()), fingerprint=fingerprint(path),
                     duration_seconds=media['duration_seconds'])
     try:
@@ -313,10 +314,10 @@ def frames(path, folder, media, settings):
         result.append(dict(file=target.name, seconds=round(media['duration_seconds'] * fraction, 1)))
     if not result:
         manifest.unlink(missing_ok=True)
-        raise ValueError('Could not extract candidate frames')
+        raise UserError('Could not extract candidate frames')
     if fingerprint(path) != identity['fingerprint']:
         manifest.unlink(missing_ok=True)
-        raise ValueError('Input changed during frame extraction; retry the comparison')
+        raise UserError('Input changed during frame extraction; retry the comparison')
     if len(result) == 4:
         temporary = folder / f'.manifest-{uuid.uuid4().hex}.tmp'
         try:
@@ -333,7 +334,7 @@ def frames(path, folder, media, settings):
 def image_bytes(path):
     data = Path(path).read_bytes()
     if len(data) > 10 * 1024 * 1024 or not (data.startswith(b'\xff\xd8\xff') or data.startswith(b'\x89PNG\r\n\x1a\n')):
-        raise ValueError('Select a JPEG or PNG image under 10 MiB')
+        raise UserError('Select a JPEG or PNG image under 10 MiB')
     return data
 
 

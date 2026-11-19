@@ -3,6 +3,7 @@ import copy
 import uuid
 from .plex import Plex
 from .store import now
+from .errors import UserError
 from .rules import ACTIVE
 
 
@@ -11,31 +12,31 @@ class MetadataWorkflows:
         if (not isinstance(refs, list) or not 1 <= len(refs) <= 5000
                 or any(not isinstance(r, dict) or set(r) != {'id', 'version'} for r in refs)
                 or len({r['id'] for r in refs}) != len(refs)):
-            raise ValueError('Choose exact metadata tasks and versions')
+            raise UserError('Choose exact metadata tasks and versions')
         if not isinstance(fields, dict) or not fields or set(fields) - {'title', 'summary', 'studio', 'tagline', 'genre', 'collection', 'cast'}:
-            raise ValueError('Choose the metadata fields to change')
+            raise UserError('Choose the metadata fields to change')
         for key, value in fields.items():
             if key in {'genre', 'collection'}:
                 if not isinstance(value, dict) or set(value) != {'mode', 'values'} or value['mode'] not in {'add', 'replace', 'clear'}:
-                    raise ValueError('Choose Add, Replace or Clear for list fields')
+                    raise UserError('Choose Add, Replace or Clear for list fields')
                 Plex.validate_changes({key: value['values']})
                 if value['mode'] == 'clear' and value['values']:
-                    raise ValueError('Clear must not contain values')
+                    raise UserError('Clear must not contain values')
             else:
                 Plex.validate_changes({key: value})
         rows, seen = [], set()
         for ref in refs:
             task = self.get_task(ref['id'])
             if task['version'] != ref['version'] or task['kind'] not in {'metadata', 'home'} or task['status'] not in {'recommendation', 'resolved', 'applied', 'blocked', 'failed', 'cancelled', 'awaiting_review'} or task.get('deleted'):
-                raise ValueError('Metadata task changed or is already queued; reopen the editor')
+                raise UserError('Metadata task changed or is already queued; reopen the editor')
             asset = self.asset(task, check=False)
             identity = (asset['library'], asset['rating_key'])
             if identity in seen:
-                raise ValueError('Select each Plex item once')
+                raise UserError('Select each Plex item once')
             seen.add(identity)
             item = self.checked_client(self.library(asset['library'])).item(asset['rating_key'])
             if str(item.get('ratingKey')) != asset['rating_key']:
-                raise ValueError('Metadata destination identity changed')
+                raise UserError('Metadata destination identity changed')
             before = self.metadata_fields(item)
             changes = {}
             for key, value in fields.items():
@@ -64,14 +65,14 @@ class MetadataWorkflows:
             for row in rows:
                 task = self.get_task(row['task'])
                 if task['version'] != row['version'] or task['status'] in ACTIVE:
-                    raise ValueError('A selected task changed during preview')
+                    raise UserError('A selected task changed during preview')
             self.store.put('settings', receipt['id'], receipt)
         return receipt
 
     def approve_metadata_preview(self, key):
         receipt = self.store.get('settings', key)
         if not receipt or receipt.get('record_type') != 'metadata_preview':
-            raise ValueError('Metadata preview not found')
+            raise UserError('Metadata preview not found')
         if receipt['phase'] == 'queued':
             return receipt  # Idempotent approval; never duplicate queue entries.
         # Read current Plex metadata without a database transaction held across I/O.
@@ -80,7 +81,7 @@ class MetadataWorkflows:
                 continue
             item = self.checked_client(self.library(row['library'])).item(row['rating_key'])
             if str(item.get('ratingKey')) != row['rating_key'] or item.get('guid') != row['guid'] or not self._same_metadata(self.metadata_fields(item), row['before']):
-                raise ValueError('Plex metadata changed after preview; preview again')
+                raise UserError('Plex metadata changed after preview; preview again')
         with self.store.transaction():
             current = self.store.get('settings', key)
             if current['phase'] == 'queued':
@@ -90,13 +91,13 @@ class MetadataWorkflows:
                 task = self.get_task(row['task'])
                 asset = self.store.get('assets', row['asset'])
                 if task['version'] != row['version'] or task.get('deleted') or task['status'] in ACTIVE or not asset or asset.get('fingerprint') != row['source'] or asset.get('rating_key') != row['rating_key'] or asset.get('library') != row['library']:
-                    raise ValueError('A selected task or source changed; preview again')
+                    raise UserError('A selected task or source changed; preview again')
                 from .service import identifier
                 destination = self.store.get('tasks', identifier(row['asset'], 'metadata'))
                 if row['changes'] and (destination['version'] if destination else None) != row['destination_version']:
-                    raise ValueError('Metadata destination task changed; preview again')
+                    raise UserError('Metadata destination task changed; preview again')
                 if row['changes'] and destination and destination['id'] != task['id'] and destination['status'] in ACTIVE:
-                    raise ValueError('An item already has queued metadata work')
+                    raise UserError('An item already has queued metadata work')
             queued = []
             for row in receipt['rows']:
                 if not row['changes']:

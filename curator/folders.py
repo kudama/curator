@@ -11,6 +11,7 @@ from . import branding, cast, tools
 from .paths import map_path
 from .plex import Plex
 from .store import now
+from .errors import UserError
 from .rules import RESERVING, stable_id
 
 
@@ -79,7 +80,7 @@ class FolderWorkflows:
 
     def folder_node(self, fid):
         row = next((r for r in self.folder_nodes() if r['id'] == fid), None)
-        if not row:raise ValueError('Folder is no longer in the scanned library')
+        if not row:raise UserError('Folder is no longer in the scanned library')
         return row
 
     def folder_members(self, folder, recursive):
@@ -100,11 +101,11 @@ class FolderWorkflows:
         return dict(folder=folder, defaults=defaults, branding=brand, branding_revision=branding.revision(brand) if brand else None, inherited=sorted(inherited, key=lambda r:len(PurePosixPath(r['folder']).parts), reverse=True))
 
     def folder_image(self, photo):
-        if not isinstance(photo, str) or not re.fullmatch('[a-f0-9]{64}', photo):raise ValueError('Invalid folder image')
+        if not isinstance(photo, str) or not re.fullmatch('[a-f0-9]{64}', photo):raise UserError('Invalid folder image')
         target = self.store.root / 'folder-images' / photo
-        if target.is_symlink():raise ValueError('Invalid folder image')
+        if target.is_symlink():raise UserError('Invalid folder image')
         data = tools.image_bytes(target)
-        if hashlib.sha256(data).hexdigest() != photo:raise ValueError('Folder image changed; choose it again')
+        if hashlib.sha256(data).hexdigest() != photo:raise UserError('Folder image changed; choose it again')
         return data
 
     def _folder_photo(self, encoded=None, photo=None):
@@ -113,19 +114,19 @@ class FolderWorkflows:
             photo = hashlib.sha256(data).hexdigest()
             directory = self.store.root / 'folder-images';directory.mkdir(mode=0o700, exist_ok=True)
             target = directory / photo
-            if target.is_symlink():raise ValueError('Invalid folder image')
+            if target.is_symlink():raise UserError('Invalid folder image')
             if not target.exists():
                 with target.open('xb') as out:os.chmod(target, 0o600);out.write(data)
         if photo:self.folder_image(photo)
         return photo
 
     def folder_settings(self, data):
-        if not isinstance(data, dict) or set(data) - {'fields','artwork','mode','artwork_mode','recursive','branding','portrait'}:raise ValueError('Invalid folder settings')
+        if not isinstance(data, dict) or set(data) - {'fields','artwork','mode','artwork_mode','recursive','branding','portrait'}:raise UserError('Invalid folder settings')
         mode = data.get('mode', 'fill')
-        if not isinstance(mode,str) or mode not in {'fill','merge','replace'} or type(data.get('recursive', False)) is not bool:raise ValueError('Choose a folder scope and metadata mode')
+        if not isinstance(mode,str) or mode not in {'fill','merge','replace'} or type(data.get('recursive', False)) is not bool:raise UserError('Choose a folder scope and metadata mode')
         artwork_mode=data.get('artwork_mode')
-        if artwork_mode is not None and artwork_mode not in ('fill','replace'):raise ValueError('Choose whether to replace artwork or fill missing artwork')
-        if not isinstance(data.get('fields',{}),dict):raise ValueError('Invalid folder metadata fields')
+        if artwork_mode is not None and artwork_mode not in ('fill','replace'):raise UserError('Choose whether to replace artwork or fill missing artwork')
+        if not isinstance(data.get('fields',{}),dict):raise UserError('Invalid folder metadata fields')
         fields = dict(data.get('fields', {}));artwork = data.get('artwork', {})
         if fields:
             standard = {k:v for k,v in fields.items() if k != 'cast'}
@@ -133,14 +134,14 @@ class FolderWorkflows:
         if 'cast' in fields:
             profiles = self.store.get('settings', 'cast_profiles', {})
             rows = []
-            if not isinstance(fields['cast'], list) or len(fields['cast'])>100:raise ValueError('Choose at most 100 cast members')
+            if not isinstance(fields['cast'], list) or len(fields['cast'])>100:raise UserError('Choose at most 100 cast members')
             for source in fields['cast']:
-                if not isinstance(source,dict):raise ValueError('Invalid folder cast member')
+                if not isinstance(source,dict):raise UserError('Invalid folder cast member')
                 row = dict(source);photo = row.pop('photo', None)
                 cast.validate_rows([row])
-                if row.get('thumb'):raise ValueError('Use a saved cast profile or upload a folder profile picture')
+                if row.get('thumb'):raise UserError('Use a saved cast profile or upload a folder profile picture')
                 profile = profiles.get(row.get('profile_id'))
-                if row.get('profile_id') and (not profile or profile['revision'] != row.get('revision')):raise ValueError('Saved cast profile changed; reopen the folder editor')
+                if row.get('profile_id') and (not profile or profile['revision'] != row.get('revision')):raise UserError('Saved cast profile changed; reopen the folder editor')
                 if row.get('clear_photo'):photo = None
                 elif row.get('image'):photo = self._folder_photo(encoded=row['image'])
                 elif photo:self.folder_image(photo)
@@ -149,42 +150,42 @@ class FolderWorkflows:
                 rows.append(dict(name=row['name'].strip(), role=row.get('role',''), **({'photo':photo} if photo else {})))
             cast.validate_rows([{k:v for k,v in row.items() if k != 'photo'} for row in rows])
             fields['cast'] = rows
-        if not isinstance(artwork, dict) or set(artwork) - {'cover','background','logo','square'}:raise ValueError('Choose shared cover, background, logo or square artwork')
+        if not isinstance(artwork, dict) or set(artwork) - {'cover','background','logo','square'}:raise UserError('Choose shared cover, background, logo or square artwork')
         images = {}
         for kind, value in artwork.items():
-            if not isinstance(value, dict) or set(value) - {'image','photo'}:raise ValueError('Invalid shared artwork')
+            if not isinstance(value, dict) or set(value) - {'image','photo'}:raise UserError('Invalid shared artwork')
             photo = self._folder_photo(value.get('image'), value.get('photo'))
             if photo:images[kind] = {'photo':photo}
         brand = data.get('branding')
         if brand is not None:
             branding.validate(brand)
-            if brand.get('logo'):raise ValueError('Manage creator logo files in the file editor')
-            if brand.get('preset_id') not in {p['id'] for p in self.config().get('branding_presets', branding.DEFAULT_PRESETS)}:raise ValueError('Choose an available branding preset')
+            if brand.get('logo'):raise UserError('Manage creator logo files in the file editor')
+            if brand.get('preset_id') not in {p['id'] for p in self.config().get('branding_presets', branding.DEFAULT_PRESETS)}:raise UserError('Choose an available branding preset')
         settings = dict(fields=fields, artwork=images, mode=mode, recursive=data.get('recursive',False), branding=brand)
         if artwork_mode is not None:settings['artwork_mode']=artwork_mode
         portrait = data.get('portrait')
         if portrait is not None:
             if 'cast' in fields or not isinstance(portrait, dict) or set(portrait) != {'profile_id','revision'}:
-                raise ValueError('Choose one saved portrait separately from shared cast replacement')
+                raise UserError('Choose one saved portrait separately from shared cast replacement')
             profile = self.store.get('settings', 'cast_profiles', {}).get(portrait['profile_id'])
             if not profile or profile['revision'] != portrait['revision'] or not profile.get('photo'):
-                raise ValueError('Saved portrait changed or has no picture; reopen the folder editor')
+                raise UserError('Saved portrait changed or has no picture; reopen the folder editor')
             photo = self._folder_photo(encoded=base64.b64encode(self.cast_profile_image(portrait['profile_id'])).decode())
             settings['portrait'] = dict(name=profile['name'], photo=photo, profile_id=portrait['profile_id'], revision=portrait['revision'])
         return settings
 
     def save_folder_defaults(self, fid, data, revision, branding_revision=None):
         folder = self.folder_node(fid);settings = self.folder_settings(data)
-        if settings.get('portrait'):raise ValueError('Portrait application requires a fresh preview; it cannot become an automatic folder default')
+        if settings.get('portrait'):raise UserError('Portrait application requires a fresh preview; it cannot become an automatic folder default')
         library = self.library(folder['library'])
         local = map_path(folder['path'] + '/.curator-folder', library['mappings'], False).parent
-        if not local.is_dir():raise ValueError('Mapped folder is unavailable')
+        if not local.is_dir():raise UserError('Mapped folder is unavailable')
         with self.lock:
             old = self.store.get('settings', 'folder:' + fid)
-            if (old or {}).get('revision') != revision:raise ValueError('Folder defaults changed; reopen before saving')
+            if (old or {}).get('revision') != revision:raise UserError('Folder defaults changed; reopen before saving')
             if settings['branding'] is not None:
                 previous = branding.read(local)
-                if (branding.revision(previous) if previous else None) != branding_revision:raise ValueError('Folder branding changed; reopen before saving')
+                if (branding.revision(previous) if previous else None) != branding_revision:raise UserError('Folder branding changed; reopen before saving')
                 branding.write(local, {**settings['branding'], 'logo':(previous or {}).get('logo','')}, branding_revision)
             value = dict(record='folder_defaults', library=folder['library'], folder=folder['path'], revision=uuid.uuid4().hex, updated=now(), **settings)
             with self.store.transaction():self.store.put('settings','folder:' + fid,value)
@@ -223,7 +224,7 @@ class FolderWorkflows:
     def folder_preview(self, fid, data):
         folder = self.folder_node(fid);settings = self.folder_settings(data)
         members = self.folder_members(folder, settings['recursive'])
-        if not members:raise ValueError('No scanned files in this folder scope')
+        if not members:raise UserError('No scanned files in this folder scope')
         client = self.checked_client(self.library(folder['library']));rows = [];seen = set()
         for member in members:
             identity = member['rating_key']
@@ -231,16 +232,16 @@ class FolderWorkflows:
             seen.add(identity)
             try:
                 asset = self.asset({'asset':member['id']})
-                if asset.get('blocked') or asset.get('availability_error'):raise ValueError('Scan this file to resolve its availability before applying folder defaults')
+                if asset.get('blocked') or asset.get('availability_error'):raise UserError('Scan this file to resolve its availability before applying folder defaults')
                 item = client.item(identity)
-                if str(item.get('ratingKey')) != identity or asset['plex_path'] not in {part.get('file') for media in item.get('Media',[]) for part in media.get('Part',[])}:raise ValueError('Plex source path changed; rescan and preview again')
+                if str(item.get('ratingKey')) != identity or asset['plex_path'] not in {part.get('file') for media in item.get('Media',[]) for part in media.get('Part',[])}:raise UserError('Plex source path changed; rescan and preview again')
                 before, changes, artwork = self._folder_changes(item, settings, client)
                 hashes = {kind:hashlib.sha256(client.image(identity,kind)).hexdigest() if Plex.artwork_path(item,kind) else None for kind in artwork}
                 artwork = {kind:value for kind,value in artwork.items() if hashes[kind] != value['photo']}
                 hashes = {kind:hashes[kind] for kind in artwork}
                 self.resolve_satisfied_folder_work(asset,item,fid,not changes and not artwork)
                 for pending in self.store.all('tasks'):
-                    if pending['library']==folder['library'] and pending['status'] in RESERVING and (asset['id'] in pending['plan'].get('assets',[pending['asset']]) or self.store.get('assets',pending['asset'],{}).get('rating_key')==identity):raise ValueError('This title has active work; finish or cancel it first')
+                    if pending['library']==folder['library'] and pending['status'] in RESERVING and (asset['id'] in pending['plan'].get('assets',[pending['asset']]) or self.store.get('assets',pending['asset'],{}).get('rating_key')==identity):raise UserError('This title has active work; finish or cancel it first')
                 self._cache_metadata(asset,item)
                 rows.append(dict(asset=asset['id'], title=item.get('title',asset['title']), filename=Path(asset['plex_path']).name,
                     source=asset['fingerprint'], before=before, changes=changes, artwork=artwork, art_before=hashes,
@@ -259,19 +260,19 @@ class FolderWorkflows:
     def queue_folder_preview(self, preview_id):
         with self.lock:
             preview = self.store.get('settings','folder-preview:' + preview_id)
-            if not preview or time.time()-preview['created']>3600:raise ValueError('Folder preview expired; preview again')
-            if preview.get('queued'):raise ValueError('This preview is already queued')
+            if not preview or time.time()-preview['created']>3600:raise UserError('Folder preview expired; preview again')
+            if preview.get('queued'):raise UserError('This preview is already queued')
             folder = self.folder_node(preview['folder'])
-            if sorted(a['id'] for a in self.folder_members(folder,preview['settings']['recursive'])) != preview['members']:raise ValueError('Folder membership changed; preview again')
+            if sorted(a['id'] for a in self.folder_members(folder,preview['settings']['recursive'])) != preview['members']:raise UserError('Folder membership changed; preview again')
             rows = [row for row in preview['rows'] if not row.get('error') and (row['changes'] or row['artwork'])]
-            if not rows:raise ValueError('No applicable changes in this preview')
+            if not rows:raise UserError('No applicable changes in this preview')
             pending = self.store.all('tasks')
             for row in rows:
                 asset = self.asset({'asset':row['asset']})
-                if asset['fingerprint'] != row['source'] or asset['plex_path'] != row['plex_path'] or asset['rating_key'] != row['rating_key']:raise ValueError('Source changed; preview again')
+                if asset['fingerprint'] != row['source'] or asset['plex_path'] != row['plex_path'] or asset['rating_key'] != row['rating_key']:raise UserError('Source changed; preview again')
                 for task in pending:
                     ids = task['plan'].get('assets',[task['asset']])
-                    if task['status'] in RESERVING and (asset['id'] in ids or self.store.get('assets',task['asset'],{}).get('rating_key') == asset['rating_key'] and task['library'] == asset['library']):raise ValueError('A selected title has active work; finish or cancel it before queueing folder changes')
+                    if task['status'] in RESERVING and (asset['id'] in ids or self.store.get('assets',task['asset'],{}).get('rating_key') == asset['rating_key'] and task['library'] == asset['library']):raise UserError('A selected title has active work; finish or cancel it before queueing folder changes')
             with self.store.transaction():
                 tasks = []
                 for row in rows:
@@ -309,7 +310,7 @@ class FolderWorkflows:
 
     def execute_folder_metadata(self, task, asset):
         client = self.checked_client(self.library(asset['library']));plan = task['plan']
-        if plan.get('portrait_profile') and isinstance(client,Plex):raise ValueError('Native Plex portrait transport is unverified; use the local portrait download and manual fallback')
+        if plan.get('portrait_profile') and isinstance(client,Plex):raise UserError('Native Plex portrait transport is unverified; use the local portrait download and manual fallback')
         item = client.item(asset['rating_key'])
         _, remaining, artwork=self._folder_changes(item,dict(fields=plan['changes'],artwork=plan['artwork'],mode='replace'),client)
         artwork={kind:value for kind,value in artwork.items() if not Plex.artwork_path(item,kind) or hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest()!=value['photo']}
@@ -318,10 +319,10 @@ class FolderWorkflows:
             self.resolve_satisfied_folder_work(asset,item,plan['folder'],True)
             self._save(task,status='resolved',result={'verified':True,'no_changes_needed':True})
             return
-        if not self._same_metadata(self.metadata_fields(item),task['metadata_before']):raise ValueError('Plex metadata changed; make a fresh folder preview')
+        if not self._same_metadata(self.metadata_fields(item),task['metadata_before']):raise UserError('Plex metadata changed; make a fresh folder preview')
         for kind, expected in plan['art_before'].items():
             observed = hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest() if Plex.artwork_path(item,kind) else None
-            if observed != expected:raise ValueError('Plex artwork changed; make a fresh folder preview')
+            if observed != expected:raise UserError('Plex artwork changed; make a fresh folder preview')
         # Validate every private blob before the first external write.
         for value in plan['artwork'].values():self.folder_image(value['photo'])
         for row in plan['changes'].get('cast',[]):
@@ -338,14 +339,14 @@ class FolderWorkflows:
             self._write_metadata(client,asset,changes,task['metadata_before'])
             self._save(task,result={'metadata_verified':True})
         for kind, value in plan['artwork'].items():
-            if task['id'] in self.cancels:raise ValueError('Folder apply cancelled; inspect completed fields before a fresh preview')
+            if task['id'] in self.cancels:raise UserError('Folder apply cancelled; inspect completed fields before a fresh preview')
             result = client.artwork(asset['rating_key'],self.folder_image(value['photo']),kind)
-            if not Plex.artwork_path(result,kind):raise ValueError('Plex did not select shared artwork')
-            if hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest() != value['photo']:raise ValueError('Plex artwork readback differs; inspect before retrying')
+            if not Plex.artwork_path(result,kind):raise UserError('Plex did not select shared artwork')
+            if hashlib.sha256(client.image(asset['rating_key'],kind)).hexdigest() != value['photo']:raise UserError('Plex artwork readback differs; inspect before retrying')
             self._cache_metadata(asset,result)
             self._save(task,result={**task.get('result',{}),kind+'_verified':True})
         final = client.item(asset['rating_key'])
-        if changes and not self._same_metadata(self.metadata_fields(final),changes):raise ValueError('Plex metadata changed during artwork upload; inspect before retrying')
+        if changes and not self._same_metadata(self.metadata_fields(final),changes):raise UserError('Plex metadata changed during artwork upload; inspect before retrying')
         self._cache_metadata(asset,final)
         self.resolve_satisfied_folder_work(asset,final,plan['folder'],True)
         with self.store.transaction():

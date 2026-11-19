@@ -3,6 +3,7 @@ import threading
 import uuid
 from .store import now
 from .logs import log
+from .errors import UserError
 
 
 class FileQueueWorkflows:
@@ -22,12 +23,12 @@ class FileQueueWorkflows:
             any(not isinstance(row,dict) or set(row)!={'id','updated'} or not isinstance(row['id'],str) or
                 (row['updated'] is not None and not isinstance(row['updated'],str)) for row in expected) or
             not isinstance(order,list) or any(not isinstance(key,str) for key in order) or len(order)!=len(set(order))):
-            raise ValueError('Choose a valid waiting file-queue order')
+            raise UserError('Choose a valid waiting file-queue order')
         with self.lock:
             with self.store.transaction():
                 current=self.file_queue_snapshot()
-                if expected!=current:raise ValueError('Waiting file queue changed; refresh and try again')
-                if set(order)!={row['id'] for row in current}:raise ValueError('Reorder only the current waiting file operations')
+                if expected!=current:raise UserError('Waiting file queue changed; refresh and try again')
+                if set(order)!={row['id'] for row in current}:raise UserError('Reorder only the current waiting file operations')
                 self.store.put('settings','file-queue-order:global',dict(ids=order,updated=now()))
         return dict(waiting=len(order))
 
@@ -43,11 +44,11 @@ class FileQueueWorkflows:
 
     def queue_file_operation(self,operation,payload,background=False):
         if operation not in {'publish','cleanup','restore_cleanup','repair','file_task','restore_rename','archive_artwork','archive_portrait','local_artwork'}:
-            raise ValueError('Unsupported file operation')
+            raise UserError('Unsupported file operation')
         task=self.get_task(payload['task']) if 'task' in payload else None
         local=operation=='local_artwork'
         profile=self.store.get('settings','cast_profiles',{}).get(payload.get('profile')) if operation=='archive_portrait' else None
-        if operation=='archive_portrait' and (not profile or profile['revision']!=payload.get('revision')):raise ValueError('Person portrait changed')
+        if operation=='archive_portrait' and (not profile or profile['revision']!=payload.get('revision')):raise UserError('Person portrait changed')
         job=dict(id='file-operation:'+uuid.uuid4().hex,record_type='file_operation',operation=operation,payload=payload,
                  library=payload.get('library') if local else task['library'] if task else None if profile else self.cleanup_receipt(payload['receipt'])['library'],
                  title=payload['title'] if local else task.get('title',operation) if task else profile['name'] if profile else 'Clean up originals',phase='waiting',synchronous=not background,created=now(),updated=now())
@@ -61,7 +62,7 @@ class FileQueueWorkflows:
         if current['phase']!='complete':
             with self.lock:error=self.file_errors.pop(job['id'],None)
             if error is not None:raise error
-            raise ValueError(current.get('error','File operation needs inspection'))
+            raise UserError(current.get('error','File operation needs inspection'))
         if operation=='cleanup':return self.cleanup_receipt(payload['receipt'])
         return self.get_task(payload['task'])
 
@@ -96,7 +97,7 @@ class FileQueueWorkflows:
                     job.update(phase='complete',updated=now())
                 except Exception as error:
                     log.exception('File operation %s failed', job['operation'])
-                    job.update(phase='failed',updated=now(),error=str(error)[:300] if isinstance(error,ValueError) else 'File operation failed; inspect retained files')
+                    job.update(phase='failed',updated=now(),error=str(error)[:300] if isinstance(error, UserError) else 'File operation failed; inspect retained files')
                     if job.get('synchronous'):
                         with self.lock:self.file_errors[job['id']]=error
                     if job['operation']=='archive_portrait':
@@ -129,16 +130,16 @@ class FileQueueWorkflows:
         if operation=='local_artwork':job['result']=self.render_local_artwork(payload)
         elif operation=='publish':
             task=self.get_task(payload['task'])
-            if task['version']!=payload['version'] or task['status']!='publishing':raise ValueError('Publication task changed while waiting')
+            if task['version']!=payload['version'] or task['status']!='publishing':raise UserError('Publication task changed while waiting')
             asset=self.asset(task,check=task['kind'] not in {'artwork','portrait'})
             result=self._finish_review(task,asset,False)
-            if result['status']!='applied':raise ValueError(result.get('error','Publication needs inspection'))
+            if result['status']!='applied':raise UserError(result.get('error','Publication needs inspection'))
         elif operation=='cleanup':
             identity=payload['receipt']
             with self.lock:
                 with self.store.transaction():
                     record=self.cleanup_receipt(identity)
-                    if record['phase']!='queued':raise ValueError('Cleanup receipt changed while waiting')
+                    if record['phase']!='queued':raise UserError('Cleanup receipt changed while waiting')
                     record.update(phase='deleting',updated=now());self.store.put('settings',identity,record)
                 self.active.add(identity)
             self._delete_backup_batch(identity)
@@ -148,6 +149,6 @@ class FileQueueWorkflows:
         elif operation=='archive_portrait':self.archive_portrait(payload['profile'],payload['revision'])
         elif operation=='archive_artwork':
             task=self.get_task(payload['task'])
-            if task['version']!=payload['version']:raise ValueError('Artwork archive task changed')
+            if task['version']!=payload['version']:raise UserError('Artwork archive task changed')
             self.archive_artwork_task(task)
         elif operation=='file_task':self.execute_file_task(self.get_task(payload['task']))
