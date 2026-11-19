@@ -105,3 +105,16 @@ test('generation metadata checks flag missing descriptions and raw episode/file 
  h.context.example={title:'Series s2023e01.mp4',item:{summary:''}};assert.equal(h.run('generationMetadataIssues(example).length'),2);
  h.context.example={title:'Alex',artwork_target:'person',item:{}};assert.equal(h.run('generationMetadataIssues(example).length'),0);
 });
+
+test('selecting a family reference uses the exact style template and removing it restores text-only wording',async()=>{
+ const h=setup();h.context.asset.title='Family picnic';h.context.asset.item.summary='Our dog at the park';
+ h.context.fileBase64=async()=> 'aGVsbG8=';h.context.artworkBlobURL=()=> 'blob:family-reference';h.context.URL={revokeObjectURL(){}};
+ h.run("openManagerGenerate(asset,{},'cover','16:9')");
+ const prompt=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Resolved generation prompt'),image=all(h.ids['task-detail']).find(e=>e.className==='manager-reference'),upload=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Upload reference image');image.src='';
+ assert.ok(prompt.value.startsWith('Create cover artwork for Family picnic'));
+ upload.files=[{name:'family-dog.png'}];await upload.onchange();assert.equal(prompt.value,'re-imagine this image in style guidance Cinematic');
+ const calls=[];h.context.api=async(endpoint,data)=>{calls.push({endpoint,data});return endpoint==='mage/check'?{balance_status:'available',balance:1000,budget:{}}:endpoint==='mage/quote'?{id:'quote',total:12}:{tasks:[{id:'draft',version:1}]};};await h.find('Check cost').onclick();const planned=calls.find(c=>c.endpoint==='artwork/plan').data;assert.equal(planned.overrides.prompt,prompt.value);assert.equal(planned.references.length,1);
+ h.context.state.config.branding_presets[0].details='Watercolor';const style=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Style guide');style.onchange();assert.equal(prompt.value,'re-imagine this image in style guidance Watercolor');
+ h.find('No reference').onclick();assert.ok(prompt.value.startsWith('Create cover artwork for Family picnic'));
+ prompt.value='My custom pet portrait';prompt.oninput();await upload.onchange();assert.equal(prompt.value,'My custom pet portrait');h.find('No reference').onclick();assert.equal(prompt.value,'My custom pet portrait');
+});

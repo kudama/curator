@@ -138,3 +138,8 @@ Keep every active job visible. Each queue column initially shows its first five 
 Queue run/pause and selection/order controls, including metadata subtypes and file preparation, belong directly below the column heading and above every job card. Waiting counts remain beside the waiting list.
 
 Renaming must retain unsubmitted non-file suggestions as suggestions, preserving drafts. Only approved or path-dependent unfinished plans are invalidated. Deleted tasks and provider receipts remain untouched. Repair existing rename-only blocked suggestions only when the latest audit record proves their previous recommendation state, unchanged draft and exact version transition; never queue, publish or submit a generation as part of this repair.
+
+
+## Reference prompt wording — 2026-11-18
+
+For reference-based family and pet artwork, use the exact automatic template `re-imagine this image in style guidance X`, replacing X with the selected style guide’s details. Do not append filename, summary, background or typography directives to this reference template. Attach the selected image through the existing provider image field; keep aspect ratio and resolution in their API settings. Refresh automatic wording when a reference or style changes, restore the existing text-only template when No reference is chosen, and preserve manually edited prompts. Apply only to new plans, leaving saved requests, quotes and provider receipts unchanged.

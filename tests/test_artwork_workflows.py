@@ -100,6 +100,18 @@ class ArtworkPlans(unittest.TestCase):
         with self.assertRaises(ValueError):self.service.edit_task(task['id'],{'title':'silent change'},1)
         self.assertEqual(self.plex.writes,[])
 
+    def test_reference_prompt_uses_exact_template_and_style_details(self):
+        result=self.service.artwork_plan([self.asset['id']],'cover','sunlit',references=[ENCODED])
+        plan=result['tasks'][0]['plan']
+        self.assertEqual(plan['settings']['prompt'],'re-imagine this image in style guidance '+plan['style']['details'])
+        self.assertEqual(len(plan['reference_photos']),1)
+        self.assertNotIn('Typography:',plan['settings']['prompt'])
+        self.assertNotIn('Background:',plan['settings']['prompt'])
+        custom=self.service.artwork_plan([self.asset['id']],'cover','sunlit',references=[ENCODED],overrides={'prompt':'A custom family picnic poster'})
+        self.assertEqual(custom['tasks'][0]['plan']['settings']['prompt'],'A custom family picnic poster')
+        plain=self.service.artwork_plan([self.asset['id']],'cover','sunlit')['tasks'][0]['plan']
+        self.assertTrue(plain['settings']['prompt'].startswith('Create cover artwork'))
+
     def test_ratios_target_defaults_explicit_overrides_and_style_defaults(self):
         preset=dict(branding.DEFAULT_PRESETS[0],model='mango-v3s',resolution='3K',ratio='9:16',negative_prompt='No frame')
         for profile,kind,ratio in [('home','cover','16:9'),('commercial','cover','2:3'),('commercial','background','16:9'),('home','square','1:1')]:
