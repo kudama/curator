@@ -56,6 +56,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         self.recover_review_batches()
         self.recover_backup_cleanups()
         self.recover_removed_queue_tasks()
+        self.recover_rename_suggestions()
         self.migrate_universal_queue()
         self.recover_run_receipts()
         self.cancels = set()
