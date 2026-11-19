@@ -1,5 +1,6 @@
 """Restart coordination refuses active work and drains accepted requests."""
 import io
+from pathlib import Path
 import json
 import threading
 import unittest
@@ -123,7 +124,7 @@ class SupervisedExit(unittest.TestCase):
         store=Mock();server=Mock(server_port=8790)
         server.runtime=SimpleNamespace(restart_requested=True,wait_for_idle=lambda:True)
         with patch('sys.argv',['curator','--managed-service']),patch.object(web,'Store',return_value=store), \
-             patch.object(web,'Service'),patch.object(web,'App',return_value=server),patch('sys.stdout',new_callable=io.StringIO):
+             patch.object(web,'Service'), patch.object(web,'configure_logging',return_value=Path('/nonexistent/curator.log')),patch.object(web,'App',return_value=server),patch('sys.stdout',new_callable=io.StringIO):
             with self.assertRaises(SystemExit) as error:web.main()
         self.assertEqual(error.exception.code,RESTART_EXIT_CODE)
         server.server_close.assert_called_once();store.close.assert_called_once()
@@ -133,7 +134,7 @@ class SupervisedExit(unittest.TestCase):
         server.serve_forever.side_effect=[None,KeyboardInterrupt]
         server.runtime=Mock(restart_requested=True);server.runtime.wait_for_idle.return_value=False
         with patch('sys.argv',['curator','--managed-service']),patch.object(web,'Store',return_value=store), \
-             patch.object(web,'Service'),patch.object(web,'App',return_value=server),patch('sys.stdout',new_callable=io.StringIO):
+             patch.object(web,'Service'), patch.object(web,'configure_logging',return_value=Path('/nonexistent/curator.log')),patch.object(web,'App',return_value=server),patch('sys.stdout',new_callable=io.StringIO):
             web.main()
         server.runtime.cancel_restart.assert_called_once();self.assertEqual(server.serve_forever.call_count,2)
         store.close.assert_called_once()

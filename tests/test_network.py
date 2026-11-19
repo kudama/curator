@@ -1,5 +1,6 @@
 """Synthetic private-network browser policy checks; no Plex or media operations."""
 import io
+from pathlib import Path
 import json
 import unittest
 from types import SimpleNamespace
@@ -51,7 +52,7 @@ class ListenerPolicy(unittest.TestCase):
         state = Mock();server = Mock(server_port=8790)
         server.serve_forever.side_effect = KeyboardInterrupt
         with patch('sys.argv',['curator','--host','10.0.0.106','--expected-host','foundry']), \
-             patch.object(web,'Store',return_value=state), patch.object(web,'Service') as service, \
+             patch.object(web,'Store',return_value=state), patch.object(web,'Service') as service, patch.object(web,'configure_logging',return_value=Path('/nonexistent/curator.log')), \
              patch.object(web,'App',return_value=server) as app, patch('sys.stdout',new_callable=io.StringIO):
             web.main()
         app.assert_called_once_with(('10.0.0.106',8790),service.return_value,expected_hosts=('foundry',),managed_service=False)

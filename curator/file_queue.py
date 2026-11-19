@@ -2,6 +2,7 @@
 import threading
 import uuid
 from .store import now
+from .logs import log
 
 
 class FileQueueWorkflows:
@@ -94,6 +95,7 @@ class FileQueueWorkflows:
                     self._execute_file_operation(job)
                     job.update(phase='complete',updated=now())
                 except Exception as error:
+                    log.exception('File operation %s failed', job['operation'])
                     job.update(phase='failed',updated=now(),error=str(error)[:300] if isinstance(error,ValueError) else 'File operation failed; inspect retained files')
                     if job.get('synchronous'):
                         with self.lock:self.file_errors[job['id']]=error

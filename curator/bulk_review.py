@@ -2,6 +2,7 @@
 import threading
 import uuid
 from .store import now
+from .logs import log
 
 
 class BulkReviewWorkflows:
@@ -108,6 +109,7 @@ class BulkReviewWorkflows:
                             raise ValueError('Task changed while preparing its comparison')
                         item.update(status='prepared')
                 except Exception as error:
+                    log.exception('Bulk review preparation failed for task %s', item['id'])
                     item.update(status='failed',error=str(error)[:250] if isinstance(error,ValueError) else 'Operation failed; inspect this task')
                 # Preserve a stop request made while this file was being processed.
                 self._save_review_batch(batch,preserve_stop=True)
@@ -117,6 +119,7 @@ class BulkReviewWorkflows:
                 batch.update(phase='publishing');self._save_review_batch(batch,preserve_stop=True)
                 self._run_review_batch(identity,True)
         except Exception:
+            log.exception('Bulk review batch interrupted')
             with self.store.transaction():
                 batch=self.review_batch(identity);batch.update(phase='interrupted',updated=now())
                 self.store.put('settings',identity,batch)
@@ -136,7 +139,9 @@ class BulkReviewWorkflows:
                     result=self.action(item['id'],'reject',item['version'])
                     if result['status']!='recommendation':raise ValueError('Result was not reset')
                     item.update(status='reset')
-                except Exception as error:item.update(status='failed',error=str(error)[:250] if isinstance(error,ValueError) else 'Reset failed; inspect task')
+                except Exception as error:
+                    log.exception('Bulk review reset failed for task %s', item['id'])
+                    item.update(status='failed',error=str(error)[:250] if isinstance(error,ValueError) else 'Reset failed; inspect task')
                 self._save_review_batch(batch,preserve_stop=True)
             else:batch['phase']='complete'
             self._save_review_batch(batch,preserve_stop=True)
