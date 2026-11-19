@@ -1,4 +1,5 @@
 """Only UserError text reaches the browser; any other failure is logged and made generic."""
+
 import io
 import json
 import threading
@@ -71,7 +72,9 @@ class UserErrors(unittest.TestCase):
         request = handler('/api/state', 'GET', service=service)
         with self.assertLogs('curator', 'ERROR') as logged:
             request.get_response()
-        request.reply.assert_called_once_with({'error': 'Operation failed; configuration or provider needs attention'}, 500)
+        request.reply.assert_called_once_with(
+            {'error': 'Operation failed; configuration or provider needs attention'}, 500
+        )
         self.assertIn('bug with private detail', '\n'.join(logged.output))
 
     def test_get_user_error_and_missing_parameter(self):
@@ -101,15 +104,19 @@ class BackgroundTaskErrors(unittest.TestCase):
                 return original(*args)
             finally:
                 finished.set()
-        with patch.object(self.service, 'publish_join', side_effect=ValueError('Expecting value: line 1 column 1')), \
-             patch.object(self.service, '_finish_review', finish), self.assertLogs('curator', 'ERROR'):
+
+        with (
+            patch.object(self.service, 'publish_join', side_effect=ValueError('Expecting value: line 1 column 1')),
+            patch.object(self.service, '_finish_review', finish),
+            self.assertLogs('curator', 'ERROR'),
+        ):
             self.service.review(task['id'], 1, 'manual', background=True)
             self.assertTrue(finished.wait(2))
             for _ in range(200):  # let the file-queue worker finish before the store closes
                 with self.service.lock:
                     if not self.service.file_workers:
                         break
-                threading.Event().wait(.01)
+                threading.Event().wait(0.01)
         saved = self.service.get_task(task['id'])
         self.assertEqual(saved['status'], 'blocked')
         self.assertNotIn('Expecting value', saved['error'])

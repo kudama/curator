@@ -12,9 +12,14 @@ class Catalog(unittest.TestCase):
         return client
 
     def test_collection_catalog_includes_smart_and_preserves_names(self):
-        client = self.client({'Metadata': [
-            {'ratingKey': '2', 'title': 'Summer, 2024', 'smart': 0},
-            {'ratingKey': '1', 'title': 'Favorites', 'smart': '1'}]})
+        client = self.client(
+            {
+                'Metadata': [
+                    {'ratingKey': '2', 'title': 'Summer, 2024', 'smart': 0},
+                    {'ratingKey': '1', 'title': 'Favorites', 'smart': '1'},
+                ]
+            }
+        )
         rows = client.metadata_choices({'key': '15'}, 'collection')
         self.assertEqual([r['title'] for r in rows], ['Favorites', 'Summer, 2024'])
         self.assertTrue(rows[0]['smart'])
@@ -24,16 +29,19 @@ class Catalog(unittest.TestCase):
     def test_category_catalog_is_scoped_and_preserves_punctuation(self):
         for field in ('genre', 'label'):
             with self.subTest(field=field):
-                client = self.client({'Directory': [{'key': '8', 'title': 'Travel, outdoors'},
-                                                    {'key': '9', 'title': 'Family'}]})
+                client = self.client(
+                    {'Directory': [{'key': '8', 'title': 'Travel, outdoors'}, {'key': '9', 'title': 'Family'}]}
+                )
                 rows = client.metadata_choices({'key': '3'}, field)
                 self.assertEqual([r['title'] for r in rows], ['Family', 'Travel, outdoors'])
                 self.assertEqual(client.request.call_args.args, ('/library/sections/3/' + field,))
 
     def test_pagination_for_both_catalog_shapes(self):
         for field, shape, identity in [('collection', 'Metadata', 'ratingKey'), ('genre', 'Directory', 'key')]:
-            client = self.client({shape: [{identity: '1', 'title': 'First'}], 'totalSize': 2},
-                                 {shape: [{identity: '2', 'title': 'Second'}], 'totalSize': 2})
+            client = self.client(
+                {shape: [{identity: '1', 'title': 'First'}], 'totalSize': 2},
+                {shape: [{identity: '2', 'title': 'Second'}], 'totalSize': 2},
+            )
             self.assertEqual(len(client.metadata_choices({'key': '3'}, field)), 2)
             self.assertEqual(client.request.call_args.kwargs['params']['X-Plex-Container-Start'], 1)
 
@@ -59,8 +67,9 @@ class MetadataChoices(unittest.TestCase):
 
     def test_lookup_is_read_only_and_uses_selected_library(self):
         self.plex.metadata_choices = Mock(return_value=[{'title': 'Travel'}])
-        self.assertEqual(self.service.library_metadata_choices(self.asset['library'], 'genre'),
-                         {'choices': [{'title': 'Travel'}]})
+        self.assertEqual(
+            self.service.library_metadata_choices(self.asset['library'], 'genre'), {'choices': [{'title': 'Travel'}]}
+        )
         self.assertEqual(self.plex.metadata_choices.call_args.args[0]['id'], self.asset['library'])
         self.assertEqual(self.plex.writes, [])
 

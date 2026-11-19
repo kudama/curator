@@ -3,6 +3,7 @@
 No private state is duplicated or persisted here. An expired/unknown cursor gets
 an ordinary full snapshot, including after a service restart.
 """
+
 import hashlib
 import json
 import threading
@@ -19,7 +20,9 @@ class StateUpdates:
 
     @staticmethod
     def digest(value):
-        return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        return hashlib.sha256(
+            json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+        ).hexdigest()
 
     def response(self, state, since=''):
         records = {key: {row['id']: self.digest(row) for row in state[key]} for key in self.RECORDS}
@@ -43,5 +46,9 @@ class StateUpdates:
                 changes[key] = dict(upsert=upsert, removed=removed)
                 if list(current) != list(old):
                     changes[key]['order'] = list(current)
-        return dict(revision=revision, reset=False, changes=changes,
-                    fields={key: state[key] for key, digest in fields.items() if digest != previous['fields'].get(key)})
+        return dict(
+            revision=revision,
+            reset=False,
+            changes=changes,
+            fields={key: state[key] for key, digest in fields.items() if digest != previous['fields'].get(key)},
+        )

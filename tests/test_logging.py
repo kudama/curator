@@ -92,7 +92,9 @@ class PrivateLog(unittest.TestCase):
         register_secret('plex-secret-token-123')
         path = configure(self.root)
         try:
-            raise ValueError('GET http://plex:32400/library?X-Plex-Token=abcdef123456 failed with plex-secret-token-123')
+            raise ValueError(
+                'GET http://plex:32400/library?X-Plex-Token=abcdef123456 failed with plex-secret-token-123'
+            )
         except ValueError:
             log.exception('Request failed; Authorization: Bearer mage-key-987654 api_key=zzz999999')
         text = path.read_text()
@@ -126,8 +128,14 @@ class ServiceLogging(unittest.TestCase):
         seen = {}
 
         def recover(service):
-            seen.update(cancels=service.cancels, scan=service.scan_status, presence=service.presence_status,
-                        locks=service.task_locks, thumbnails=service.thumbnail_cache)
+            seen.update(
+                cancels=service.cancels,
+                scan=service.scan_status,
+                presence=service.presence_status,
+                locks=service.task_locks,
+                thumbnails=service.thumbnail_cache,
+            )
+
         with patch.object(Service, 'recover_file_jobs', recover):
             Service(self.store, lambda *args: FakePlex())
         self.assertEqual(seen, dict(cancels=set(), scan={}, presence={}, locks={}, thumbnails={}))
@@ -140,6 +148,7 @@ class ServiceLogging(unittest.TestCase):
 
     def test_saved_mage_key_is_redacted(self):
         from curator.mage import Mage
+
         Mage(self.store.root).save_key('mage-saved-key-77')
         self.assertNotIn('mage-saved-key-77', redact('key mage-saved-key-77'))
 
@@ -148,16 +157,27 @@ class ServiceLogging(unittest.TestCase):
 
         def broken(library):
             raise RuntimeError('XML parse error at line 3')
+
         plex.items = broken
         service = Service(self.store, lambda *args: plex)
-        library = dict(id='server:1', server='server', key='1', title='Movies', type='movie',
-                       profile='commercial', mappings=[], themes=[])
+        library = dict(
+            id='server:1',
+            server='server',
+            key='1',
+            title='Movies',
+            type='movie',
+            profile='commercial',
+            mappings=[],
+            themes=[],
+        )
         with self.store.transaction():
             self.store.put('libraries', library['id'], library)
         service.scan_status[library['id']] = {}
         with self.assertLogs('curator', 'ERROR') as captured:
             service._scan(library)
-        self.assertEqual(service.scan_status[library['id']]['error'], 'Scan failed; check Plex configuration and permissions')
+        self.assertEqual(
+            service.scan_status[library['id']]['error'], 'Scan failed; check Plex configuration and permissions'
+        )
         self.assertIn('XML parse error', '\n'.join(captured.output))
 
 

@@ -87,6 +87,14 @@ node --check curator/static/workbench.js
 node --check curator/static/collections.js
 ```
 
+Python formatting and basic lint use [ruff](https://docs.astral.sh/ruff/) (a developer tool only; configured in `pyproject.toml`, version pinned in CI):
+
+```sh
+python3 -m pip install ruff==0.17.5
+ruff format curator tests
+ruff check curator tests
+```
+
 Node is only used for optional developer syntax checks. Tests use synthetic data and temporary state; optional integration tests skip when the required local tools are missing.
 
 For optional service use after login on a separate Mac, see [Foundry single-host deployment](docs/foundry-deployment.md). The default local installation is unchanged.

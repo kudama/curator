@@ -1,4 +1,5 @@
 """Scan bookkeeping must not grow as assets x tasks (it was ~10 s at 1,400 assets)."""
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,29 +24,60 @@ class ScanScale(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.tmp.name) / 'state')
-        self.library = dict(id='srv:1', server='srv', key='1', title='Movies', type='movie', profile='commercial',
-                            mappings=[dict(plex_root='/plex', local_root='/local')], themes=[])
+        self.library = dict(
+            id='srv:1',
+            server='srv',
+            key='1',
+            title='Movies',
+            type='movie',
+            profile='commercial',
+            mappings=[dict(plex_root='/plex', local_root='/local')],
+            themes=[],
+        )
         with self.store.transaction():
             self.store.put('libraries', self.library['id'], self.library)
-            self.store.put('settings', 'defaults', dict(record='folder_defaults', library='srv:1', folder='/plex/d0',
-                                                        recursive=False, revision=1, fields={}, artwork={}, mode='fill', branding=None))
+            self.store.put(
+                'settings',
+                'defaults',
+                dict(
+                    record='folder_defaults',
+                    library='srv:1',
+                    folder='/plex/d0',
+                    recursive=False,
+                    revision=1,
+                    fields={},
+                    artwork={},
+                    mode='fill',
+                    branding=None,
+                ),
+            )
 
     def tearDown(self):
         self.store.close()
         self.tmp.cleanup()
 
     def items(self, count):
-        return [dict(ratingKey=str(n), title=f'Film {n}', summary='' if n % 2 else 'Known', thumb='t',
-                     Media=[dict(Part=[dict(id=n, file=f'/plex/d{n % 3}/film{n}.mkv')])]) for n in range(count)]
+        return [
+            dict(
+                ratingKey=str(n),
+                title=f'Film {n}',
+                summary='' if n % 2 else 'Known',
+                thumb='t',
+                Media=[dict(Part=[dict(id=n, file=f'/plex/d{n % 3}/film{n}.mkv')])],
+            )
+            for n in range(count)
+        ]
 
     def scan(self, service):
         service.scan_status[self.library['id']] = dict(running=True, count=0)
-        with patch('curator.service.media_presence', return_value={'state': 'present'}), \
-             patch('curator.service.map_path', side_effect=lambda file, mappings: Path(file)), \
-             patch('curator.service.tools.fingerprint', return_value={'size': 1}), \
-             patch('curator.service.tools.probe', return_value={}), \
-             patch('curator.service.assess', return_value=[dict(kind='upscale', reason='Low resolution', evidence={})]), \
-             patch.object(Service, '_folder_changes', lambda self, item, defaults: (None, {'summary': 'x'}, {})):
+        with (
+            patch('curator.service.media_presence', return_value={'state': 'present'}),
+            patch('curator.service.map_path', side_effect=lambda file, mappings: Path(file)),
+            patch('curator.service.tools.fingerprint', return_value={'size': 1}),
+            patch('curator.service.tools.probe', return_value={}),
+            patch('curator.service.assess', return_value=[dict(kind='upscale', reason='Low resolution', evidence={})]),
+            patch.object(Service, '_folder_changes', lambda self, item, defaults: (None, {'summary': 'x'}, {})),
+        ):
             service._scan(self.library)
         self.assertIsNone(service.scan_status[self.library['id']].get('error'))
 
@@ -59,6 +91,7 @@ class ScanScale(unittest.TestCase):
         def counting(table):
             reads.append(table)
             return original(table)
+
         with patch.object(self.store, 'all', counting):
             self.scan(service)
         return reads.count('tasks'), reads.count('settings')
@@ -82,8 +115,13 @@ class ScanScale(unittest.TestCase):
         items = self.items(10)
         service = Service(self.store, lambda *args: Catalog(items))
         self.scan(service)
-        last = identifier('srv', '1', items[-1]['ratingKey'], items[-1]['Media'][0]['Part'][0]['id'],
-                          items[-1]['Media'][0]['Part'][0]['file'])
+        last = identifier(
+            'srv',
+            '1',
+            items[-1]['ratingKey'],
+            items[-1]['Media'][0]['Part'][0]['id'],
+            items[-1]['Media'][0]['Part'][0]['file'],
+        )
         target = self.store.get('tasks', identifier(last, 'upscale'))
 
         def approve_midway():
@@ -91,6 +129,7 @@ class ScanScale(unittest.TestCase):
                 row = self.store.get('tasks', target['id'])
                 row.update(reason='Changed by the reviewer', marker=True)
                 self.store.put('tasks', row['id'], row)
+
         service.plex_factory = lambda *args: Catalog(items, during=approve_midway)
         self.scan(service)
         self.assertTrue(self.store.get('tasks', target['id']).get('marker'))
@@ -104,6 +143,7 @@ class ScanScale(unittest.TestCase):
         def add_stale_finding():
             with self.store.transaction():
                 service.task(asset, dict(kind='inspect', reason='Old probe failure'))
+
         # Created after the scan indexed tasks; the next scan still resolves it.
         service.plex_factory = lambda *args: Catalog(items, during=add_stale_finding)
         self.scan(service)

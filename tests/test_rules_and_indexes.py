@@ -23,7 +23,9 @@ class Rules(unittest.TestCase):
         archive = hashlib.sha256(json.dumps(['srv:1', '42']).encode()).hexdigest()[:12]
         self.assertEqual(stable_id('srv:1', '42', length=12), archive)
         nested = ({'b': 1, 'a': [2, {'d': 3, 'c': 4}]},)
-        self.assertEqual(stable_id(*nested), hashlib.sha256(json.dumps(nested, sort_keys=True).encode()).hexdigest()[:24])
+        self.assertEqual(
+            stable_id(*nested), hashlib.sha256(json.dumps(nested, sort_keys=True).encode()).hexdigest()[:24]
+        )
 
     def test_status_sets(self):
         self.assertEqual(ACTIVE, {'queued', 'running', 'publishing'})
@@ -53,10 +55,16 @@ class Where(unittest.TestCase):
         tasks = []
         with self.store.transaction():
             for number in range(300):
-                task = dict(id=f't{number}', asset=f'a{rng.randint(0, 40)}', library=rng.choice(['l1', 'l2']),
-                            kind=rng.choice(['rename', 'join', 'upscale', 'metadata']),
-                            status=rng.choice(['recommendation', 'queued', 'running', 'publishing', 'awaiting_review', 'applied']),
-                            plan=dict(assets=[f'a{rng.randint(0, 40)}']))
+                task = dict(
+                    id=f't{number}',
+                    asset=f'a{rng.randint(0, 40)}',
+                    library=rng.choice(['l1', 'l2']),
+                    kind=rng.choice(['rename', 'join', 'upscale', 'metadata']),
+                    status=rng.choice(
+                        ['recommendation', 'queued', 'running', 'publishing', 'awaiting_review', 'applied']
+                    ),
+                    plan=dict(assets=[f'a{rng.randint(0, 40)}']),
+                )
                 tasks.append(task)
                 self.store.put('tasks', task['id'], task)
             self.store.put('settings', 'paused', False)
@@ -67,11 +75,20 @@ class Where(unittest.TestCase):
         return tasks
 
     def check(self, tasks):
-        cases = [dict(asset='a3'), dict(status='queued'), dict(kind=FILE_KINDS, status=RESERVING),
-                 dict(library='l2', status=ACTIVE), dict(kind=['upscale'], library=('l1',)), dict()]
+        cases = [
+            dict(asset='a3'),
+            dict(status='queued'),
+            dict(kind=FILE_KINDS, status=RESERVING),
+            dict(library='l2', status=ACTIVE),
+            dict(kind=['upscale'], library=('l1',)),
+            dict(),
+        ]
         for filters in cases:
-            expected = [t for t in tasks if all(t[f] in (v if isinstance(v, (set, frozenset, list, tuple)) else {v})
-                                                for f, v in filters.items())]
+            expected = [
+                t
+                for t in tasks
+                if all(t[f] in (v if isinstance(v, (set, frozenset, list, tuple)) else {v}) for f, v in filters.items())
+            ]
             with self.subTest(filters=filters):
                 self.assertEqual(self.store.where('tasks', **filters), expected)
         self.assertEqual(self.store.where('tasks', status=set()), [])
@@ -87,7 +104,12 @@ class Where(unittest.TestCase):
         self.check(tasks)
 
     def test_rejects_unsafe_fields_and_untyped_values(self):
-        for filters in (dict(**{'status) OR 1=1 --': 'x'}), dict(status=None), dict(status=True), dict(status={'a': 1})):
+        for filters in (
+            dict(**{'status) OR 1=1 --': 'x'}),
+            dict(status=None),
+            dict(status=True),
+            dict(status={'a': 1}),
+        ):
             with self.subTest(filters=filters), self.assertRaises(ValueError):
                 self.store.where('tasks', **filters)
         with self.assertRaises(ValueError):
@@ -97,10 +119,15 @@ class Where(unittest.TestCase):
         self.fill()
         for sql, index in [
             ("SELECT data FROM tasks WHERE json_extract(data, '$.asset') = ?", 'tasks_asset'),
-            ("SELECT data FROM assets WHERE json_extract(data, '$.library') = ? AND json_extract(data, '$.rating_key') = ?", 'assets_library_rating_key'),
+            (
+                "SELECT data FROM assets WHERE json_extract(data, '$.library') = ? AND json_extract(data, '$.rating_key') = ?",
+                'assets_library_rating_key',
+            ),
             ("SELECT data FROM settings WHERE json_extract(data, '$.record_type') = ?", 'settings_record_type'),
         ]:
-            plan = ' '.join(str(row) for row in self.store.db.execute('EXPLAIN QUERY PLAN ' + sql, ['x'] * sql.count('?')))
+            plan = ' '.join(
+                str(row) for row in self.store.db.execute('EXPLAIN QUERY PLAN ' + sql, ['x'] * sql.count('?'))
+            )
             with self.subTest(index=index):
                 self.assertIn(index, plan)
 

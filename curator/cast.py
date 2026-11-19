@@ -1,4 +1,5 @@
 """Private reusable cast profiles; pictures never require a public web host."""
+
 import base64
 import hashlib
 import re
@@ -10,7 +11,16 @@ def validate_rows(rows):
         raise UserError('Cast must be a list of at most 100 people')
     seen = set()
     for row in rows:
-        if not isinstance(row, dict) or set(row) - {'name', 'role', 'thumb', 'image', 'profile_id', 'revision', 'remember', 'clear_photo'}:
+        if not isinstance(row, dict) or set(row) - {
+            'name',
+            'role',
+            'thumb',
+            'image',
+            'profile_id',
+            'revision',
+            'remember',
+            'clear_photo',
+        }:
             raise UserError('Invalid cast fields')
         name = row.get('name')
         if not isinstance(name, str) or not name.strip() or len(name) > 500:
@@ -39,7 +49,11 @@ def photo_bytes(encoded):
         data = base64.b64decode(encoded, validate=True)
     except ValueError:
         raise UserError('Invalid cast picture') from None
-    if not data or len(data) > 10 * 1024 * 1024 or not (data.startswith(b'\xff\xd8\xff') or data.startswith(b'\x89PNG\r\n\x1a\n')):
+    if (
+        not data
+        or len(data) > 10 * 1024 * 1024
+        or not (data.startswith(b'\xff\xd8\xff') or data.startswith(b'\x89PNG\r\n\x1a\n'))
+    ):
         raise UserError('Cast pictures must be JPEG/PNG under 10 MiB')
     return data
 
@@ -49,5 +63,7 @@ def photo_id(data):
 
 
 def fields(item):
-    return [dict(name=row.get('tag', ''), role=row.get('role') or '', thumb=row.get('thumb') or '')
-            for row in item.get('Role', [])]
+    return [
+        dict(name=row.get('tag', ''), role=row.get('role') or '', thumb=row.get('thumb') or '')
+        for row in item.get('Role', [])
+    ]

@@ -1,4 +1,5 @@
 """Versioned folder artwork preferences, bounded by mapped storage roots."""
+
 import hashlib
 import json
 import os
@@ -12,13 +13,55 @@ STYLES = {'gritty', 'sunlit', 'editorial', 'vintage', 'monochrome', 'minimal'}
 
 
 DEFAULT_PRESETS = [
-    dict(id='gritty', name='Gritty cinematic', details='Dark, photorealistic cinematic lighting, deep shadows, muted colors, strong contrast and subtle film grain.', background='solid black', typography='Heavy condensed off-white lettering with a subtly distressed texture.'),
-    dict(id='sunlit', name='Warm & sunlit', details='Golden light, warm natural colors and soft contrast.', background='soft warm ivory', typography='Clean bold lettering with a warm editorial feel.'),
-    dict(id='editorial', name='Cool editorial', details='Blue-gray tones, crisp contrast and a restrained editorial finish.', background='muted blue-gray', typography='Refined magazine-style typography.'),
-    dict(id='vintage', name='Vintage film', details='Faded colors, warm highlights and analog film grain.', background='warm charcoal', typography='Bold retro title lettering.'),
-    dict(id='minimal', name='Minimal & clean', details='Natural colors, a simple composition and generous negative space.', background='a complementary neutral tone', typography='Understated clean typography.'),
-    dict(id='grindhouse', name='Grindhouse', details='Vintage grindhouse poster treatment, distressed printing, rough film grain, bold high-contrast colors and dramatic lighting.', background='warm black', typography='Bold retro display lettering with distressed print texture.'),
-    dict(id='anime', name='Anime', details='Expressive anime illustration, clean linework, cel shading, rich cinematic colors and a coherent hand-drawn composition.', background='deep navy', typography='Clear bold title lettering suited to an illustrated film poster.')
+    dict(
+        id='gritty',
+        name='Gritty cinematic',
+        details='Dark, photorealistic cinematic lighting, deep shadows, muted colors, strong contrast and subtle film grain.',
+        background='solid black',
+        typography='Heavy condensed off-white lettering with a subtly distressed texture.',
+    ),
+    dict(
+        id='sunlit',
+        name='Warm & sunlit',
+        details='Golden light, warm natural colors and soft contrast.',
+        background='soft warm ivory',
+        typography='Clean bold lettering with a warm editorial feel.',
+    ),
+    dict(
+        id='editorial',
+        name='Cool editorial',
+        details='Blue-gray tones, crisp contrast and a restrained editorial finish.',
+        background='muted blue-gray',
+        typography='Refined magazine-style typography.',
+    ),
+    dict(
+        id='vintage',
+        name='Vintage film',
+        details='Faded colors, warm highlights and analog film grain.',
+        background='warm charcoal',
+        typography='Bold retro title lettering.',
+    ),
+    dict(
+        id='minimal',
+        name='Minimal & clean',
+        details='Natural colors, a simple composition and generous negative space.',
+        background='a complementary neutral tone',
+        typography='Understated clean typography.',
+    ),
+    dict(
+        id='grindhouse',
+        name='Grindhouse',
+        details='Vintage grindhouse poster treatment, distressed printing, rough film grain, bold high-contrast colors and dramatic lighting.',
+        background='warm black',
+        typography='Bold retro display lettering with distressed print texture.',
+    ),
+    dict(
+        id='anime',
+        name='Anime',
+        details='Expressive anime illustration, clean linework, cel shading, rich cinematic colors and a coherent hand-drawn composition.',
+        background='deep navy',
+        typography='Clear bold title lettering suited to an illustrated film poster.',
+    ),
 ]
 
 
@@ -27,35 +70,62 @@ def validate_presets(rows):
         raise UserError('Define between one and fifty branding presets')
     seen = set()
     for row in rows:
-        if not isinstance(row, dict) or not {'id', 'name', 'details', 'background', 'typography'} <= set(row) or set(row) - {'id', 'name', 'details', 'background', 'typography', 'negative_prompt', 'model', 'ratio', 'resolution', 'description'}:
+        if (
+            not isinstance(row, dict)
+            or not {'id', 'name', 'details', 'background', 'typography'} <= set(row)
+            or set(row)
+            - {
+                'id',
+                'name',
+                'details',
+                'background',
+                'typography',
+                'negative_prompt',
+                'model',
+                'ratio',
+                'resolution',
+                'description',
+            }
+        ):
             raise UserError('Invalid branding preset fields')
         if not isinstance(row['id'], str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}', row['id']) or row['id'] in seen:
             raise UserError('Branding preset IDs must be unique and stable')
         seen.add(row['id'])
-        if any(not isinstance(row[k], str) or not row[k].strip() or len(row[k]) > 3000 for k in ('name', 'details', 'background', 'typography')):
+        if any(
+            not isinstance(row[k], str) or not row[k].strip() or len(row[k]) > 3000
+            for k in ('name', 'details', 'background', 'typography')
+        ):
             raise UserError('Complete each branding preset name and prompt details')
         for field in ('negative_prompt', 'model', 'ratio', 'resolution', 'description'):
             if field in row and (not isinstance(row[field], str) or len(row[field]) > 3000):
                 raise UserError('Invalid optional preset field: ' + field)
-        if row.get('ratio') and row['ratio'] not in {'21:9','16:9','3:2','5:4','1:1','4:5','2:3','9:16','9:21'}:
+        if row.get('ratio') and row['ratio'] not in {'21:9', '16:9', '3:2', '5:4', '1:1', '4:5', '2:3', '9:16', '9:21'}:
             raise UserError('Unsupported preset ratio')
-        if row.get('resolution') and row['resolution'] not in {'1K','2K','3K','4K'}:
+        if row.get('resolution') and row['resolution'] not in {'1K', '2K', '3K', '4K'}:
             raise UserError('Unsupported preset resolution')
     return rows
 
 
 def validate(value):
-    if not isinstance(value, dict) or set(value) - {'version', 'creator', 'colors', 'backdrop', 'style', 'logo', 'preset_id'} or value.get('version') not in {1, 2}:
+    if (
+        not isinstance(value, dict)
+        or set(value) - {'version', 'creator', 'colors', 'backdrop', 'style', 'logo', 'preset_id'}
+        or value.get('version') not in {1, 2}
+    ):
         raise UserError('Unsupported folder artwork settings')
     for field in ('creator', 'colors', 'backdrop', 'style', 'logo'):
         if not isinstance(value.get(field, ''), str) or len(value.get(field, '')) > 2000:
             raise UserError('Invalid folder artwork field: ' + field)
     if value['version'] == 1 and value.get('style') not in STYLES:
         raise UserError('Choose a supported artwork style')
-    if value['version'] == 2 and (not isinstance(value.get('preset_id'), str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}', value['preset_id'])):
+    if value['version'] == 2 and (
+        not isinstance(value.get('preset_id'), str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}', value['preset_id'])
+    ):
         raise UserError('Invalid branding preset reference')
     logo = value.get('logo', '')
-    if logo and (Path(logo).name != logo or not logo.startswith('.curator-logo-') or Path(logo).suffix not in {'.png', '.jpg'}):
+    if logo and (
+        Path(logo).name != logo or not logo.startswith('.curator-logo-') or Path(logo).suffix not in {'.png', '.jpg'}
+    ):
         raise UserError('Invalid folder logo reference')
     return value
 
