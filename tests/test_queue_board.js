@@ -90,3 +90,17 @@ test('five populated columns include AI assist in Metadata and retain failed fil
 test('empty board has no columns and all review types are available in the inbox',()=>{
  const h=setup();assert.equal(h.run('renderProcessing().length'),0);h.add('metadata','home','awaiting_review');h.add('art','artwork','awaiting_review');assert.equal(h.run('reviewInboxRows().length'),2);
 });
+
+test('waiting detail positions label metadata and encoding without losing queue controls',()=>{
+ const h=setup();h.add('m','metadata');h.add('e','optimize');const labels=[{dataset:{queuePosition:'m'}},{dataset:{queuePosition:'e'}}];h.context.document.querySelectorAll=()=>labels;
+ h.run('updateQueuePositions()');assert.ok(labels[0].textContent.includes('metadata'));assert.ok(labels[1].textContent.includes('Encoding'));assert.ok(labels.every(e=>e.textContent.includes('Position 1 of 1')));
+});
+test('saved groups route to review or history and preparation retry uses current versions',async()=>{
+ const h=setup();const task=h.add('video','optimize','awaiting_review');task.version=7;
+ h.state.review_batches=[{id:'pending',pending:true,library:'one',count:1,phase:'ready'},{id:'receipt',pending:false,library:'one',count:1,phase:'complete'}];
+ assert.equal(h.run('reviewBatchCards().length'),1);assert.equal(h.run('reviewBatchCards(true).length'),1);
+ h.context.openBulkReview=batch=>h.calls.push({opened:batch});
+ h.run("renderBulkReview({id:'pending',phase:'ready',items:[{id:'video',version:1,status:'failed'}]})");
+ const retry=h.elements.get('task-buttons').children.find(e=>e.textContent==='Retry preparation (1)');assert.ok(retry);await retry.onclick();
+ assert.equal(h.calls[0].endpoint,'review-batch/prepare');assert.equal(h.calls[0].data.tasks[0].version,7);assert.equal(h.calls[0].data.library,'one');assert.equal(h.calls.some(c=>c.endpoint?.includes('publish')),false);
+});
