@@ -255,3 +255,14 @@ class ArtworkPlans(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'destination identity changed'):
             self.service.review(task['id'],1,'explicit fixture approval')
         self.assertEqual(self.plex.writes,[])
+
+    def test_completed_download_recovery_never_submits_or_prices_again(self):
+        from unittest.mock import Mock
+        self.adapter();task=self.service.artwork_plan([self.asset['id']],'cover','gritty')['tasks'][0]
+        task.update(status='running',provider={'credential':'test','attempted':True,'idempotency_key':'same-key','request_id':'a'*36,'body':{'prompt':'Synthetic'},'estimate':7})
+        provider=Mock();provider.credential_identity.return_value='test'
+        provider.status.return_value={'request_id':'a'*36,'status':'completed','billing':{'gems_charged':7},'result':{'url':'https://assets.mage.space/result.png'}}
+        provider.download.return_value=PNG
+        self.service.execute_mage(task,provider,lambda seconds:None)
+        saved=self.service.get_task(task['id']);self.assertEqual(saved['status'],'awaiting_review');self.assertEqual(saved['provider']['request_id'],'a'*36)
+        provider.submit.assert_not_called();provider.quote.assert_not_called();self.assertFalse(self.plex.writes)

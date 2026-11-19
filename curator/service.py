@@ -502,6 +502,8 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         keys, paths = identities(task)
         for other in self.store.all('tasks'):
             if other['id'] == task['id'] or (other['status'] not in {'running','publishing'} and not other.get('cleanup_in_progress')):continue
+            # Independent provider jobs use already-staged inputs, not the source video.
+            if task.get('kind')=='mage_generation' and other.get('kind')=='mage_generation' and other['status']=='running' and not other.get('cleanup_in_progress'):continue
             other_keys, other_paths = identities(other)
             if keys & other_keys or paths & other_paths:raise SourceBusy('This file is reserved by running work; finish it before starting another operation on the same file')
 

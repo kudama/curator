@@ -22,16 +22,16 @@ function setup(){
  return {context,state,calls,cards,elements,add,target:id=>{target=id;},run:code=>vm.runInContext(code,context)};
 }
 function all(node){return [node,...node.children.flatMap(all)];}
-test('three lanes keep all concurrent jobs and render the waiting head once',()=>{
+test('four lanes keep all concurrent jobs and render the waiting head once',()=>{
  const h=setup();h.add('up','upscale','running');h.add('enc1','optimize','running');h.add('enc2','optimize','running');h.add('later','optimize');
- const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,3);assert.deepEqual(new Set(h.cards),new Set(['up','enc1','enc2','later']));
+ const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,4);assert.deepEqual(new Set(h.cards),new Set(['up','enc1','enc2','later']));
  assert.equal(all(board).filter(e=>e.className.includes('queue-head')).length,2);
  const waiting=setup();waiting.add('first','upscale');waiting.run('renderProcessing()');assert.deepEqual(waiting.cards,['first']);
 });
 test('publication is counted once and other tasks do not replace the board',()=>{
  const h=setup();h.add('publication','optimize','publishing');h.state.file_jobs=[{id:'file',phase:'running',operation:'publish',title:'Publication',library:'one',payload:{task:'publication'}}];
  assert.equal(h.run('queueCountRows().length'),1);h.run('renderProcessing()');assert.equal(h.cards.includes('publication'),false);
- h.add('metadata','metadata');assert.equal(h.run('queueBoardAvailable()'),true);const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,3);assert.equal(sections.length,2);assert.ok(h.cards.includes('metadata'));
+ h.add('metadata','metadata');assert.equal(h.run('queueBoardAvailable()'),true);const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,4);assert.equal(sections.length,2);assert.ok(h.cards.includes('metadata'));
 });
 test('filtered move preserves hidden slots and other operation types',async()=>{
  const h=setup();h.add('a','optimize');h.add('hidden','optimize','queued','two');h.add('up','upscale');h.add('b','optimize');h.run("queueLibrary='one';waitingSelection.add('b')");
@@ -63,15 +63,21 @@ test('queued joins stay in the file lane and retain task-order controls',async()
 });
 test('join publication transfers ownership to file job without double counting',()=>{
  const h=setup();h.add('join','join','publishing');h.state.file_jobs=[{id:'publish',phase:'running',operation:'publish',title:'Join',library:'one',payload:{task:'join'}}];
- const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,3);assert.equal(h.run('queueCountRows().length'),1);assert.equal(h.cards.includes('join'),false);
+ const board=h.run('renderProcessing()')[0];assert.equal(board.children.length,4);assert.equal(h.run('queueCountRows().length'),1);assert.equal(h.cards.includes('join'),false);
 });
 test('unowned interrupted cleanup remains visible once without replacing the board',()=>{
  const h=setup();h.state.cleanup_jobs=[{id:'orphan',phase:'interrupted',library:'one'},{id:'owned',phase:'deleting',library:'one'}];h.state.file_jobs=[{id:'cleanup',phase:'running',operation:'backup_cleanup',title:'Cleanup',library:'one',payload:{receipt:'owned'}}];
  const sections=h.run('renderProcessing()'),ids=all(sections[0]).filter(e=>e.dataset.cleanupId).map(e=>e.dataset.cleanupId);
- assert.equal(sections[0].children.length,3);assert.deepEqual(ids,['orphan']);assert.equal(h.run('queueCountRows().length'),2);
+ assert.equal(sections[0].children.length,4);assert.deepEqual(ids,['orphan']);assert.equal(h.run('queueCountRows().length'),2);
 });
 
 test('mixed artwork and video review remains visible in the processing review filter',()=>{
  const h=setup();h.add('art','artwork','awaiting_review');h.add('enc','optimize','awaiting_review');h.add('joined','join','awaiting_review');h.context.queueStatus='awaiting_review';
- const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,3);assert.equal(sections.length,2);assert.deepEqual(new Set(h.cards),new Set(['art','enc','joined']));
+ const sections=h.run('renderProcessing()');assert.equal(sections[0].children.length,4);assert.equal(sections.length,2);assert.deepEqual(new Set(h.cards),new Set(['art','enc','joined']));
+});
+
+
+test('artwork generation has its own lane including parallel jobs and completed candidates',()=>{
+ const h=setup();h.add('image-one','mage_generation','running');h.add('image-two','mage_generation','running');h.add('image-wait','mage_generation');const done=h.add('image-review','artwork','awaiting_review');done.provider={request_id:'existing'};
+ const sections=h.run('renderProcessing()');assert.equal(sections.length,1);assert.equal(sections[0].children.length,4);assert.equal(sections[0].children[3].attrs['aria-label'],'Artwork generation');assert.deepEqual(new Set(h.cards),new Set(['image-one','image-two','image-wait','image-review']));
 });

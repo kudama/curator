@@ -144,7 +144,7 @@
 #queue-status-links{display:flex;gap:24px;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid var(--line);margin-bottom:14px}
 #queue-status-links button{border:0;border-radius:0;padding:10px 3px;background:none;color:var(--text)}
 #queue-status-links button.active{border-bottom:3px solid var(--accent);color:var(--accent)}
-.queue-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+.queue-board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:start}
 .queue-lane{border:1px solid var(--line);border-radius:9px;padding:12px;min-width:0;min-height:320px}
 .queue-lane-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .queue-lane h2{font-size:18px;margin:0;color:var(--text)}
@@ -208,3 +208,7 @@
 .manager-reference-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:12px 0}.manager-reference-actions button{padding:2px 0;white-space:nowrap}.manager-reference-actions span{color:var(--muted)}
 
 #task-buttons .generate-action{flex:0 0 140px;width:140px;min-width:140px;max-width:140px;white-space:nowrap}
+
+@media(min-width:1051px) and (max-width:1450px){.queue-board{grid-template-columns:repeat(2,minmax(0,1fr))}.queue-inspecting .queue-board{grid-template-columns:minmax(0,1fr)}}
+
+.metadata-generation-warning{max-width:620px;width:calc(100vw - 40px);max-height:85vh;overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:24px}.metadata-generation-warning::backdrop{background:#0009}.metadata-generation-warning section{border-top:1px solid var(--line);padding-top:8px}

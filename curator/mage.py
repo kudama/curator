@@ -172,7 +172,7 @@ class Mage:
             raise ValueError('Unverified Mage result host; retained request identity is available for manual recovery')
         try:
             # No API authorization header on asset downloads, and no redirects.
-            with self.opener.open(Request(url),timeout=30) as response:data=response.read(10*1024*1024+1)
+            with self.opener.open(Request(url,headers={'User-Agent':'Curator/0.5.0','Accept':'image/png,image/jpeg'}),timeout=30) as response:data=response.read(10*1024*1024+1)
             if len(data)>10*1024*1024 or not data.startswith((b'\x89PNG\r\n\x1a\n',b'\xff\xd8\xff')):
                 raise ValueError('Mage result is not a supported JPEG/PNG under 10 MiB')
             return data

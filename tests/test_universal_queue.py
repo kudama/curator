@@ -103,3 +103,23 @@ class UniversalQueue(unittest.TestCase):
         # The other library's head was submitted before the manually promoted c.
         self.assertEqual([t['id'] for t in fresh.waiting_tasks()],['b','c','a'])
         self.assertTrue(self.store.get('settings',fresh.pause_key(None,'optimize')));self.assertFalse(fresh.queue_running())
+
+    def test_parallel_mage_options_share_a_source_but_keep_independent_jobs(self):
+        for key in ('first','second','third'):self.add(key,kind='mage_generation',source='/shared/video')
+        self.service.set_queue_limits({'mage_generation':2})
+        def generate(task):self.process(task,None)
+        with patch.object(self.service,'asset',side_effect=lambda task,**kw:self.store.get('assets',task['asset'])),patch.object(self.service,'execute_mage',side_effect=generate):
+            try:
+                self.service.start(None,'mage_generation');self.wait(lambda:len(self.seen)==2)
+                self.assertEqual(set(self.seen),{'first','second'});self.assertEqual(len(self.running()),2)
+                self.assertEqual(self.service.get_task('third')['status'],'queued')
+                self.service.pause_queues();self.gates['first'].set();self.gates['second'].set()
+                self.wait(lambda:not self.service.queue_running());self.assertEqual(self.service.get_task('third')['status'],'queued')
+            finally:self.finish()
+
+    def test_mage_parallelism_does_not_bypass_video_source_reservations(self):
+        self.add('generation',kind='mage_generation',source='/shared/video');self.add('encode',kind='optimize',source='/shared/video')
+        with self.store.transaction():
+            task=self.service.get_task('encode');task['status']='running';self.store.put('tasks',task['id'],task)
+        from curator.service import SourceBusy
+        with self.assertRaises(SourceBusy):self.service.check_busy_sources(self.service.get_task('generation'))
