@@ -15,9 +15,8 @@ from .store import now
 from .quality import assess
 from .logs import log
 from .errors import UserError
+from .rules import ACTIVE, FILE_KINDS
 
-FILE_KINDS = {'rename', 'join', 'group'}
-ACTIVE = {'queued', 'running', 'publishing'}
 UNSUPPORTED_MOVE = {errno.ENOTSUP,errno.EOPNOTSUPP,errno.ENOSYS}
 
 

@@ -1,7 +1,6 @@
 """Folder-scoped, reviewed metadata plans. Private defaults never publish themselves."""
 import base64
 import hashlib
-import json
 import os
 import re
 import time
@@ -13,10 +12,10 @@ from .paths import map_path
 from .plex import Plex
 from .store import now
 from .errors import UserError
+from .rules import RESERVING, stable_id
 
 
-def key(*values):
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
+key = stable_id
 
 
 def combine(before, proposed, mode, field):
@@ -42,9 +41,10 @@ def combine(before, proposed, mode, field):
 
 
 class FolderWorkflows:
-    def folder_nodes(self):
+    def folder_nodes(self, assets=None, libraries=None):
+        """state() passes the rows it already loaded, so a poll decodes each table once."""
         nodes = {}
-        libraries = {row['id']:row for row in self.store.all('libraries')}
+        libraries = {row['id']:row for row in (self.store.all('libraries') if libraries is None else libraries)}
         roots = {}
         for library in libraries.values():
             declared = [PurePosixPath(row['path']) for row in library.get('locations',[]) if isinstance(row,dict) and isinstance(row.get('path'),str) and row['path'].startswith('/') and '..' not in PurePosixPath(row['path']).parts]
@@ -53,21 +53,29 @@ class FolderWorkflows:
                 fid = key(library['id'],str(root))
                 mapped = any(root.is_relative_to(m['plex_root']) for m in library['mappings'])
                 nodes.setdefault(fid,dict(id=fid,library=library['id'],path=str(root),name=root.name or str(root),parent=None,count=0,direct_count=0,mapped=mapped))
-        for asset in self.store.all('assets'):
-            if asset.get('present') is False:continue
-            library = libraries.get(asset['library'])
-            if not library:continue
-            path = PurePosixPath(asset['plex_path']).parent
-            matches = [root for root in roots[library['id']] if path.is_relative_to(root)]
+        # Count files per directory first: every file in a directory has the same
+        # ancestor chain, so each chain is walked once per directory, not once per file.
+        # Directories keep first-seen order, so nodes are created in the same order.
+        directories = {}
+        for asset in (self.store.all('assets') if assets is None else assets):
+            if asset.get('present') is False or asset['library'] not in libraries:continue
+            directory = (asset['library'], str(PurePosixPath(asset['plex_path']).parent))
+            directories[directory] = directories.get(directory, 0) + 1
+        for (library_id, directory), files in directories.items():
+            library = libraries[library_id]
+            path = PurePosixPath(directory)
+            matches = [root for root in roots[library_id] if path.is_relative_to(root)]
             root = max(matches,key=lambda p:len(p.parts)) if matches else path
             for folder in [path, *path.parents]:
                 if not folder.is_relative_to(root):break
-                fid = key(library['id'],str(folder))
-                mapped = any(folder.is_relative_to(m['plex_root']) for m in library['mappings'])
-                row = nodes.setdefault(fid,dict(id=fid,library=library['id'],path=str(folder),name=folder.name or str(folder),
-                    parent=key(library['id'],str(folder.parent)) if folder != root else None,count=0,direct_count=0,mapped=mapped))
-                row['count'] += 1
-                if folder == path:row['direct_count'] += 1
+                fid = key(library_id,str(folder))
+                row = nodes.get(fid)
+                if row is None:
+                    mapped = any(folder.is_relative_to(m['plex_root']) for m in library['mappings'])
+                    row = nodes[fid] = dict(id=fid,library=library_id,path=str(folder),name=folder.name or str(folder),
+                        parent=key(library_id,str(folder.parent)) if folder != root else None,count=0,direct_count=0,mapped=mapped)
+                row['count'] += files
+                if folder == path:row['direct_count'] += files
         return sorted(nodes.values(),key=lambda row:(row['library'],row['path']))
 
     def folder_node(self, fid):
@@ -233,7 +241,7 @@ class FolderWorkflows:
                 hashes = {kind:hashes[kind] for kind in artwork}
                 self.resolve_satisfied_folder_work(asset,item,fid,not changes and not artwork)
                 for pending in self.store.all('tasks'):
-                    if pending['library']==folder['library'] and pending['status'] in {'queued','running','publishing','awaiting_review'} and (asset['id'] in pending['plan'].get('assets',[pending['asset']]) or self.store.get('assets',pending['asset'],{}).get('rating_key')==identity):raise UserError('This title has active work; finish or cancel it first')
+                    if pending['library']==folder['library'] and pending['status'] in RESERVING and (asset['id'] in pending['plan'].get('assets',[pending['asset']]) or self.store.get('assets',pending['asset'],{}).get('rating_key')==identity):raise UserError('This title has active work; finish or cancel it first')
                 self._cache_metadata(asset,item)
                 rows.append(dict(asset=asset['id'], title=item.get('title',asset['title']), filename=Path(asset['plex_path']).name,
                     source=asset['fingerprint'], before=before, changes=changes, artwork=artwork, art_before=hashes,
@@ -264,7 +272,7 @@ class FolderWorkflows:
                 if asset['fingerprint'] != row['source'] or asset['plex_path'] != row['plex_path'] or asset['rating_key'] != row['rating_key']:raise UserError('Source changed; preview again')
                 for task in pending:
                     ids = task['plan'].get('assets',[task['asset']])
-                    if task['status'] in {'queued','running','publishing','awaiting_review'} and (asset['id'] in ids or self.store.get('assets',task['asset'],{}).get('rating_key') == asset['rating_key'] and task['library'] == asset['library']):raise UserError('A selected title has active work; finish or cancel it before queueing folder changes')
+                    if task['status'] in RESERVING and (asset['id'] in ids or self.store.get('assets',task['asset'],{}).get('rating_key') == asset['rating_key'] and task['library'] == asset['library']):raise UserError('A selected title has active work; finish or cancel it before queueing folder changes')
             with self.store.transaction():
                 tasks = []
                 for row in rows:
@@ -345,9 +353,14 @@ class FolderWorkflows:
             self.store.put('settings','folder-applied:' + key(task['plan']['folder'],asset['rating_key']),dict(signature=plan['settings_signature'],metadata=self.metadata_fields(final),art={kind:Plex.artwork_path(final,kind) for kind in plan['artwork']}))
         self._save(task,status='applied',result={**task.get('result',{}),'verified':True})
 
-    def recommend_folder_defaults(self, asset):
-        choices = [r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record') == 'folder_defaults' and r['library'] == asset['library']
-            and (str(PurePosixPath(asset['plex_path']).parent) == r['folder'] or r['recursive'] and PurePosixPath(asset['plex_path']).parent.is_relative_to(r['folder']))]
+    def folder_default_records(self, library):
+        return [r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record') == 'folder_defaults' and r['library'] == library]
+
+    def recommend_folder_defaults(self, asset, defaults=None, task_ids=None):
+        """A scan passes its preloaded folder defaults and per-asset task ids; see asset_tasks."""
+        if defaults is None:defaults = self.folder_default_records(asset['library'])
+        choices = [r for r in defaults
+            if (str(PurePosixPath(asset['plex_path']).parent) == r['folder'] or r['recursive'] and PurePosixPath(asset['plex_path']).parent.is_relative_to(r['folder']))]
         if not choices:return
         defaults = max(choices,key=lambda r:len(PurePosixPath(r['folder']).parts))
         _, changes, artwork = self._folder_changes(asset['item'],defaults)
@@ -357,11 +370,12 @@ class FolderWorkflows:
         if receipt and receipt['signature'] == key(settings) and self._same_metadata(self.metadata_fields(asset['item']),receipt['metadata']) and all(Plex.artwork_path(asset['item'],kind)==path for kind,path in receipt['art'].items()):
             changes, artwork = {}, {}
         tid = key('folder-defaults',asset['id'],defaults['revision'])
-        for old in self.store.all('tasks'):
-            if old['kind']=='folder_metadata' and old['asset']==asset['id'] and old['status']=='recommendation' and (old['id']!=tid or not changes and not artwork):
+        for old in self.asset_tasks(asset['id'],task_ids):
+            if old['kind']=='folder_metadata' and old['status']=='recommendation' and (old['id']!=tid or not changes and not artwork):
                 old.update(status='resolved',updated=now());self.store.put('tasks',old['id'],old)
         if not changes and not artwork:return
         if self.store.get('tasks',tid):return
         self.store.put('tasks',tid,dict(id=tid,asset=asset['id'],library=asset['library'],title=asset['title'],kind='folder_metadata',
             status='recommendation',version=1,created=now(),updated=now(),reason='Review saved folder defaults for this file',
             evidence={'folder':defaults['folder']},plan={'folder':key(asset['library'],defaults['folder'])}))
+        if task_ids is not None:task_ids[tid]=None

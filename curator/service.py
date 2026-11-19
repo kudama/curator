@@ -39,11 +39,10 @@ from .mage_budget import MageBudgets, gems
 from .artwork_archive import ArtworkArchives, archive_root
 from .logs import log, register_secret
 from .errors import UserError
+from .rules import ACTIVE, RESERVING, reserves_source, stable_id
 
 
-def identifier(*values):
-    import hashlib
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:24]
+identifier = stable_id
 
 
 class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
@@ -125,9 +124,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         public['token_configured'] = bool(cfg.get('plex_token'))
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
-        file_jobs=self.file_jobs()
-        return dict(config=public, libraries=libraries, assets=self.store.all('assets')+self.artwork_targets(),file_queue_paused=self.file_queue_paused(),file_queue=[dict(id=j['id'],updated=j.get('updated')) for j in file_jobs if j['phase']=='waiting'],
-                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=file_jobs,processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),review_batches=self.review_batches(None),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
+        file_jobs=self.file_jobs();assets=self.store.all('assets')
+        return dict(config=public, libraries=libraries, assets=assets+self.artwork_targets(),file_queue_paused=self.file_queue_paused(),file_queue=[dict(id=j['id'],updated=j.get('updated')) for j in file_jobs if j['phase']=='waiting'],
+                    tasks=[{**t, 'cancel_requested':t['id'] in self.cancels and t['status']=='running','recovery_hint':self.recovery_hint(t) if t['status'] in {'blocked','failed'} else ''} for t in tasks if not t.get('deleted')], scans=dict(self.scan_status), presence=dict(self.presence_status), folders=self.folder_nodes(assets,libraries), queue_running=self.queue_running(),cleanup_jobs=self.cleanup_jobs(),queue_orders={lib['id']:self.queue_snapshot(lib['id'],tasks) for lib in libraries},global_queue=self.queue_snapshot(None,tasks),file_jobs=file_jobs,processing_defaults=self.processing_defaults(),run_summaries=self.run_summaries(),review_batches=self.review_batches(None),queue_limits=self.queue_limits(),task_queues=self.task_queues(tasks,libraries))
 
     def queue_running(self):
         with self.lock:active=tuple(self.active)
@@ -200,11 +199,24 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         self.store.put('tasks', key, task)
         return task
 
-    def reconcile_findings(self, asset, findings):
+    def asset_tasks(self, asset_id, task_ids=None):
+        """Current rows of one asset's tasks.
+
+        A scan passes task_ids, its own index of ids per asset, so it never decodes every
+        task for every file. Rows are always re-read here, inside the caller's
+        transaction, so a change made elsewhere during a scan (an approval, say) is
+        never overwritten with stale data.
+        """
+        if task_ids is None:
+            return [task for task in self.store.all('tasks') if task['asset'] == asset_id]
+        rows = (self.store.get('tasks', task_id) for task_id in list(task_ids))
+        return [task for task in rows if task and task['asset'] == asset_id]
+
+    def reconcile_findings(self, asset, findings, task_ids=None):
         """Called inside the scan transaction; superseded observations stay in history."""
         current_kinds = {finding['kind'] for finding in findings}
-        for old in self.store.all('tasks'):
-            if (old['asset'] == asset['id'] and old['kind'] not in current_kinds
+        for old in self.asset_tasks(asset['id'], task_ids):
+            if (old['kind'] not in current_kinds
                     and old['status'] == 'recommendation' and (old['kind'] not in FILE_KINDS | {'folder_metadata','artwork','mage_generation','portrait'} or old['kind']=='artwork' and old.get('evidence',{}).get('discovery'))):
                 old.update(status='resolved', reason='Resolved by the latest scan', updated=now(), error=None)
                 old.pop('approval', None)
@@ -220,13 +232,14 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                               'archive', 'original_renamed', 'plex_verified', 'comparison_loaded', 'validation', 'progress'):
                     previous.pop(field, None)
                 self.store.put('tasks', previous['id'], previous)
-            self.task(asset, finding)
+            task = self.task(asset, finding)
+            if task_ids is not None:
+                task_ids[task['id']] = None
 
     def file_reservations(self, library):
         ids = set()
-        for task in self.store.all('tasks'):
-            if task['library'] != library:continue
-            if task['kind'] in FILE_KINDS and task['status'] in {'queued','running','publishing'} or task['kind'] in {'upscale','optimize'} and task['status']=='publishing':
+        for task in self.store.where('tasks', library=library, status=ACTIVE):
+            if task['kind'] in FILE_KINDS or task['kind'] in {'upscale','optimize'} and task['status']=='publishing':
                 ids.update(task['plan'].get('assets',[task['asset']]))
         assets = self.store.all('assets')
         keys = {a['rating_key'] for a in assets if a['id'] in ids}
@@ -247,10 +260,19 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         state = self.scan_status[library['id']]
         seen = set()
         reserved, reserved_keys = self.file_reservations(library['id'])
-        existing_ids = {a['id'] for a in self.store.all('assets')}
+        assets = self.store.all('assets')
+        existing_ids = {a['id'] for a in assets}
         state['skipped_reserved'] = len(reserved)
+        # Load once per scan instead of once per file: task ids per asset (insertion
+        # ordered; rows are re-read fresh per file), this library's folder defaults
+        # and the configuration.
+        task_index = {}
+        for task in self.store.all('tasks'):
+            task_index.setdefault(task['asset'], {})[task['id']] = None
+        folder_defaults = self.folder_default_records(library['id'])
+        config = self.config()
         known={};pending_renames=[]
-        for a in self.store.all('assets'):
+        for a in assets:
             if a['library']==library['id']:
                 known.setdefault((a['rating_key'],a['plex_path']),[]).append(a)
                 if a.get('rename_pending_plex'):pending_renames.append(a)
@@ -287,10 +309,10 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                         try:
                             path = map_path(part['file'], library['mappings'])
                             asset.update(local_path=str(path), fingerprint=tools.fingerprint(path))
-                            technical = tools.probe(path, self.config())
+                            technical = tools.probe(path, config)
                             technical['preserve_quality'] = asset['preserve_quality']
                             asset['technical'] = technical
-                            findings = assess(technical, self.config())
+                            findings = assess(technical, config)
                         except (ValueError, OSError, subprocess.SubprocessError) as e:
                             asset['blocked'] = str(e)[:200]
                             findings = [dict(kind='inspect', reason=asset['blocked'],
@@ -303,8 +325,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                             findings.append(dict(kind='home', reason='Suggest a title, description, collections and cover frames using local AI', evidence={}))
                         with self.store.transaction():
                             self.store.put('assets', aid, asset)
-                            self.reconcile_findings(asset, findings)
-                            self.recommend_folder_defaults(asset)
+                            task_ids = task_index.setdefault(aid, {})
+                            self.reconcile_findings(asset, findings, task_ids)
+                            self.recommend_folder_defaults(asset, folder_defaults, task_ids)
                         state['count'] += 1
             with self.store.transaction():
                 for asset in self.store.all('assets'):
@@ -466,7 +489,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 self.asset(task)
                 task.update(status='awaiting_review', error=None)
             elif action == 'cancel':
-                if task['status'] not in {'queued','running','publishing'}:raise UserError('This task is no longer queued or running; refresh first')
+                if task['status'] not in ACTIVE:raise UserError('This task is no longer queued or running; refresh first')
                 if task['status']=='publishing':raise UserError('Publication is finishing; its file changes cannot be cancelled safely')
                 if task['status']=='running' and task['kind'] not in {'upscale','optimize','join','mage_generation'}:raise UserError('This operation is finishing; remove its task after it completes')
                 self.cancels.add(key)
@@ -491,8 +514,8 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     self._file_conflicts(task)
                     if self.scan_status.get(task['library'],{}).get('running') or self.presence_status.get(task['library'],{}).get('running'):raise UserError('Wait for the library scan before queueing file operations')
                 else:
-                    for pending in self.store.all('tasks'):
-                        if pending['kind'] in FILE_KINDS and pending['status'] in {'queued','running','publishing','awaiting_review'} and task['asset'] in pending['plan']['assets']:raise UserError('A file operation reserves this source; finish or cancel it first')
+                    for pending in self.store.where('tasks', kind=FILE_KINDS, status=RESERVING):
+                        if reserves_source(pending, task['asset']):raise UserError('A file operation reserves this source; finish or cancel it first')
                 task = prepared
                 version = task['version']
                 self.cancels.discard(key)
@@ -533,8 +556,8 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         if task['kind'] in FILE_KINDS:
             self.queue_file_task(task)
         else:
-            for pending in self.store.all('tasks'):
-                if pending['kind'] in FILE_KINDS and pending['status'] in {'queued','running','publishing','awaiting_review'} and task['asset'] in pending['plan']['assets']:
+            for pending in self.store.where('tasks', kind=FILE_KINDS, status=RESERVING):
+                if reserves_source(pending, task['asset']):
                     raise UserError('A file operation reserves this source; finish or cancel it first')
         if handbrake_preset is not None and handbrake_preset != task['plan'].get('handbrake_preset'):
             task.update(plan={**task['plan'], 'handbrake_preset': handbrake_preset}, version=version + 1)
@@ -679,10 +702,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 if row:
                     row.update(item=result,title=result.get('title',row['title']),updated=now())
                     self.store.put('settings','artwork-target:'+row['id'],row)
-            for row in self.store.all('assets'):
-                if row['library'] == asset['library'] and row['rating_key'] == asset['rating_key']:
-                    row.update(item=result, title=result.get('title', row['title']))
-                    self.store.put('assets', row['id'], row)
+            for row in self.store.where('assets', library=asset['library'], rating_key=asset['rating_key']):
+                row.update(item=result, title=result.get('title', row['title']))
+                self.store.put('assets', row['id'], row)
 
     def read_metadata(self, key):
         asset = self.asset(self.get_task(key), check=False)
@@ -716,7 +738,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             prepared = []
             with self.store.transaction():
                 task = self.get_task(key)
-                if task['version'] != version or task['kind'] not in {'home', 'metadata'} or task['status'] in {'queued', 'running', 'publishing'}:
+                if task['version'] != version or task['kind'] not in {'home', 'metadata'} or task['status'] in ACTIVE:
                     raise UserError('Task changed or is running; refresh before saving cast')
                 asset = self.asset(task)
                 before = self.metadata_fields(asset['item'])
@@ -813,11 +835,11 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         Plex.validate_changes(changes)
         with self.store.transaction():
             source = self.get_task(key)
-            if source['version'] != version or source['kind'] not in {'home', 'metadata'} or source['status'] in {'queued', 'running', 'publishing'}:
+            if source['version'] != version or source['kind'] not in {'home', 'metadata'} or source['status'] in ACTIVE:
                 raise UserError('Task changed or is running; refresh before queueing metadata')
             asset = self.asset(source)
             task = self.task(asset, dict(kind='metadata', reason='Apply reviewed metadata changes'))
-            if task['status'] in {'queued', 'running', 'publishing'}:
+            if task['status'] in ACTIVE:
                 raise UserError('This item already has an active metadata task')
             next_version = task['version'] + 1
             task.update(version=next_version, status='queued', plan={'changes': changes}, approval=next_version,
@@ -1191,7 +1213,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 source = Path(asset['local_path'])
                 if source.suffix.lower() not in {'.mov', '.mp4', '.m4v'}:
                     raise UserError('QuickTime repair requires MOV or MP4')
-                if any(t.get('asset') == task['asset'] and t['status'] in {'queued', 'running', 'publishing'}
+                if any(t.get('asset') == task['asset'] and t['status'] in ACTIVE
                        for t in self.store.all('tasks')):
                     raise UserError('Wait for this file’s active jobs before repairing')
                 previous = dict(output=task.get('output'), output_hash=task.get('output_hash'), result=task.get('result'))

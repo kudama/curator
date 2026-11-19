@@ -2,6 +2,7 @@
 import json
 import fcntl
 import os
+import re
 import sqlite3
 import threading
 import uuid
@@ -17,6 +18,13 @@ def now():
 
 class Store:
     TABLES = {'settings', 'libraries', 'assets', 'tasks'}
+    # Expression indexes on the JSON fields hot paths filter by. They are additive:
+    # rows keep their format, nothing is migrated, and dropping them loses nothing.
+    INDEXES = {
+        'tasks': (('asset',), ('status',), ('kind',), ('library', 'status')),
+        'assets': (('library', 'rating_key'),),
+        'settings': (('record_type',),),
+    }
 
     def __init__(self, root):
         self.root = Path(root).expanduser().resolve()
@@ -37,12 +45,58 @@ class Store:
             self.db.execute(f'CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at TEXT, task TEXT, data TEXT)')
         self.db.commit()
+        self.json_queries = self._create_indexes()
         # Unknown external outcomes are reviewed, never automatically replayed.
         with self.transaction():
             for task in self.all('tasks'):
                 if task['status'] in {'running', 'publishing'}:
                     task.update(status='blocked', error='Interrupted operation: inspect outputs before explicit retry')
                     self.put('tasks', task['id'], task)
+
+    def _create_indexes(self):
+        """Index hot JSON fields; without SQLite JSON functions, where() filters in Python."""
+        try:
+            for table, indexes in self.INDEXES.items():
+                for fields in indexes:
+                    columns = ', '.join(f"json_extract(data, '$.{field}')" for field in fields)
+                    self.db.execute(f'CREATE INDEX IF NOT EXISTS {table}_{"_".join(fields)} ON {table}({columns})')
+            self.db.commit()
+            return True
+        except sqlite3.OperationalError:
+            self.db.rollback()
+            return False
+
+    def where(self, table, **filters):
+        """Rows whose top-level fields equal the given values, in insertion order.
+
+        A set, frozenset, list or tuple value matches any of its members. Use this for
+        string fields (ids, statuses, kinds); comparisons follow JSON values exactly.
+        """
+        self._table(table)
+        clauses, params, checks = [], [], []
+        for field, value in filters.items():
+            if not re.fullmatch(r'[a-z_]+', field):
+                raise ValueError('Invalid filter field')
+            if value is None or isinstance(value, (bool, dict)):
+                raise ValueError('Filter values must be strings or numbers')
+            expression = f"json_extract(data, '$.{field}')"
+            if isinstance(value, (set, frozenset, list, tuple)):
+                values = sorted(set(value), key=str)
+                if not values:
+                    return []
+                clauses.append(f"{expression} IN ({', '.join('?' * len(values))})")
+                params.extend(values)
+                checks.append((field, set(values)))
+            else:
+                clauses.append(f'{expression} = ?')
+                params.append(value)
+                checks.append((field, {value}))
+        if not self.json_queries:
+            return [row for row in self.all(table) if isinstance(row, dict)
+                    and all(row.get(field) in allowed for field, allowed in checks)]
+        sql = f'SELECT data FROM {table}' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY rowid'
+        with self.lock:
+            return [json.loads(row[0]) for row in self.db.execute(sql, params)]
 
     @contextmanager
     def transaction(self):
@@ -72,7 +126,7 @@ class Store:
             value['queue_attempt']=uuid.uuid4().hex;value['queued_at']=now()
             order=self.get('settings','queue-order:global')
             if order is not None:
-                queued={t['id'] for t in self.all('tasks') if t['status']=='queued' and not t.get('deleted')}
+                queued={t['id'] for t in self.where('tasks', status='queued') if not t.get('deleted')}
                 ids=[identity for identity in order['ids'] if identity in queued and identity!=str(key)]+[str(key)]
                 self.put('settings','queue-order:global',dict(ids=ids,updated=now()))
         self.db.execute(f'INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',

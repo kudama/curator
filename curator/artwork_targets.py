@@ -1,15 +1,15 @@
 """Collection-owned artwork identities, kept outside the scanned media catalog."""
 import copy
 import hashlib
-import json
 from .store import now
 from .plex import PlexError
 from .errors import UserError
+from .rules import stable_id
 
 
 class ArtworkTargets:
     def artwork_targets(self):
-        return [row for row in self.store.all('settings') if isinstance(row,dict) and row.get('record_type') == 'artwork_target']
+        return self.store.where('settings', record_type='artwork_target')
 
     def artwork_collections(self, library_id):
         library = self.library(library_id)
@@ -23,7 +23,7 @@ class ArtworkTargets:
         item = client.item(str(rating_key))
         if item.get('type') != 'collection' or str(item.get('ratingKey')) != str(rating_key):
             raise UserError('Plex collection identity changed')
-        identity = hashlib.sha256(json.dumps([library['server'], library_id, str(rating_key)]).encode()).hexdigest()[:24]
+        identity = stable_id(library['server'], library_id, str(rating_key))
         asset = dict(id=identity, record_type='artwork_target', artwork_target='collection',
                      library=library_id, rating_key=str(rating_key), title=item['title'],
                      plex_path='', present=True, item=copy.deepcopy(item), updated=now())
