@@ -97,7 +97,7 @@ function thumbnail(asset,large=false){
 }
 function metaLine(asset){const media=asset.technical||{};const resolution=media.width&&media.height?media.width+' × '+media.height:null,duration=media.duration_seconds?Math.round(media.duration_seconds/60)+' min':null;return [resolution,duration].filter(Boolean).join(' · ')||asset.title||'Metadata available';}
 function chooseLibrary(id){if(id!==libraryId&&!prepareInspector())return false;if(id!==libraryId){closeInspector(true);selectedAssetId=null;searchText='';$('file-search').value='';}libraryId=id;selected.clear();screen='library';render();run(syncCatalog);return true;}
-function setScreen(value){if(screen!==value){if(!prepareInspector())return false;closeInspector(true);searchText='';$('file-search').value='';}screen=value;filter=value==='processing'?'queued':value==='history'?'history':libraryView==='completed'?'completed':'all';selected.clear();render();return true;}
+function setScreen(value,libraryScoped=false){if(screen!==value){if(!prepareInspector())return false;closeInspector(true);searchText='';$('file-search').value='';}if(libraryScoped&&value==='processing'){queueLibrary=libraryId;waitingSelection.clear();}screen=value;filter=value==='processing'?'queued':value==='history'?'history':libraryView==='completed'?'completed':'all';selected.clear();render();return true;}
 function initThemeSelector(){
  const selector=document.getElementById('theme-selector');if(!selector)return;
  const apply=value=>{const theme=value==='cyberpunk'?'cyberpunk':'classic';document.documentElement.dataset.theme=theme;selector.value=theme;return theme;};
@@ -110,7 +110,7 @@ function initWorkbench(){
  const limits=$('queue-limits');if(limits)limits.onclick=()=>run(showQueueLimits);
  const batches=$('review-batches');if(batches)batches.onclick=()=>run(showReviewBatches);
  const cleanup=$('cleanup-backups');if(cleanup)cleanup.onclick=()=>run(showBackupCleanup);
- document.querySelectorAll('[data-screen]').forEach(b=>b.onclick=()=>setScreen(b.dataset.screen));
+ document.querySelectorAll('[data-screen]').forEach(b=>b.onclick=()=>setScreen(b.dataset.screen,Boolean(b.closest('#library-navigation'))));
  $('inspector-expand').onclick=()=>{const wide=document.querySelector('.workbench').classList.toggle('review-wide');$('inspector-expand').setAttribute('aria-label',wide?'Restore review panel':'Expand review panel');$('inspector-expand').title=wide?'Restore review panel':'Expand review panel';};
  $('file-search').oninput=e=>{searchText=e.target.value.trim().toLocaleLowerCase();render();};
  $('collapse-folders').onclick=collapseAllFolders;
@@ -364,12 +364,22 @@ function showQueueLimits(){
  for(const kind of kinds){const label=node('label',kind==='file_operations'?'File copy / delete':TASK_LABELS[kind]||kind),input=node('input');input.type='number';input.min=1;input.max=kind==='file_operations'?4:8;input.step=1;input.value=state.queue_limits?.[kind]||(kind==='file_operations'?4:1);label.append(input);detail.append(label);inputs.set(kind,input);}
  actions.append(button('Save limits',()=>run(async()=>{const limits=Object.fromEntries([...inputs].map(([kind,input])=>[kind,Number(input.value)]));await api('queue/limits',{limits});closeInspector(true);await refresh();toast('Shared processing limits saved.');}),'primary'));showInspector();
 }
+function renderLibraryNavigation(){
+ const links=$('library-navigation');links.remove();links.hidden=!current();
+ const groups=state.libraries.map(lib=>{
+  const group=node('div',undefined,'library-group'),active=lib.id===libraryId;
+  const title=button(lib.title,()=>chooseLibrary(lib.id),active?'selected':'');
+  title.setAttribute('aria-expanded',String(active));if(active)title.setAttribute('aria-controls','library-navigation');
+  group.append(title);if(active)group.append(links);return group;
+ });
+ $('libraries').replaceChildren(...groups);if(!current())$('libraries').append(links);
+}
 function renderWorkbench(){
  if(queueDragging)return;
  if(typeof pruneGroupSelection==='function')pruneGroupSelection();
  const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.hidden=!['library','filemanagement'].includes(screen);cleanupControl.textContent=screen==='filemanagement'?'Clean up originals · '+(current()?.title||'choose a library'):'Clean up originals';cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
  const batchControl=$('review-batches');if(batchControl){batchControl.hidden=true;batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
- $('libraries').replaceChildren(...state.libraries.map(lib=>button(lib.title,()=>chooseLibrary(lib.id),lib.id===libraryId?'selected':'')));
+ renderLibraryNavigation();
  const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=!['processing','review'].includes(screen)||!Array.isArray(state.global_queue);const signature=JSON.stringify(state.libraries.map(lib=>[lib.id,lib.title]));if(queueFilter.dataset.libraries!==signature){queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}queueFilter.dataset.libraries=signature;}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
  document.querySelectorAll('[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===screen||(screen==='review'&&b.dataset.screen==='processing')));
  const searchLabel=screen==='artwork'?'Search artwork targets':screen==='filemanagement'?'Search files':screen==='library'?'Search files in this library':screen==='review'?'Search review results':screen==='processing'?'Search queued jobs':'Search history';$('file-search').setAttribute('aria-label',searchLabel);$('file-search').placeholder=searchLabel;
@@ -379,7 +389,7 @@ function renderWorkbench(){
  $('library-note').textContent=screen==='library'?'Review what needs attention, one file at a time.':screen==='review'?'Compare processed results across libraries, then accept, reject or skip.':screen==='processing'?running.length+' processing · '+publishing.length+' publishing · '+waiting.length+' waiting · '+ready.length+' ready to review':'Completed, cancelled and resolved work. Media files stay in your library.';
  $('asset-count').textContent=assets.length;$('attention-count').textContent=assets.filter(a=>attentionTasks(a).length).length;$('completed-count').textContent=assets.filter(movieCompleted).length;
  $('finding-count').textContent=tasks.filter(t=>t.status==='recommendation').length;$('queue-count').textContent=running.length+waiting.length;$('review-count').textContent=ready.length;$('nav-processing-count').textContent=running.length+publishing.length+waiting.length+ready.length+(state.cleanup_jobs||[]).filter(j=>j.library===libraryId&&j.phase==='deleting').length||'';
- $('nav-processing-count').textContent=queueBoardTasks().length+queueActiveFiles().length||'';
+ $('nav-processing-count').textContent=queueBoardTasks().filter(t=>t.library===libraryId).length+queueActiveFiles().filter(j=>j.library===libraryId).length||'';
  if(screen==='processing'){const rows=queueCountRows();$('library-note').textContent=rows.filter(r=>['running','publishing'].includes(r.status)).length+' processing · '+rows.filter(r=>r.status==='queued').length+' waiting · '+rows.filter(r=>r.status==='awaiting_review').length+' ready to review';}
  const reviewNav=$('nav-review');if(reviewNav){reviewNav.hidden=true;$('nav-review-count').textContent=state.tasks.filter(t=>t.status==='awaiting_review'&&['upscale','optimize','join'].includes(t.kind)).length||'';$('review-kind-control').hidden=screen!=='review';$('review-kind').value=reviewKind;}
  $('filters').hidden=screen!=='library';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===libraryView));

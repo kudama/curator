@@ -71,7 +71,7 @@
 [data-theme="cyberpunk"] dialog,[data-theme="cyberpunk"] #task-dialog,[data-theme="cyberpunk"] .processing-card,[data-theme="cyberpunk"] .file-group,[data-theme="cyberpunk"] .file-entry,[data-theme="cyberpunk"] #library-tools .library-tools-popover{background:var(--panel);border-color:var(--line)}
 [data-theme="cyberpunk"] .file-group-heading,[data-theme="cyberpunk"] .inspector .dialog-head,[data-theme="cyberpunk"] .inspector .dialog-actions{background:#151d34;border-color:var(--line)}
 [data-theme="cyberpunk"] .file-entry:hover{background:#1b2943}
-[data-theme="cyberpunk"] .file-entry.selected,[data-theme="cyberpunk"] #libraries button.selected,[data-theme="cyberpunk"] .workspace-nav button.active,[data-theme="cyberpunk"] #filters button.active,[data-theme="cyberpunk"] .editor-tabs button.active{background:#173040;color:var(--accent);border-color:#4e9caa}
+[data-theme="cyberpunk"] .file-entry.selected,[data-theme="cyberpunk"] #libraries button.selected,[data-theme="cyberpunk"] .workspace-nav button.active,[data-theme="cyberpunk"] #libraries .library-subnav button.active,[data-theme="cyberpunk"] #filters button.active,[data-theme="cyberpunk"] .editor-tabs button.active{background:#173040;color:var(--accent);border-color:#4e9caa}
 [data-theme="cyberpunk"] .collection-chip{background:#282043;border-color:#9565ae;color:#f1d9ff}
 [data-theme="cyberpunk"] .collection-option.selected,[data-theme="cyberpunk"] .collection-option:hover{background:#173040}
 [data-theme="cyberpunk"] #processing-strip,[data-theme="cyberpunk"] #toast{background:#151d34;border-color:#58678d;color:var(--text)}
@@ -214,3 +214,10 @@
 .metadata-generation-warning{max-width:620px;width:calc(100vw - 40px);max-height:85vh;overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:24px}.metadata-generation-warning::backdrop{background:#0009}.metadata-generation-warning section{border-top:1px solid var(--line);padding-top:8px}
 
 .queue-waiting-more[hidden]{display:none}.queue-waiting-toggle{display:block;margin:10px 0;padding:4px 0;font-size:12px}
+
+/* Tools belong to the selected library; workspace navigation stays separate. */
+#libraries .library-group{min-width:0}
+#libraries .library-subnav{display:flex;flex-direction:column;border-left:1px solid var(--line);margin:0 0 12px 12px;padding-left:12px}
+#libraries .library-subnav button{font-size:12px;padding:8px 10px;margin:2px 0}
+#libraries .library-subnav button.active{background:var(--surface,#26312b);color:var(--accent);border-color:var(--accent)}
+@media(max-width:800px){#libraries .library-group{flex:0 0 auto;max-width:240px}#libraries .library-subnav button{width:100%;white-space:normal}}

@@ -23,6 +23,18 @@ test('File management navigation respects unsaved edits and opens no operation',
  const h=setup();h.allow(false);assert.equal(h.run("setScreen('filemanagement')"),false);assert.equal(h.context.screen,'library');
  h.allow(true);assert.equal(h.run("setScreen('filemanagement')"),true);assert.equal(h.context.screen,'filemanagement');assert.equal(h.calls.some(c=>c.operation),false);
 });
+test('the library Queue link changes only the view scope and clears waiting selection',()=>{
+ const h=setup();h.run("queueLibrary='all';waitingSelection.add('other-library-task')");
+ assert.equal(h.run("setScreen('processing',true)"),true);
+ assert.equal(h.run('queueLibrary'),'one');assert.equal(h.run('waitingSelection.size'),0);
+ assert.equal(h.calls.some(c=>c.operation),false);
+});
+test('declining unsaved edits leaves the queue scope and selection unchanged',()=>{
+ const h=setup();h.allow(false);h.run("queueLibrary='all';waitingSelection.add('keep')");
+ assert.equal(h.run("setScreen('processing',true)"),false);
+ assert.equal(h.run('queueLibrary'),'all');assert.equal(h.run('waitingSelection.has("keep")'),true);
+ assert.equal(h.context.screen,'library');
+});
 test('library change keeps the file workspace, clears selection and can be refused',()=>{
  const h=setup();h.context.screen='filemanagement';h.run("fileManagementSelection.add('a')");h.allow(false);
  assert.equal(h.run("chooseFileManagementLibrary('two')"),false);assert.equal(h.context.libraryId,'one');assert.equal(h.run('fileManagementSelection.size'),1);
