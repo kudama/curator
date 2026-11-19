@@ -10,6 +10,11 @@ def gems(value, label='Gems allowance'):
     return value
 
 
+def over_budget_message(total, limit, label, count=None):
+    options=(' for '+str(count)+' '+('option' if count==1 else 'options')) if count else ''
+    return f'Estimated cost: {total:g} Gems{options}. {label}: {limit:g} Gems ({max(0,total-limit):g} Gems over budget).'
+
+
 class MageBudgets:
     def mage_budget_period(self):
         return datetime.now().astimezone().strftime('%Y-%m')
@@ -26,10 +31,10 @@ class MageBudgets:
         total=gems(receipt['total'],'Generation estimate')
         cap=receipt.get('batch_limit')
         if cap is not None and total>gems(cap,'Batch budget'):
-            raise ValueError('Generation estimate exceeds the batch budget')
+            raise ValueError(over_budget_message(total, cap, 'Curator batch budget', receipt.get('count')))
         monthly=gems(self.config().get('mage_monthly_budget',0),'Monthly Gems allowance')
         if monthly and usage['committed']+total>monthly:
-            raise ValueError('This batch exceeds the remaining Curator monthly Gems allowance')
+            raise ValueError(over_budget_message(total, max(0,monthly-usage['committed']), 'Remaining Curator monthly allowance', receipt.get('count')))
         ledger={'rows':usage['rows']}
         for row in receipt['rows']:
             if row['id'] in ledger['rows']:raise ValueError('This generation already has a budget reservation')
@@ -71,7 +76,7 @@ class MageBudgets:
                 raise ValueError('Generation budget outcome needs review before resubmission')
             usage=self.mage_budget_usage(period);monthly=gems(usage['limit'])
             if monthly and usage['committed']+provider['estimate']>monthly:
-                raise ValueError('Generation exceeds the current monthly Gems allowance')
+                raise ValueError(over_budget_message(provider['estimate'], max(0,monthly-usage['committed']), 'Remaining Curator monthly allowance', 1))
             row.update(phase='released',charged=0,refunded=0)
             self.store.put('settings','mage-budget:'+old_period,old)
             ledger=self.store.get('settings','mage-budget:'+period,{'rows':{}})

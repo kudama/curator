@@ -143,3 +143,10 @@ Renaming must retain unsubmitted non-file suggestions as suggestions, preserving
 ## Reference prompt wording — 2026-11-18
 
 For reference-based family and pet artwork, use the exact automatic template `re-imagine this image in style guidance X`, replacing X with the selected style guide’s details. Do not append filename, summary, background or typography directives to this reference template. Attach the selected image through the existing provider image field; keep aspect ratio and resolution in their API settings. Refresh automatic wording when a reference or style changes, restore the existing text-only template when No reference is chosen, and preserve manually edited prompts. Apply only to new plans, leaving saved requests, quotes and provider receipts unchanged.
+
+
+## Over-budget quote feedback — 2026-11-18
+
+Check cost must report the estimated total Gems and number of options even when the batch exceeds its budget, together with the applicable budget and Gems over budget. Reservation/submission failures likewise report the estimate and remaining monthly allowance. Existing rejection gates remain in force: no generation approval, reservation or paid submission occurs from a failed cost check.
+
+Artwork previews must fetch the current selected Plex images on reopening. If a verified Curator rename is pending and the old Plex key returns 404, resolve only a unique exact destination in the same verified library after checking the unchanged local fingerprint. Refresh the cached Plex identity/artwork and invalidate old thumbnails, preserving Curator asset/task IDs and all approvals. Refuse ambiguous or changed sources. This refresh never uploads, selects or replaces artwork in Plex.

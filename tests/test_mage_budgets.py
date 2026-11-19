@@ -69,3 +69,21 @@ class MageBudgetTests(unittest.TestCase):
         provider=dict(t['provider'],attempted=True,billing={'gems_charged':12,'gems_refunded':'unknown'})
         self.service.reconcile_mage_budget(t['id'],provider,terminal=True)
         self.assertEqual(self.service.mage_budget_usage()['committed'],12)
+
+    def test_over_budget_quote_reports_total_count_budget_and_shortfall_without_reserving(self):
+        tasks=[self.service.artwork_plan([self.asset['id']],'cover','gritty')['tasks'][0] for _ in range(2)]
+        with patch('curator.mage.Mage') as cls:
+            p=cls.return_value;p.credential_identity.return_value='fixture';p.quote.return_value={'gems':135,'body':{},'basis':'fixture'}
+            with self.assertRaisesRegex(ValueError,r'Estimated cost: 270 Gems for 2 options.*batch budget: 200 Gems.*70 Gems over budget'):
+                self.service.mage_quote([{'id':t['id'],'version':t['version']} for t in tasks],batch_limit=200)
+            p.submit.assert_not_called()
+        self.assertEqual(self.service.mage_budget_usage()['committed'],0)
+        self.assertTrue(all(self.service.get_task(t['id'])['status']=='recommendation' for t in tasks))
+
+    def test_monthly_budget_failure_reports_quote_and_remaining_allowance(self):
+        self.service.save_config({'mage_monthly_budget':10})
+        tasks,quotes=self.quotes();self.approve(quotes[0])
+        with self.assertRaisesRegex(ValueError,r'Estimated cost: 7 Gems for 1 option.*monthly allowance: 3 Gems.*4 Gems over budget'):
+            self.approve(quotes[1])
+        self.assertEqual(self.service.mage_budget_usage()['committed'],7)
+        self.assertEqual(self.service.get_task(tasks[1]['id'])['status'],'recommendation')

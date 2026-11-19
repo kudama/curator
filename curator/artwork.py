@@ -7,6 +7,7 @@ import uuid
 from . import branding
 from .plex import Plex
 from .store import now
+from .mage_budget import over_budget_message
 
 RATIOS = {'21:9', '16:9', '3:2', '5:4', '1:1', '4:5', '2:3', '9:16', '9:21'}
 
@@ -258,7 +259,7 @@ class ArtworkWorkflows:
         gems(receipt['total'],'Generation estimate')
         limit=batch_limit if batch_limit is not None else self.config().get('mage_batch_budget') or receipt['total']
         receipt['batch_limit']=gems(limit,'Batch budget')
-        if receipt['total']>receipt['batch_limit']:raise ValueError('Generation estimate exceeds the batch budget')
+        if receipt['total']>receipt['batch_limit']:raise ValueError(over_budget_message(receipt['total'], receipt['batch_limit'], 'Curator batch budget', receipt['count']))
         with self.store.transaction():self.store.put('settings','mage-quote:'+receipt['id'],receipt)
         return {k:v for k,v in receipt.items() if k!='credential'}
 

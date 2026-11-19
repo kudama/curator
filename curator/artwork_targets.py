@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 from .store import now
+from .plex import PlexError
 
 
 class ArtworkTargets:
@@ -73,4 +74,31 @@ class ArtworkTargets:
         if asset.get('artwork_target')=='person':
             if kind!='square':raise ValueError('Person portraits are square')
             return self.cast_profile_image(asset['profile_id'])
-        return self.checked_client(self.library(asset['library'])).image(asset['rating_key'],kind)
+        client=self.checked_client(self.library(asset['library']))
+        try:return client.image(asset['rating_key'],kind)
+        except PlexError as error:
+            pending=asset.get('rename_pending_plex') or {}
+            if 'HTTP 404' not in str(error) or pending.get('destination')!=asset.get('plex_path'):raise
+        # A completed, verified Curator rename may be rematched by Plex later.
+        # Follow only one exact destination in the same verified library and file.
+        self.asset({'asset':asset_id})
+        matches={str(item['ratingKey']):item for item in client.items(self.library(asset['library']))
+                 if any(part.get('file')==asset['plex_path'] for media in item.get('Media',[]) for part in media.get('Part',[]))}
+        if len(matches)!=1:raise ValueError('Plex artwork identity is ambiguous; rescan and reopen the editor')
+        current=next(iter(matches.values()))
+        if asset.get('item',{}).get('type') and current.get('type')!=asset['item']['type']:
+            raise ValueError('Plex artwork target type changed; rescan before editing')
+        self.asset({'asset':asset_id})
+        with self.store.transaction():
+            latest=self.store.get('assets',asset_id)
+            if not latest or any(latest.get(key)!=asset.get(key) for key in ('plex_path','fingerprint')):
+                raise ValueError('Artwork target changed while refreshing; reopen the editor')
+            if latest['rating_key'] not in {asset['rating_key'],str(current['ratingKey'])}:
+                raise ValueError('Plex artwork identity changed while refreshing; reopen the editor')
+            latest.update(rating_key=str(current['ratingKey']),item=copy.deepcopy(current),title=current.get('title',latest['title']))
+            latest.pop('rename_pending_plex',None)
+            self.store.put('assets',asset_id,latest)
+        with self.lock:
+            for key in list(self.thumbnail_cache):
+                if key[0]==asset_id:self.thumbnail_cache.pop(key,None)
+        return client.image(str(current['ratingKey']),kind)
