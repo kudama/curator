@@ -7,6 +7,7 @@ import tempfile
 import unicodedata
 from pathlib import Path
 from .store import now
+from .rules import stable_id
 
 
 def archive_root(value, check_write=False):
@@ -71,7 +72,7 @@ class ArtworkArchives:
             if not plan.get('candidate'):raise ValueError('There is no downloaded artwork candidate to archive')
             kind=plan['kind'];types={'cover':'Posters','background':'Backgrounds','square':'Squares','logo':'Logos'}
             if kind not in types:raise ValueError('Unsupported artwork archive type')
-            identity=hashlib.sha256(json.dumps([asset['library'],asset['rating_key']]).encode()).hexdigest()[:12]
+            identity=stable_id(asset['library'],asset['rating_key'],length=12)
             target=directory(root,['Cast']) if asset.get('artwork_target')=='person' else directory(root,['Collections' if asset.get('artwork_target')=='collection' else 'Movies',types[kind],readable(task['title'])+'--'+identity])
             directory(root,['Cast'])
             for owner in ('Movies','Collections'):
