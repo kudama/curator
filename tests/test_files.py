@@ -96,15 +96,17 @@ class Plans(unittest.TestCase):
         self.assertEqual(identity(self.plex.item('1')),before)
         self.assertEqual(self.store.get('assets',self.assets[0]['id'])['plex_path'],'/plex/Better.mkv')
         self.assertEqual(self.service.get_task('prior')['status'],'applied');self.assertEqual(self.service.get_task('prior')['version'],2)
-    def test_rename_identity_failure_restores_files(self):
+    def test_rename_completes_when_plex_still_has_old_path(self):
         task=self.plan();self.plex.follow=False
-        with patch('curator.file_workflows.time.sleep'):
+        with patch.object(self.plex,'item',side_effect=PlexError('HTTP 404')),patch.object(self.plex,'scan_folder',side_effect=AssertionError('No forced refresh')):
             result=self.run_task(task)
-        self.assertEqual(result['status'],'blocked');self.assertTrue(result['rename_restored'])
-        self.assertTrue(Path(self.assets[0]['local_path']).exists());self.assertFalse((self.folder/'Better.mkv').exists())
-    def test_rename_metadata_change_restores_files(self):
-        task=self.plan();self.plex.change_metadata=True
-        result=self.run_task(task);self.assertEqual(result['status'],'blocked');self.assertTrue(result['rename_restored'])
+        self.assertEqual(result['status'],'applied');self.assertFalse(result['rename_plex_verified'])
+        self.assertTrue((self.folder/'Better.mkv').exists());self.assertFalse(Path(self.assets[0]['local_path']).exists())
+        self.assertTrue(result['result']['plex_refresh_pending'])
+    def test_rename_does_not_scan_or_edit_plex_metadata(self):
+        task=self.plan();before=copy.deepcopy(self.plex.rows);self.plex.change_metadata=True
+        result=self.run_task(task)
+        self.assertEqual(result['status'],'applied');self.assertEqual(self.plex.scans,[]);self.assertEqual(self.plex.rows,before)
     def test_rename_missing_mount_and_collision_and_traversal(self):
         for name in ('../bad.mkv','Other.mp4','.hidden.mkv'):
             with self.subTest(name=name),self.assertRaises(ValueError):self.plan(filename=name)
@@ -286,15 +288,15 @@ class Plans(unittest.TestCase):
         self.assertEqual((self.folder/'Better.mkv').read_bytes(),b'part 1')
         self.assertFalse(Path(self.assets[0]['local_path']).exists())
 
-    def test_copy_based_rename_rolls_back_on_plex_mismatch(self):
+    def test_copy_based_rename_completes_before_plex_refresh(self):
         import errno
         task=self.plan();self.plex.follow=False
         with patch('curator.file_workflows.install_exclusive',side_effect=OSError(errno.ENOTSUP,'Unsupported operation')),patch('curator.file_workflows.time.sleep'):
             result=self.run_task(task)
-        self.assertEqual(result['status'],'blocked');self.assertTrue(result['rename_restored'])
-        self.assertEqual(Path(self.assets[0]['local_path']).read_bytes(),b'part 1')
-        self.assertFalse((self.folder/'Better.mkv').exists())
-        self.plan(filename='Another.mkv')  # Restored cache has the copy's current fingerprint.
+        self.assertEqual(result['status'],'applied')
+        self.assertEqual((self.folder/'Better.mkv').read_bytes(),b'part 1')
+        self.assertFalse(Path(self.assets[0]['local_path']).exists())
+        self.plan(filename='Another.mkv')  # Local cache follows the renamed file.
 
     def test_verified_copy_refuses_existing_destination_without_deleting_it(self):
         task=self.plan();destination=self.folder/'collision.mkv';destination.write_bytes(b'user file')
@@ -389,10 +391,17 @@ class Plans(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'comparison'):self.service.review(task['id'],1,'manual')
     def test_verified_rename_scan_reuses_asset_id(self):
         task=self.plan();self.assertEqual(self.run_task(task)['status'],'applied')
-        self.service.scan_status[self.library['id']]={'running':True,'count':0}
-        with patch('curator.service.tools.probe',return_value=media()):self.service._scan(self.library)
+        def scan():
+            self.service.scan_status[self.library['id']]={'running':True,'count':0}
+            with patch('curator.service.tools.probe',return_value=media()):self.service._scan(self.library)
+        scan()  # Plex still reports its old path.
+        asset=self.store.get('assets',self.assets[0]['id'])
+        self.assertEqual(asset['plex_path'],'/plex/Better.mkv');self.assertTrue(asset['rename_pending_plex']);self.assertEqual(len(self.store.all('assets')),3)
+        self.plex.scan_folder(self.library,'/plex')  # Scheduled Plex refresh happens later.
+        self.plex.rows['1']['ratingKey']='100'  # Refresh may replace the Plex identity.
+        scan()
         matching=[a for a in self.store.all('assets') if a['plex_path']=='/plex/Better.mkv']
-        self.assertEqual(len(matching),1);self.assertEqual(matching[0]['id'],self.assets[0]['id'])
+        self.assertEqual(len(matching),1);self.assertEqual(matching[0]['id'],self.assets[0]['id']);self.assertNotIn('rename_pending_plex',matching[0])
 
 
 class MultipartHelpers(unittest.TestCase):

@@ -34,6 +34,16 @@ class ReviewBatches(unittest.TestCase):
         batch=self.service.prepare_review_batch('library',self.refs,background=False)
         self.assertEqual([i['status'] for i in batch['items']],['failed','failed','prepared'])
         self.assertEqual(self.service.compared,['2'])
+    def test_saved_groups_follow_current_task_state_into_review_or_history(self):
+        batch=self.service.prepare_review_batch('library',self.refs,background=False)
+        with self.store.transaction():
+            for task in self.service.tasks.values():self.store.put('tasks',task['id'],task)
+        rows=self.service.review_batches(None)
+        self.assertEqual(len(rows),1);self.assertTrue(rows[0]['pending']);self.assertEqual(rows[0]['library'],'library')
+        with self.store.transaction():
+            for task in self.service.tasks.values():self.store.put('tasks',task['id'],dict(task,status='applied'))
+        self.assertFalse(self.service.review_batches(None)[0]['pending'])
+        self.assertEqual(self.service.review_batches('other'),[])
     def test_stop_request_during_current_file_is_preserved(self):
         original=self.service.comparison
         def stop(key):

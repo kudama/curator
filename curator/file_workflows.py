@@ -247,7 +247,7 @@ class FileWorkflows:
             moves=self._rename_moves(Path(rows[0]['local_path']),data.get('filename'))
             plan.update(moves=moves,filename=Path(moves[0]['destination']).name)
             evidence.update(renames=[dict(before=Path(m['source']).name,after=Path(m['destination']).name) for m in moves],
-                            note='Plex title and metadata stay unchanged. Same folder; related sidecars, extras and backups shown above move together. Folder branding files remain in place.')
+                            note='Rename files in the same folder; related sidecars, extras and backups shown above move together. Plex catches up on its scheduled refresh; no refresh or immediate Plex verification is requested.')
         elif kind=='join':
             source=Path(rows[0]['local_path'])
             filename=multipart.basename(data.get('filename'))
@@ -362,10 +362,8 @@ class FileWorkflows:
     def _rename(self, task, asset):
         library=self.library(task['library']);client=self.checked_client(library)
         client.automatic_trash()
-        before=client.item(asset['rating_key'])
-        if asset['plex_path'] not in item_paths(before):
-            raise ValueError('Plex source path changed; rescan and preview again')
-        art=self._art_hashes(client,before)
+        before=asset['item']
+        art={}
         moves=task['plan']['moves'];moved=[]
         self._save(task,rename_started=True,rename_before=before,rename_art_hashes=art,
                    progress={'phase':'Renaming files'})
@@ -384,11 +382,7 @@ class FileWorkflows:
                 if any(destination_fingerprint[k]!=move['fingerprint'][k] for k in ('size','modified')):
                     raise ValueError('File size or modification time changed while renaming')
             new_plex=str(PurePosixPath(asset['plex_path']).with_name(task['plan']['filename']))
-            self.publication_phase(task,'Verifying Plex identity and metadata')
-            client.scan_folder(library,str(PurePosixPath(new_plex).parent))
-            after=self._wait_item_path(client,asset['rating_key'],new_plex)
-            if not self.same_rename_identity(before,after) or art!=self._art_hashes(client,after):
-                raise ValueError('Plex metadata/artwork/playback state changed during rename')
+            self.publication_phase(task,'Verifying renamed files')
             destination=Path(moves[0]['destination'])
             if tools.fingerprint(destination)!=moved[0]['destination_fingerprint']:
                 raise ValueError('Renamed file changed during verification')
@@ -396,7 +390,8 @@ class FileWorkflows:
                 # Preserve stable asset/task IDs; subsequent scans reuse this path alias.
                 for row in self.store.all('assets'):
                     if row['library']==asset['library'] and row.get('local_path')==asset['local_path']:
-                        row.update(local_path=str(destination),plex_path=new_plex,fingerprint=tools.fingerprint(destination),item=after)
+                        previous_paths=list(dict.fromkeys(row.get('rename_pending_plex',{}).get('previous_paths',[])+[row['plex_path']]))
+                        row.update(local_path=str(destination),plex_path=new_plex,fingerprint=tools.fingerprint(destination),rename_pending_plex={'previous_paths':previous_paths,'destination':new_plex})
                         self.store.put('assets',row['id'],row)
                 for old in self.store.all('tasks'):
                     if old['id']==task['id']:
@@ -413,7 +408,7 @@ class FileWorkflows:
                     for old in self.store.all('tasks'):
                         if old.get('archive')==move['source']:
                             old['archive']=move['destination'];self.store.put('tasks',old['id'],old)
-            self._save(task,status='applied',result={'verified':True,'filename':destination.name},rename_verified=True)
+            self._save(task,status='applied',result={'verified':True,'verification':'filesystem','plex_refresh_pending':True,'filename':destination.name},rename_verified=True,rename_plex_verified=False)
         except Exception as error:
             phase=task.get('progress',{}).get('phase','Renaming files');number=getattr(error,'errno',None)
             detail=str(error) if isinstance(error,ValueError) else (os.strerror(number) if number else type(error).__name__)
@@ -441,11 +436,7 @@ class FileWorkflows:
                     for row in self.store.all('assets'):
                         if row['library']==asset['library'] and row.get('local_path')==moves[0]['source']:
                             row['fingerprint']=tools.fingerprint(moves[0]['source']);self.store.put('assets',row['id'],row)
-            try:
-                client.scan_folder(library,str(PurePosixPath(asset['plex_path']).parent))
-            except Exception:
-                pass
-            raise ValueError('Rename failed at '+phase+': '+detail+(f' (errno {number})' if number else '')+'. '+('Some names need manual recovery; inspect the retained receipt.' if failures else 'Original filenames restored; inspect Plex before trying again.')) from None
+            raise ValueError('Rename failed at '+phase+': '+detail+(f' (errno {number})' if number else '')+'. '+('Some names need manual recovery; inspect the retained receipt.' if failures else 'Original filenames restored; inspect the filesystem error before trying again.')) from None
 
     def restore_rename(self, key, version):
         return self.queue_file_operation('restore_rename',{'task':key,'version':version})
@@ -475,10 +466,13 @@ class FileWorkflows:
                         raise ValueError('A retained rename file is missing; recovery stopped')
                 asset=self.asset(task,check=False)
                 old_path=task['plan']['sources'][0]['plex_path']
-                client.scan_folder(library,str(PurePosixPath(old_path).parent))
-                restored=self._wait_item_path(client,asset['rating_key'],old_path)
-                if not self.same_rename_identity(task['rename_before'],restored) or self._art_hashes(client,restored)!=task['rename_art_hashes']:
-                    raise ValueError('Original filenames restored, but Plex metadata/state needs inspection')
+                destination=str(PurePosixPath(old_path).with_name(task['plan']['filename']))
+                with self.store.transaction():
+                    for row in self.store.all('assets'):
+                        if row['id']==asset['id']:
+                            local=task['plan']['moves'][0]['source']
+                            row.update(local_path=local,plex_path=old_path,fingerprint=tools.fingerprint(local),rename_pending_plex={'previous_paths':[destination],'destination':old_path})
+                            self.store.put('assets',row['id'],row)
                 self._save(task,status='resolved',rename_restored=True,rename_recovery_verified=True,error=None,result={'restored':True})
             except Exception as error:
                 message=str(error) if isinstance(error,ValueError) else 'Recovery stopped; inspect retained filenames'

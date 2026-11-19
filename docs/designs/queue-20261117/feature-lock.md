@@ -120,3 +120,12 @@ Final synthetic acceptance covers empty/large/mixed-library queues, all concurre
 Operator requests a fourth Artwork generation column, alongside Upscaling, Encoding and File operations. Keep all running generation options visible with title, artwork type, model and option index/count. The existing typed concurrency limit applies to Mage (1–8); independent generation options may share a staged source while video source reservations remain protected. Each option keeps its own provider request/approval/billing/candidate identity. Generate approves the displayed quote, starts the Mage queue and navigates to its status; it does not leave a second Generate action or require another Run click. Completed candidates stay available for separate artwork review. No automatic publication or additional unapproved generation is authorized.
 
 Small layout fixes in the same delivery: use Collapse all groups for both library grouping modes; use a fixed-width Generate action with status on a separate row. Existing batch-review navigation inconsistencies are identified but unchanged by this amendment.
+
+
+## Library and queue correction — 2026-11-18
+
+Approved: add Metadata as the fifth queue column, including local **AI assist** (formerly Home-movie analysis) and folder metadata. Hide columns without matching waiting, active, review or attention work; surviving columns use the available width. Processing limits remain reachable for hidden queues. Preserve per-type concurrency and ordering, including all parallel Mage options and file-operation preparation.
+
+Remove the three manager shortcuts from the file suggestions overview; task-specific Review actions and deliberate editor handoffs remain. Pending saved video review groups appear under Ready to review; receipts without reviewable results appear in History. Failed preparation offers an explicit new preparation attempt using current task versions; never retry publication or generation automatically.
+
+A rename completes after the filesystem moves and verification succeed. Do not force a Plex scan or require immediate Plex identity/metadata/artwork readback. Keep exclusive destinations, source fingerprints, sidecar receipts, rollback and automatic-trash protection. Preserve the stable asset identity while Plex still reports an earlier path, then reconcile it on a later scheduled Plex refresh. Old blocked renames are not retried automatically.

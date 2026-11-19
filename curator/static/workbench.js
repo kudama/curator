@@ -189,7 +189,10 @@ function fileOperationCards(){
  for(const job of jobs){const card=node('article',undefined,'processing-card');card.append(node('strong',job.title),node('p',job.operation.replaceAll('_',' ')+' · '+(job.phase==='waiting'?'Waiting for file operation slot':'Running')+' · '+(state.libraries.find(lib=>lib.id===job.library)?.title||job.library),'muted'));section.append(card);}
  return [section];
 }
-function reviewInboxRows(){return state.tasks.filter(t=>t.status==='awaiting_review'&&['upscale','optimize','join'].includes(t.kind)&&queueMatchesLibrary(t)&&(reviewKind==='all'||t.kind===reviewKind)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path].join(' ').toLocaleLowerCase().includes(searchText)));}
+function reviewInboxRows(){return state.tasks.filter(t=>t.status==='awaiting_review'&&queueMatchesLibrary(t)&&(reviewKind==='all'||t.kind===reviewKind)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path].join(' ').toLocaleLowerCase().includes(searchText)));}
+function reviewBatchCards(history=false){
+ return (state.review_batches||[]).filter(b=>Boolean(b.pending)!==history&&(history?(b.library===null||b.library===libraryId):(queueLibrary==='all'||b.library===null||b.library===queueLibrary))).map(b=>{const card=node('article',undefined,'history-row');card.append(node('p','Saved review group · '+b.count+' results · '+b.phase,'muted'),button(history?'View receipt':'Open review group',async()=>{if(!prepareInspector())return;batchPage=0;openBulkReview(await api('review-batch?'+new URLSearchParams({id:b.id})));},'text-button'));return card;});
+}
 function savedReviewSessionId(){try{return localStorage.getItem('curator.review-session');}catch(error){return currentReviewSession?.id;}}
 function renderReviewInbox(){
  const rows=reviewInboxRows(),controls=node('div',undefined,'bulk-group-actions');
@@ -198,7 +201,7 @@ function renderReviewInbox(){
   if(savedReviewSessionId())controls.append(button('Resume review',()=>run(()=>startContinuousReview(true)),'subtle'));
  }
  if(rows.length)controls.append(bulkTaskControls(rows.filter(t=>['upscale','optimize'].includes(t.kind))));
- return [controls,...rows.map(processingTaskCard)];
+ return [controls,...reviewBatchCards(),...rows.map(processingTaskCard)];
 }
 async function startContinuousReview(resume){
  if(reviewAdvanceBusy||!prepareInspector())return;reviewAdvanceBusy=true;
@@ -336,7 +339,7 @@ async function enableRunNotifications(){
  toast(permission==='granted'?'Run notifications enabled while this browser is open.':'Notifications were not enabled. Run summaries remain in Queue.');
 }
 function renderHistory(){
- return [...cleanupJobCards(true),...state.tasks.filter(t=>t.library===libraryId&&historyStatusMatches(t)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+taskStatusLabel(task.status)+' · '+new Date(task.updated||task.created).toLocaleString(),'muted'));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
+ return [...reviewBatchCards(true),...cleanupJobCards(true),...state.tasks.filter(t=>t.library===libraryId&&historyStatusMatches(t)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',(TASK_LABELS[task.kind]||task.kind)+' · '+taskStatusLabel(task.status)+' · '+new Date(task.updated||task.created).toLocaleString(),'muted'));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
 }
 function historyStatusMatches(task){
  const allowed=['applied','resolved','cancelled','rejected','failed','blocked'];
@@ -357,7 +360,7 @@ function showQueueLimits(){
  if(!prepareInspector())return;inspectorMode='queue-limits';openedTask=null;$('task-kind').textContent='PROCESSING';$('task-title').textContent='Shared processing limits';$('task-reason').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  detail.append(node('p','Limits apply across all libraries. Lowering a limit lets current jobs finish. Run or Resume fills additional slots after an increase.','muted'));
- const inputs=new Map(),kinds=new Set(['upscale','optimize','file_operations','mage_generation',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>t.kind)]);
+ const inputs=new Map(),kinds=new Set(['upscale','optimize','file_operations','mage_generation','metadata','home','folder_metadata',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>t.kind)]);
  for(const kind of kinds){const label=node('label',kind==='file_operations'?'File copy / delete':TASK_LABELS[kind]||kind),input=node('input');input.type='number';input.min=1;input.max=kind==='file_operations'?4:8;input.step=1;input.value=state.queue_limits?.[kind]||(kind==='file_operations'?4:1);label.append(input);detail.append(label);inputs.set(kind,input);}
  actions.append(button('Save limits',()=>run(async()=>{const limits=Object.fromEntries([...inputs].map(([kind,input])=>[kind,Number(input.value)]));await api('queue/limits',{limits});closeInspector(true);await refresh();toast('Shared processing limits saved.');}),'primary'));showInspector();
 }
@@ -365,7 +368,7 @@ function renderWorkbench(){
  if(queueDragging)return;
  if(typeof pruneGroupSelection==='function')pruneGroupSelection();
  const cleanupControl=$('cleanup-backups');if(cleanupControl){cleanupControl.hidden=!['library','filemanagement'].includes(screen);cleanupControl.textContent=screen==='filemanagement'?'Clean up originals · '+(current()?.title||'choose a library'):'Clean up originals';cleanupControl.disabled=!featureAvailable('backup_cleanup');cleanupControl.title=featureAvailable('backup_cleanup')?'Preview retained original backups':'Available after the pending backend update';}
- const batchControl=$('review-batches');if(batchControl){batchControl.hidden=['filemanagement','artwork'].includes(screen);batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
+ const batchControl=$('review-batches');if(batchControl){batchControl.hidden=true;batchControl.disabled=!featureAvailable('bulk_review');batchControl.title=featureAvailable('bulk_review')?'Saved batch reviews':'Available after the pending backend update';}
  $('libraries').replaceChildren(...state.libraries.map(lib=>button(lib.title,()=>chooseLibrary(lib.id),lib.id===libraryId?'selected':'')));
  const queueFilter=$('queue-library');if(queueFilter){$('queue-library-control').hidden=!['processing','review'].includes(screen)||!Array.isArray(state.global_queue);const signature=JSON.stringify(state.libraries.map(lib=>[lib.id,lib.title]));if(queueFilter.dataset.libraries!==signature){queueFilter.replaceChildren();for(const lib of [{id:'all',title:'All libraries'},...state.libraries]){const option=node('option',lib.title);option.value=lib.id;queueFilter.append(option);}queueFilter.dataset.libraries=signature;}if(!state.libraries.some(lib=>lib.id===queueLibrary))queueLibrary='all';queueFilter.value=queueLibrary;}
  document.querySelectorAll('[data-screen]').forEach(b=>b.classList.toggle('active',b.dataset.screen===screen||(screen==='review'&&b.dataset.screen==='processing')));
@@ -399,14 +402,11 @@ function renderAssetOverview(asset,signature=''){
  const ready=fileTasks(asset).some(t=>t.status==='awaiting_review'&&['upscale','optimize','join'].includes(t.kind));
  $('task-kind').textContent=ready?'READY TO PUBLISH':'REVIEW SUGGESTIONS';$('task-title').textContent=fileName(asset);$('task-reason').hidden=true;$('task-feedback').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();if(asset.item?.thumb)detail.append(thumbnail(asset,true));detail.append(node('p',metaLine(asset),'muted'));
- const links=node('div',undefined,'inspector-links');links.append(button('Metadata Manager',async()=>{const t=await api('metadata/task',{asset:asset.id});await refresh();await openTask(t.id);},'text-button'));
- links.append(button('Artwork Manager',()=>openArtworkManager([asset]),'text-button'));
- links.append(button('File management',()=>openFileManagement(asset.id),'text-button'));detail.append(links);
  if(asset.availability_error||asset.blocked)detail.append(node('p',asset.availability_error||asset.blocked,'task-error'));
  const tasks=fileTasks(asset).filter(t=>!HISTORY_TASK_STATES.has(t.status));
  if(!ready&&!tasks.some(t=>selected.has(t.id))){const first=tasks.find(canQueue);if(first)selected.add(first.id);}
  if(!tasks.length)detail.append(node('p','No pending work for this file.','muted'));
- for(const task of tasks){const row=node('div',undefined,'suggestion-row'),check=node('input');check.type='checkbox';check.disabled=!canQueue(task);check.checked=selected.has(task.id);check.setAttribute('aria-label','Select '+(TASK_LABELS[task.kind]||task.kind));check.onchange=()=>{check.checked?selected.add(task.id):selected.delete(task.id);updateQueueButton();};const text=node('div'),publishable=task.status==='awaiting_review'&&['upscale','optimize','join'].includes(task.kind);text.append(node('strong',TASK_LABELS[task.kind]||task.kind),node('p',publishable?'Ready to publish':task.error||task.reason,'muted'));row.append(check,text,button(publishable?'Review & Publish':'Review',()=>openTask(task.id),'subtle'));detail.append(row);}
+ for(const task of tasks){const row=node('div',undefined,'suggestion-row'),check=node('input');check.type='checkbox';check.disabled=!canQueue(task);check.checked=selected.has(task.id);check.setAttribute('aria-label','Select '+(TASK_LABELS[task.kind]||task.kind));check.onchange=()=>{check.checked?selected.add(task.id):selected.delete(task.id);updateQueueButton();};const text=node('div'),publishable=task.status==='awaiting_review'&&['upscale','optimize','join'].includes(task.kind);text.append(node('strong',TASK_LABELS[task.kind]||task.kind),node('p',publishable?'Ready to publish':task.error||(task.kind==='home'?'Suggest a title, description, collections and cover frames using local AI':task.reason),'muted'));row.append(check,text,button(publishable?'Review & Publish':'Review',()=>openTask(task.id),'subtle'));detail.append(row);}
  const history=fileTasks(asset).filter(t=>HISTORY_TASK_STATES.has(t.status));if(history.length){const box=node('details',undefined,'inspector-history');box.append(node('summary','Task history ('+history.length+')'));for(const task of history)box.append(button((TASK_LABELS[task.kind]||task.kind)+' · '+task.status,()=>openTask(task.id),'text-button'));detail.append(box);}
  const queue=button('Queue selected tasks',async()=>{const currentTasks=fileTasks(catalogIndex().byId.get(asset.id)),chosen=currentTasks.filter(t=>selected.has(t.id)&&canQueue(t));if(!chosen.length){const next=currentTasks.find(t=>['recommendation','blocked','failed','awaiting_review'].includes(t.status));if(next)return openTask(next.id);const active=currentTasks.find(t=>['queued','running','publishing'].includes(t.status));if(active){setScreen('processing');return openTask(active.id);}return;}let count=0;const errors=[];for(const task of chosen){try{await api('task/action',{id:task.id,version:task.version,action:'queue'});selected.delete(task.id);count++;}catch(error){errors.push(error.message);}}await refresh();toast(count+' queued'+(errors.length?' · '+errors.join('; '):''),Boolean(errors.length));},'primary');
  function updateQueueButton(){const count=fileTasks(asset).filter(t=>selected.has(t.id)&&canQueue(t)).length;queue.textContent=count?'Queue '+count+' selected '+(count===1?'task':'tasks'):tasks.some(t=>['recommendation','blocked','failed','awaiting_review'].includes(t.status))?'Review next suggestion':'View in Processing';queue.disabled=!tasks.length;queue.hidden=!tasks.length;}
@@ -557,6 +557,8 @@ function renderBulkReview(batch){
    const result=await api('review-batch/publish',{id:batch.id,count});openBulkReview(result);
   },'primary'));
  }
+ const retry=batch.items.filter(item=>['failed','stopped','interrupted','waiting'].includes(item.status)).map(item=>state.tasks.find(t=>t.id===item.id)).filter(t=>t?.status==='awaiting_review').map(t=>({id:t.id,version:t.version}));
+ if(retry.length&&!['preparing','publishing','rejecting'].includes(batch.phase))actions.append(button('Retry preparation ('+retry.length+')',async()=>{const result=await api('review-batch/prepare',{...reviewRowsScope(retry.map(ref=>state.tasks.find(t=>t.id===ref.id))),tasks:retry});batchPage=0;openBulkReview(result);},'subtle'));
  if(['interrupted','stopped'].includes(batch.phase))detail.append(node('p','Unfinished results remain available. Reselect them to create a new batch; no work is replayed automatically.','muted'));
 }
 async function pollBulkReview(){
