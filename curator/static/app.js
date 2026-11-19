@@ -1,7 +1,7 @@
 'use strict';
 let state={libraries:[],assets:[],tasks:[],config:{}},libraryId=null,filter='all',selected=new Set(),openedTask=null;
 const expandedFiles=new Set();let queueStatus='all',activeGrouping='folder';let screen='library',libraryView='attention',searchText='',selectedAssetId=null,inspectorMode=null,inspectorDirty=false;
-const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'Home-movie analysis',metadata:'Metadata',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Generation plan'};
+const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'Home-movie analysis',metadata:'Metadata',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Artwork generation'};
 const $=id=>document.getElementById(id);
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function feedbackTarget(){return $($('config-dialog').open?'config-feedback':$('library-dialog').open?'library-feedback':inspectorOpen()?'task-feedback':'workspace-feedback');}
@@ -59,7 +59,7 @@ function etaLabel(seconds){const minutes=Math.ceil(Math.max(0,seconds)/60);if(mi
 function updateProgressView(box,t){
  box.hidden=!['running','publishing'].includes(t.status);if(box.hidden)return;
  const p=t.progress||{},label=box.querySelector('span'),bar=box.querySelector('progress');
- label.textContent=p.phase||(t.status==='publishing'?(t.kind==='artwork'?'Publishing artwork':t.kind==='portrait'?'Publishing portrait':'Publishing video'):'Processing video');
+ label.textContent=p.phase||(t.status==='publishing'?(t.kind==='artwork'?'Publishing artwork':t.kind==='portrait'?'Publishing portrait':'Publishing video'):t.kind==='mage_generation'?'Starting generation':'Processing video');
  if(Number.isFinite(p.percent)){
   bar.max=100;bar.value=Math.max(0,Math.min(100,p.percent));label.textContent+=' · '+bar.value.toFixed(1)+'%';
   if(p.pass_count>1)label.textContent+=' · pass '+p.pass_number+'/'+p.pass_count;
@@ -546,7 +546,7 @@ async function openArtworkTask(t){
   for(const photo of t.plan.reference_photos||[]){const image=node('img');image.className='editor-image';image.alt='Selected outbound reference';image.src='/api/folders/image?'+new URLSearchParams({photo});detail.append(image);}detail.append(node('p',(t.plan.reference_photos||[]).length+' reference images staged.','muted'));
   detail.append(node('p','Check cost sends the displayed prompt and chosen references to Mage for an estimate. The priced Generate action is your approval; results return for separate artwork review.','muted'));
   if(t.status==='recommendation')await renderSavedMageConsent([t],detail,actions);
-  if(t.status==='blocked'&&t.provider)actions.append(button('Resume saved Mage request',()=>run(async()=>{await api('mage/resume',{id:t.id,version:t.version});await refresh();closeInspector(true);toast('Saved request queued for explicit recovery.');}),'subtle'));
+  if(t.status==='blocked'&&t.provider)actions.append(button(t.provider.status==='completed'?'Recover saved image':'Resume saved Mage request',()=>run(async()=>{await api('mage/resume',{id:t.id,version:t.version});await api('run',{scope:'all',kind:'mage_generation'});await refresh();showMageGenerationQueue();}),'subtle'));
  }
 
  if(t.evidence?.candidate_group){const siblings=state.tasks.filter(other=>other.id!==t.id&&other.evidence?.candidate_group===t.evidence.candidate_group&&other.plan?.candidate);if(siblings.length){const grid=node('div',undefined,'artwork-grid');for(const other of siblings){const card=node('section'),image=node('img');image.className='editor-image';image.alt='Candidate '+other.evidence.candidate_index;image.src='/api/folders/image?'+new URLSearchParams({photo:other.plan.candidate});card.append(image,button('Review candidate '+other.evidence.candidate_index,()=>openTask(other.id),'subtle'));grid.append(card);}detail.append(node('h3','Other candidates'),grid);}}

@@ -105,6 +105,8 @@ class MageDiscovery(unittest.TestCase):
         self.mage.download('https://assets.mage.space/result.png')
         request=self.opener.open.call_args.args[0]
         self.assertIsNone(request.get_header('Authorization'))
+        self.assertEqual(request.get_header('User-agent'),'Curator/0.5.0')
+        self.assertEqual(request.get_header('Accept'),'image/png,image/jpeg')
 
     def test_job_retries_are_bounded_and_keep_idempotency_key(self):
         from unittest.mock import patch

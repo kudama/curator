@@ -281,7 +281,7 @@ class ArtworkWorkflows:
                 self.store.put('tasks',task['id'],task)
                 self.store.event(task['id'],dict(action='approved Mage prompt and estimated Gems',gems=row['quote']['gems']))
             receipt['used']=True;self.store.put('settings','mage-quote:'+quote_id,receipt)
-        return {'queued':receipt['count'],'estimated_gems':receipt['total']}
+        return {'queued':receipt['count'],'estimated_gems':receipt['total'],'task_ids':[row['id'] for row in receipt['rows']]}
 
     def execute_mage(self, task, provider=None, wait=None):
         from .mage import Mage

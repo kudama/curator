@@ -86,3 +86,22 @@ test('Generate stays compact and requires a valid current quote',async()=>{
  count.value='2';count.onchange();assert.equal(h.find('Generate').disabled,true);
  const links=all(h.ids['task-detail']).find(e=>e.className==='manager-reference-actions');assert.deepEqual(links.children.filter(e=>e.tag==='button').map(e=>e.textContent),['Use current artwork','Choose a source frame','No reference']);
 });
+
+test('Generate approves once, starts only the artwork queue and removes the form',async()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/mage-settings.js'),'utf8'),h.context);
+ const calls=[];h.context.api=async(endpoint,data)=>{calls.push({endpoint,data});return {queued:2};};h.context.toast=()=>{};h.context.showMageGenerationQueue=()=>calls.push({endpoint:'queue-view'});
+ h.ids['task-buttons'].append(new Element('button','Generate'));h.context.detail=h.ids['task-detail'];h.context.actions=h.ids['task-buttons'];await h.run("generateMageQuote('priced-quote',detail,actions)");
+ assert.deepEqual(calls.map(c=>c.endpoint),['mage/authorize','run','queue-view']);assert.equal(calls[0].data.consent,true);assert.equal(calls[1].data.kind,'mage_generation');assert.equal(calls[1].data.scope,'all');assert.ok(!all(h.ids['task-buttons']).some(e=>e.textContent==='Generate'));
+});
+
+test('queue start failure retains approval and never resubmits the generation',async()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/mage-settings.js'),'utf8'),h.context);let approvals=0,warning='';h.context.api=async(endpoint)=>{if(endpoint==='mage/authorize'){approvals++;return {queued:1};}throw Error('Temporary disconnect');};h.context.toast=message=>warning=message;h.context.showMageGenerationQueue=()=>{};h.context.detail=h.ids['task-detail'];h.context.actions=h.ids['task-buttons'];
+ await h.run("generateMageQuote('priced-quote',detail,actions)");assert.equal(approvals,1);assert.match(warning,/approval saved/);assert.ok(!all(h.ids['task-buttons']).some(e=>e.textContent==='Generate'));
+});
+
+test('generation metadata checks flag missing descriptions and raw episode/file titles',()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/mage-settings.js'),'utf8'),h.context);
+ h.context.example={title:'Summer journey',item:{summary:'A family trip through the mountains.'}};assert.equal(h.run('generationMetadataIssues(example).length'),0);
+ h.context.example={title:'Series s2023e01.mp4',item:{summary:''}};assert.equal(h.run('generationMetadataIssues(example).length'),2);
+ h.context.example={title:'Alex',artwork_target:'person',item:{}};assert.equal(h.run('generationMetadataIssues(example).length'),0);
+});

@@ -31,6 +31,44 @@ function setupMageSettings(){
  $('mage-default-model').onchange=()=>syncMageResolution($('mage-default-model'),$('mage-default-resolution'));
 }
 async function renderSavedMageConsent(tasks,detail,actions){
- const note=node('p','Check the current total before approving these saved plans.','muted'),generate=button('Generate',async()=>{if(!quote)return;generate.disabled=true;try{await api('mage/authorize',{quote:quote.id,consent:true});await refresh();note.textContent='Generation queued. Start it in Queue; results return for artwork review.';quote=null;}catch(error){note.textContent=error.message;}},'primary');let quote=null;generate.disabled=true;
+ const note=node('p','Check the current total before approving these saved plans.','muted editor-status'),generate=button('Generate',async()=>{if(!quote)return;const owners=tasks.map(t=>catalogIndex().byId.get(t.asset)),decision=await confirmGenerationMetadata(owners);if(decision==='edit'){quote=null;generate.disabled=true;await editGenerationMetadata(owners);return;}if(decision!=='generate')return;generate.disabled=true;try{await generateMageQuote(quote.id,detail,actions);quote=null;}catch(error){note.textContent=error.message;}},'primary generate-action');let quote=null;generate.disabled=true;
  const check=button('Check cost',async()=>{check.disabled=true;quote=null;generate.disabled=true;try{const priced=await api('mage/quote',{tasks:tasks.map(t=>({id:t.id,version:t.version}))}),account=await discoverMage();const remaining=account.budget.limit?account.budget.limit-account.budget.committed:Infinity;note.textContent=priced.count+' '+(priced.count===1?'option':'options')+' · '+priced.total+' Gems estimated · Balance '+(account.balance_status==='available'?account.balance:'unavailable');generate.textContent='Generate';if(account.balance_status==='available'&&account.balance>=priced.total&&remaining>=priced.total){quote=priced;generate.disabled=false;}else note.textContent+=' · Check balance and budget before generation';}catch(error){note.textContent=error.message;}finally{check.disabled=false;}},'text-button');actions.append(note,check,generate);
+}
+
+async function generateMageQuote(quoteId,detail,actions){
+ const owner=openedTask,result=await api('mage/authorize',{quote:quoteId,consent:true});
+ if(openedTask===owner){inspectorDirty=false;inspectorBack=null;detail.replaceChildren(node('p',result.queued+' generation jobs approved. Starting the artwork queue…','muted'));actions.replaceChildren(button('View generation queue',showMageGenerationQueue,'subtle'));}
+ let failure=null;
+ try{await api('run',{scope:'all',kind:'mage_generation'});}catch(error){failure=error;}
+ try{await refresh();}catch(error){failure=failure||error;}
+ if(failure&&result.task_ids?.length&&result.task_ids.every(id=>state.tasks.some(t=>t.id===id&&['running','awaiting_review','applied'].includes(t.status))))failure=null;
+ if(openedTask===owner)showMageGenerationQueue();
+ if(failure)toast('Generation approval saved. Open Artwork generation in Queue to inspect or resume: '+failure.message,true);
+ return result;
+}
+function showMageGenerationQueue(){
+ inspectorDirty=false;inspectorBack=null;closeInspector(true);queueLibrary='all';queueStatus='all';searchText='';$('file-search').value='';setScreen('processing');
+}
+
+function generationMetadataIssues(asset){
+ if(!asset||asset.artwork_target)return [];
+ const title=asset.title||asset.item?.title||'',issues=[];
+ if(!title.trim())issues.push('Title is missing.');
+ if(/\bs\d{1,4}e\d{1,4}\b|\.(mp4|mkv|mov|avi|m4v)$/i.test(title))issues.push('The title contains an episode code or filename extension that could appear in the artwork.');
+ if(!asset.item?.summary?.trim())issues.push('Description is missing, so Mage has little context.');
+ return issues;
+}
+function confirmGenerationMetadata(assets){
+ const rows=(Array.isArray(assets)?assets:[assets]).filter(asset=>generationMetadataIssues(asset).length);
+ if(!rows.length)return Promise.resolve('generate');
+ return new Promise(resolve=>{
+  const dialog=node('dialog',undefined,'metadata-generation-warning'),title=node('h2','Review metadata before spending Gems');title.id='metadata-generation-warning-title';dialog.setAttribute('aria-labelledby',title.id);dialog.append(title,node('p','Mage uses the title and description below. Review missing fields and filename-like titles before generating.','muted'));
+  for(const asset of rows){const section=node('section');section.append(node('h3',asset.title||'Untitled'),node('p',asset.item?.summary||'No description','muted'));for(const issue of generationMetadataIssues(asset))section.append(node('p',issue,'muted'));dialog.append(section);}
+  const actions=node('div',undefined,'dialog-actions');const finish=value=>{dialog.close();dialog.remove();resolve(value);};const edit=button('Edit metadata',()=>finish('edit'),'subtle');actions.append(button('Cancel',()=>finish('cancel'),'subtle'),edit,button('Generate anyway',()=>finish('generate'),'primary'));dialog.append(actions);dialog.addEventListener('cancel',event=>{event.preventDefault();finish('cancel');});document.body.append(dialog);dialog.showModal();edit.focus();
+ });
+}
+async function editGenerationMetadata(assets){
+ const rows=(Array.isArray(assets)?assets:[assets]).filter(asset=>asset&&!asset.artwork_target),tasks=[];
+ for(const asset of rows)tasks.push(await api('metadata/task',{asset:asset.id}));
+ await refresh();await openMetadataManager(tasks);
 }
