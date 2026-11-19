@@ -3,7 +3,7 @@ let metadataDraft=null;
 function metadataDisplay(value){return Array.isArray(value)?value.map(v=>typeof v==='object'?v.name+(v.role?' — '+v.role:''):v).join(', '):String(value??'');}
 async function openMetadataManager(tasks,restored=null){
  if(!tasks.length||!prepareInspector())return;
- const refs=tasks.map(t=>({id:t.id,version:t.version})),assets=tasks.map(t=>catalogIndex().byId.get(t.asset)),single=tasks.length===1,token='metadata:'+crypto.randomUUID();
+ const refs=tasks.map(t=>({id:t.id,version:t.version})),assets=tasks.map(t=>catalogIndex().byId.get(t.asset)),single=tasks.length===1,token='metadata:'+clientId();
  inspectorMode='metadata-manager';openedTask=token;selectedAssetId=assets[0]?.id;
  $('task-kind').textContent=single?'METADATA':'BULK METADATA';$('task-title').textContent=single?fileName(assets[0]):'Edit '+tasks.length+' selected files';$('task-reason').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();showInspector();

@@ -2,6 +2,7 @@
 import argparse
 import base64
 import json
+import hashlib
 import ipaddress
 import re
 import secrets
@@ -71,6 +72,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(raw)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
+            if content_type.startswith('image/'):
+                self.send_header('X-Curator-Image-SHA256', hashlib.sha256(raw).hexdigest())
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             if cookie:
                 self.send_header('Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/')
@@ -119,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.request_host() is None:
             return self.reply({'error': 'Invalid host'}, 403)
         path = urlsplit(self.path).path
-        static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'), '/metadata-manager.js': ('metadata-manager.js', 'application/javascript'), '/mage-settings.js': ('mage-settings.js','application/javascript'), '/artwork-editors.js': ('artwork-editors.js','application/javascript'), '/artwork-manager.js': ('artwork-manager.js', 'application/javascript'),
+        static = {'/client-compat.js': ('client-compat.js', 'application/javascript'), '/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'application/javascript'), '/refresh.js': ('refresh.js', 'application/javascript'), '/metadata-manager.js': ('metadata-manager.js', 'application/javascript'), '/mage-settings.js': ('mage-settings.js','application/javascript'), '/artwork-editors.js': ('artwork-editors.js','application/javascript'), '/artwork-manager.js': ('artwork-manager.js', 'application/javascript'),
                   '/style.css': ('style.css', 'text/css'), '/workbench.js': ('workbench.js', 'application/javascript'), '/queue-board.js': ('queue-board.js', 'application/javascript'), '/file-management.js': ('file-management.js', 'application/javascript'), '/collections.js': ('collections.js', 'application/javascript')}
         if path in static:
             name, kind = static[path]
