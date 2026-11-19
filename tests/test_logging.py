@@ -1,3 +1,5 @@
+import contextlib
+import io
 import logging
 import os
 import stat
@@ -50,6 +52,29 @@ class PrivateLog(unittest.TestCase):
         rotated = sorted(path.parent.glob('curator.log*'))
         self.assertGreater(len(rotated), 1)
         self.assertTrue(all(self.mode(file) == 0o600 for file in rotated))
+
+    def test_failed_writes_and_rotation_never_fall_back_to_stderr(self):
+        path = configure(self.root, max_bytes=1)
+        handler = next(h for h in log.handlers if getattr(h, 'curator_private', False))
+        secret = 'synthetic-private-log-secret-123'
+        register_secret(secret)
+        for target, name in ((handler, 'shouldRollover'), (handler, 'doRollover'), (handler.stream, 'write')):
+            with self.subTest(failure=name), contextlib.ExitStack() as stack:
+                stderr, stdout = io.StringIO(), io.StringIO()
+                stack.enter_context(contextlib.redirect_stderr(stderr))
+                stack.enter_context(contextlib.redirect_stdout(stdout))
+                stack.enter_context(patch.object(logging, 'raiseExceptions', True))
+                if name == 'write':
+                    stack.enter_context(patch.object(handler, 'shouldRollover', return_value=False))
+                stack.enter_context(patch.object(target, name, side_effect=OSError('Synthetic log failure')))
+                try:
+                    raise ValueError('Provider failed with ' + secret)
+                except ValueError:
+                    log.exception('Library scan failed')
+                self.assertEqual(stderr.getvalue(), '')
+                self.assertEqual(stdout.getvalue(), '')
+        log.info('Private logging recovered')
+        self.assertIn('Private logging recovered', path.read_text())
 
     def test_symlinked_log_is_refused(self):
         (self.root / 'logs').mkdir()

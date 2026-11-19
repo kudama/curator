@@ -54,6 +54,12 @@ class RedactingFormatter(logging.Formatter):
 class PrivateRotatingFileHandler(RotatingFileHandler):
     """Rotating handler whose files are created 0600 and never through a symlink."""
 
+    def handleError(self, record):
+        # The default implementation prints the original record and exception
+        # context to stderr, bypassing redaction. Drop diagnostics if the private
+        # destination fails; never fall back to an unprotected output or logger.
+        pass
+
     def _open(self):
         fd = os.open(self.baseFilename, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         os.fchmod(fd, 0o600)
