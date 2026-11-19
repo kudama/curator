@@ -2,6 +2,7 @@
 import errno
 import time
 from .store import now
+from .errors import UserError
 
 
 class RecoveryWorkflows:
@@ -28,12 +29,12 @@ class RecoveryWorkflows:
         return 'Inspect the cause, then explicitly retry with a fresh source/settings check.'
 
     def retry_failed_results(self,refs):
-        if not isinstance(refs,list) or not 1<=len(refs)<=5000 or any(not isinstance(r,dict) or set(r)!={'id','version'} or not isinstance(r['id'],str) or type(r['version']) is not int for r in refs) or len({r['id'] for r in refs})!=len(refs):raise ValueError('Select unique failed jobs with current versions')
+        if not isinstance(refs,list) or not 1<=len(refs)<=5000 or any(not isinstance(r,dict) or set(r)!={'id','version'} or not isinstance(r['id'],str) or type(r['version']) is not int for r in refs) or len({r['id'] for r in refs})!=len(refs):raise UserError('Select unique failed jobs with current versions')
         results=[]
         for ref in refs:
             try:
                 task=self.get_task(ref['id'])
-                if not self.safe_failed_retry(task):raise ValueError('Inspect the retained output or uncertain operation before retrying')
+                if not self.safe_failed_retry(task):raise UserError('Inspect the retained output or uncertain operation before retrying')
                 self.action(ref['id'],'queue',ref['version']);results.append(dict(id=ref['id'],status='queued'))
             except (ValueError,OSError):results.append(dict(id=ref['id'],status='failed',error='Task changed, source/settings unavailable, or manual recovery required'))
         return dict(items=results,queued=sum(r['status']=='queued' for r in results),started=False,updated=now())

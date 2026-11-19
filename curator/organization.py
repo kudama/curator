@@ -1,9 +1,10 @@
 """Source-grounded episode ordering; missing pairings remain visible."""
+from .errors import UserError
 
 
 def interleave(assets, main_show, companion_show, companion_season_offset=0):
     if not main_show.strip() or not companion_show.strip() or main_show == companion_show:
-        raise ValueError('Choose two different show titles')
+        raise UserError('Choose two different show titles')
     shows = {main_show: {}, companion_show: {}}
     warnings = []
     for asset in assets:
@@ -20,10 +21,10 @@ def interleave(assets, main_show, companion_show, companion_season_offset=0):
         key = season, episode
         prior = shows[show].get(key)
         if prior and prior['rating_key'] != asset['rating_key']:
-            raise ValueError('Ambiguous episode numbering; resolve duplicates before ordering')
+            raise UserError('Ambiguous episode numbering; resolve duplicates before ordering')
         shows[show][key] = asset
     if not shows[main_show] or not shows[companion_show]:
-        raise ValueError('Scan libraries containing both requested shows first')
+        raise UserError('Scan libraries containing both requested shows first')
     ordered = []
     for position in sorted(set(shows[main_show]) | set(shows[companion_show])):
         for show in (main_show, companion_show):

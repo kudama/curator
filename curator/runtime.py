@@ -5,12 +5,13 @@ import socket
 import threading
 import uuid
 from .build import RUNNING_BUILD
+from .errors import UserError
 
 
 RESTART_EXIT_CODE = 75
 
 
-class RestartBlocked(ValueError):
+class RestartBlocked(UserError):
     pass
 
 

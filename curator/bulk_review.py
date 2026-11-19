@@ -3,6 +3,7 @@ import threading
 import uuid
 from .store import now
 from .logs import log
+from .errors import UserError
 
 
 class BulkReviewWorkflows:
@@ -15,7 +16,7 @@ class BulkReviewWorkflows:
 
     def review_batch(self,identity):
         batch=self.store.get('settings',identity)
-        if not isinstance(batch,dict) or batch.get('record_type')!='review_batch':raise ValueError('Review batch unavailable')
+        if not isinstance(batch,dict) or batch.get('record_type')!='review_batch':raise UserError('Review batch unavailable')
         return batch
 
     def review_batches(self,library):
@@ -33,7 +34,7 @@ class BulkReviewWorkflows:
     def _launch_review_batch(self,batch,publish=False,background=True,reject=False):
         with self.lock:
             if any(str(value).startswith('review-batch:') for value in self.active):
-                raise ValueError('Another review batch is active; finish or stop it first')
+                raise UserError('Another review batch is active; finish or stop it first')
             self.active.add(batch['id'])
             batch.update(phase='rejecting' if reject else 'publishing' if publish else 'preparing',cancel_requested=False)
             self._save_review_batch(batch)
@@ -44,12 +45,12 @@ class BulkReviewWorkflows:
         return self.review_batch(batch['id'])
 
     def new_review_batch(self,library,refs):
-        if not isinstance(refs,list) or not 1<=len(refs)<=5000:raise ValueError('Select between 1 and 5000 results')
+        if not isinstance(refs,list) or not 1<=len(refs)<=5000:raise UserError('Select between 1 and 5000 results')
         seen=set()
         for ref in refs:
             if not isinstance(ref,dict) or set(ref)!={'id','version'} or not isinstance(ref['id'],str) or len(ref['id'])>128 or type(ref['version']) is not int:
-                raise ValueError('Invalid task selection')
-            if ref['id'] in seen:raise ValueError('Duplicate task selection')
+                raise UserError('Invalid task selection')
+            if ref['id'] in seen:raise UserError('Duplicate task selection')
             seen.add(ref['id'])
         batch={'id':'review-batch:'+uuid.uuid4().hex,'record_type':'review_batch','library':library,
                'created':now(),'items':[{**ref,'status':'waiting'} for ref in refs]}
@@ -60,13 +61,13 @@ class BulkReviewWorkflows:
 
     def accept_selected_results(self,library,refs,count,confirmation,background=True):
         if not isinstance(refs,list) or type(count) is not int or count!=len(refs) or confirmation!='PUBLISH SELECTED WITHOUT INDIVIDUAL REVIEW':
-            raise ValueError('Confirm the exact selected result count and bulk-publication warning')
+            raise UserError('Confirm the exact selected result count and bulk-publication warning')
         batch=self.new_review_batch(library,refs)
         batch.update(automatic_publish=True,approved_count=count,approved_at=now())
         return self._launch_review_batch(batch,background=background)
 
     def reject_selected_results(self,library,refs,count,background=True):
-        if not isinstance(refs,list) or type(count) is not int or count!=len(refs):raise ValueError('Confirm the current selected count')
+        if not isinstance(refs,list) or type(count) is not int or count!=len(refs):raise UserError('Confirm the current selected count')
         return self._launch_review_batch(self.new_review_batch(library,refs),background=background,reject=True)
 
     def publish_review_batch(self,identity,count,background=True):
@@ -74,14 +75,14 @@ class BulkReviewWorkflows:
             batch=self.review_batch(identity)
             prepared=sum(item['status']=='prepared' for item in batch['items'])
             if batch['phase']!='ready' or type(count) is not int or count!=prepared or not prepared:
-                raise ValueError('Review the current prepared count before publishing')
+                raise UserError('Review the current prepared count before publishing')
             batch['approved_count']=count;batch['approved_at']=now()
             return self._launch_review_batch(batch,publish=True,background=background)
 
     def stop_review_batch(self,identity):
         with self.store.transaction():
             batch=self.review_batch(identity)
-            if batch['phase'] not in {'preparing','publishing','rejecting'}:raise ValueError('This review batch is not running')
+            if batch['phase'] not in {'preparing','publishing','rejecting'}:raise UserError('This review batch is not running')
             batch['cancel_requested']=True;batch['updated']=now()
             self.store.put('settings',identity,batch)
         return batch
@@ -97,20 +98,20 @@ class BulkReviewWorkflows:
                 try:
                     task=self.get_task(item['id'])
                     if task.get('deleted') or (batch['library'] is not None and task['library']!=batch['library']) or task['kind'] not in {'upscale','optimize'} or task['status']!='awaiting_review' or task['version']!=item['version']:
-                        raise ValueError('Task changed or is no longer an eligible video result')
+                        raise UserError('Task changed or is no longer an eligible video result')
                     if publish:
                         result=self.review(item['id'],item['version'],'batch comparison',background=False)
-                        if result['status']!='applied':raise ValueError('Publication did not complete; inspect the task')
+                        if result['status']!='applied':raise UserError('Publication did not complete; inspect the task')
                         item.update(status='published')
                     else:
                         self.comparison(item['id'])
                         observed=self.get_task(item['id'])
                         if observed['version']!=item['version'] or observed['status']!='awaiting_review':
-                            raise ValueError('Task changed while preparing its comparison')
+                            raise UserError('Task changed while preparing its comparison')
                         item.update(status='prepared')
                 except Exception as error:
                     log.exception('Bulk review preparation failed for task %s', item['id'])
-                    item.update(status='failed',error=str(error)[:250] if isinstance(error,ValueError) else 'Operation failed; inspect this task')
+                    item.update(status='failed',error=str(error)[:250] if isinstance(error, UserError) else 'Operation failed; inspect this task')
                 # Preserve a stop request made while this file was being processed.
                 self._save_review_batch(batch,preserve_stop=True)
             else:batch['phase']='complete' if publish else 'ready'
@@ -135,13 +136,13 @@ class BulkReviewWorkflows:
                 try:
                     task=self.get_task(item['id'])
                     if task.get('deleted') or task['kind'] not in {'upscale','optimize'} or (batch['library'] is not None and task['library']!=batch['library']):
-                        raise ValueError('Task is not an eligible selected video result')
+                        raise UserError('Task is not an eligible selected video result')
                     result=self.action(item['id'],'reject',item['version'])
-                    if result['status']!='recommendation':raise ValueError('Result was not reset')
+                    if result['status']!='recommendation':raise UserError('Result was not reset')
                     item.update(status='reset')
                 except Exception as error:
                     log.exception('Bulk review reset failed for task %s', item['id'])
-                    item.update(status='failed',error=str(error)[:250] if isinstance(error,ValueError) else 'Reset failed; inspect task')
+                    item.update(status='failed',error=str(error)[:250] if isinstance(error, UserError) else 'Reset failed; inspect task')
                 self._save_review_batch(batch,preserve_stop=True)
             else:batch['phase']='complete'
             self._save_review_batch(batch,preserve_stop=True)

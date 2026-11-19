@@ -4,6 +4,7 @@ import hashlib
 import json
 from .store import now
 from .plex import PlexError
+from .errors import UserError
 
 
 class ArtworkTargets:
@@ -18,10 +19,10 @@ class ArtworkTargets:
         library = self.library(library_id)
         client = self.checked_client(library)
         if not any(str(row['key']) == str(rating_key) for row in client.collections(library)):
-            raise ValueError('Collection does not belong to this library')
+            raise UserError('Collection does not belong to this library')
         item = client.item(str(rating_key))
         if item.get('type') != 'collection' or str(item.get('ratingKey')) != str(rating_key):
-            raise ValueError('Plex collection identity changed')
+            raise UserError('Plex collection identity changed')
         identity = hashlib.sha256(json.dumps([library['server'], library_id, str(rating_key)]).encode()).hexdigest()[:24]
         asset = dict(id=identity, record_type='artwork_target', artwork_target='collection',
                      library=library_id, rating_key=str(rating_key), title=item['title'],
@@ -33,7 +34,7 @@ class ArtworkTargets:
     def person_artwork_target(self, profile_id, library_id):
         self.library(library_id)
         profile=self.store.get('settings','cast_profiles',{}).get(profile_id)
-        if not profile:raise ValueError('Person not found')
+        if not profile:raise UserError('Person not found')
         identity=hashlib.sha256(('person:'+profile_id).encode()).hexdigest()[:24]
         existing=self.store.get('settings','artwork-target:'+identity)
         asset=dict(id=identity,record_type='artwork_target',artwork_target='person',profile_id=profile_id,
@@ -45,18 +46,18 @@ class ArtworkTargets:
     def artwork_preview(self, asset_ids, kind, ratio, images, originals=None):
         from .image_contract import editor_png
         if not isinstance(asset_ids,list) or not 1<=len(asset_ids)<=100 or any(not isinstance(a,str) for a in asset_ids) or len(set(asset_ids))!=len(asset_ids):
-            raise ValueError('Select one to 100 distinct artwork targets')
+            raise UserError('Select one to 100 distinct artwork targets')
         from . import branding
         if kind not in {'cover','background','square','logo'}:
-            raise ValueError('Choose an artwork type')
+            raise UserError('Choose an artwork type')
         if not isinstance(images,dict) or set(images)!=set(asset_ids):
-            raise ValueError('Choose a candidate for every selected item')
+            raise UserError('Choose a candidate for every selected item')
         if kind=='background' and ratio!='16:9' or kind=='square' and ratio!='1:1' or kind=='cover' and ratio not in {'2:3','16:9'} or kind=='logo' and ratio is not None:
-            raise ValueError('Choose the correct artwork format')
+            raise UserError('Choose the correct artwork format')
         for aid in asset_ids:
             asset=self.asset({'asset':aid},check=False)
             if asset.get('artwork_target')=='collection' and kind=='cover' and ratio!='2:3':
-                raise ValueError('Collection posters use 2:3')
+                raise UserError('Collection posters use 2:3')
             editor_png(images[aid],ratio,logo=kind=='logo')
         presets=self.config().get('branding_presets',branding.DEFAULT_PRESETS)
         return self.artwork_plan(asset_ids,kind,presets[0]['id'],{'ratio':ratio} if ratio else {},images,originals)
@@ -69,10 +70,10 @@ class ArtworkTargets:
 
     def artwork_target_image(self, asset_id, kind):
         from .plex import Plex
-        if kind not in Plex.ARTWORK:raise ValueError('Unknown artwork type')
+        if kind not in Plex.ARTWORK:raise UserError('Unknown artwork type')
         asset=self.asset({'asset':asset_id},check=False)
         if asset.get('artwork_target')=='person':
-            if kind!='square':raise ValueError('Person portraits are square')
+            if kind!='square':raise UserError('Person portraits are square')
             return self.cast_profile_image(asset['profile_id'])
         client=self.checked_client(self.library(asset['library']))
         try:return client.image(asset['rating_key'],kind)
@@ -84,17 +85,17 @@ class ArtworkTargets:
         self.asset({'asset':asset_id})
         matches={str(item['ratingKey']):item for item in client.items(self.library(asset['library']))
                  if any(part.get('file')==asset['plex_path'] for media in item.get('Media',[]) for part in media.get('Part',[]))}
-        if len(matches)!=1:raise ValueError('Plex artwork identity is ambiguous; rescan and reopen the editor')
+        if len(matches)!=1:raise UserError('Plex artwork identity is ambiguous; rescan and reopen the editor')
         current=next(iter(matches.values()))
         if asset.get('item',{}).get('type') and current.get('type')!=asset['item']['type']:
-            raise ValueError('Plex artwork target type changed; rescan before editing')
+            raise UserError('Plex artwork target type changed; rescan before editing')
         self.asset({'asset':asset_id})
         with self.store.transaction():
             latest=self.store.get('assets',asset_id)
             if not latest or any(latest.get(key)!=asset.get(key) for key in ('plex_path','fingerprint')):
-                raise ValueError('Artwork target changed while refreshing; reopen the editor')
+                raise UserError('Artwork target changed while refreshing; reopen the editor')
             if latest['rating_key'] not in {asset['rating_key'],str(current['ratingKey'])}:
-                raise ValueError('Plex artwork identity changed while refreshing; reopen the editor')
+                raise UserError('Plex artwork identity changed while refreshing; reopen the editor')
             latest.update(rating_key=str(current['ratingKey']),item=copy.deepcopy(current),title=current.get('title',latest['title']))
             latest.pop('rename_pending_plex',None)
             self.store.put('assets',asset_id,latest)

@@ -12,6 +12,7 @@ import re
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from .errors import UserError
 
 log = logging.getLogger('curator')
 # Without a configured file (tests, library use) records go nowhere, rather than
@@ -63,7 +64,7 @@ def configure(root, max_bytes=1_000_000, backups=3):
     """Send Curator's log to <root>/logs/curator.log. Safe to call more than once."""
     directory = Path(root) / 'logs'
     if directory.is_symlink():
-        raise ValueError('Curator log directory cannot be a symlink')
+        raise UserError('Curator log directory cannot be a symlink')
     directory.mkdir(mode=0o700, exist_ok=True)
     os.chmod(directory, 0o700)
     path = directory / 'curator.log'

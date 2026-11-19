@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from .errors import UserError
 
 
 def now():
@@ -26,7 +27,7 @@ class Store:
             fcntl.flock(self.instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             self.instance_lock.close()
-            raise ValueError('Curator already has this state directory open') from None
+            raise UserError('Curator already has this state directory open') from None
         self.lock = threading.RLock()
         self.db = sqlite3.connect(self.root / 'curator.sqlite3', check_same_thread=False)
         os.chmod(self.root / 'curator.sqlite3', 0o600)
@@ -95,7 +96,7 @@ class Store:
 
     def _table(self, table):
         if table not in self.TABLES:
-            raise ValueError('Invalid record type')
+            raise UserError('Invalid record type')
 
     def close(self):
         with self.lock:

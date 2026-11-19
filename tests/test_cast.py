@@ -78,7 +78,7 @@ class CastWorkflow(unittest.TestCase):
         self.assertEqual(self.service.cast_profiles(), [])
 
     def test_image_retrieval_failure_is_not_success(self):
-        self.plex.cast_image = lambda *args: (_ for _ in ()).throw(ValueError('Picture unavailable'))
+        self.plex.cast_image = lambda *args: (_ for _ in ()).throw(PlexError('Picture unavailable'))
         with self.assertRaisesRegex(ValueError, 'Picture unavailable'):
             self.save([dict(name='Name',image=base64.b64encode(PNG).decode(),remember=True)])
         self.assertEqual(self.service.cast_profiles(), [])
@@ -130,7 +130,7 @@ class CastWorkflow(unittest.TestCase):
         checks = []
         def image(thumb):
             checks.append(thumb)
-            if len(checks) == 1:raise ValueError('Temporary photo failure')
+            if len(checks) == 1:raise PlexError('Temporary photo failure')
             return PNG
         self.plex.cast_image = image
         rows = [dict(name='Name',image=base64.b64encode(PNG).decode(),remember=True)]

@@ -1,6 +1,7 @@
 """Normalize the provider's advertised image schemas without inventing models/options."""
 import math
 import re
+from .errors import UserError
 
 
 def options(architecture, model, field):
@@ -35,8 +36,8 @@ def models(catalog):
 
 def resolve(catalog, selected):
     row=next((row for row in models(catalog) if row['id']==selected),None)
-    if not row:raise ValueError('Selected Mage model is not in the current image catalog')
-    if not row['supported']:raise ValueError(row['reason'])
+    if not row:raise UserError('Selected Mage model is not in the current image catalog')
+    if not row['supported']:raise UserError(row['reason'])
     architecture=next(a for a in catalog['architectures'] if a['id']==row['architecture'])
     return architecture,row
 
@@ -46,20 +47,20 @@ def request_body(architecture,row,settings,reference_images):
     if row['model_id'] is not None:body['model_id']=row['model_id']
     ratio=settings['ratio'];resolution=settings.get('resolution','')
     if 'aspect_ratio' in properties:
-        if ratio not in row['ratios']:raise ValueError('Selected Mage model does not advertise this artwork ratio')
+        if ratio not in row['ratios']:raise UserError('Selected Mage model does not advertise this artwork ratio')
         body['aspect_ratio']=ratio
     else:
         w,h=map(int,ratio.split(':'));bounds=[]
         for field in ('width','height'):
             schema=properties[field]
-            if schema.get('type')!='integer':raise ValueError('Unsupported image dimension schema')
+            if schema.get('type')!='integer':raise UserError('Unsupported image dimension schema')
             bounds.append(int(schema.get('maximum',2048)))
         unit=min(bounds[0]//(w*8),bounds[1]//(h*8));body.update(width=w*8*unit,height=h*8*unit)
     if 'resolution' in properties or row['resolutions']:
-        if resolution not in row['resolutions']:raise ValueError('Selected Mage model does not advertise this resolution')
+        if resolution not in row['resolutions']:raise UserError('Selected Mage model does not advertise this resolution')
         body['resolution']=next(v for v in options(architecture,row['model_id'],'resolution') if str(v)==resolution)
     if settings.get('negative_prompt'):
-        if 'negative_prompt' not in properties:raise ValueError('Selected model has no documented negative prompt field')
+        if 'negative_prompt' not in properties:raise UserError('Selected model has no documented negative prompt field')
         body['negative_prompt']=settings['negative_prompt']
     if reference_images:
         inputs=architecture.get('image_inputs',{}).get('references',{}) or {}
@@ -67,15 +68,15 @@ def request_body(architecture,row,settings,reference_images):
         additional=inputs.get('additional_field') or ('additional_images' if row['architecture']=='mango' else None)
         maximum=architecture.get('max_images_by_model',{}).get(row['model_id'],architecture.get('max_images',10 if row['architecture']=='mango' else 1))
         if not first or type(maximum) is not int or len(reference_images)>maximum or len(reference_images)>1 and not additional:
-            raise ValueError('Selected model does not advertise these reference inputs')
+            raise UserError('Selected model does not advertise these reference inputs')
         body[first]=reference_images[0]
         if len(reference_images)>1:body[additional]=reference_images[1:]
     required=set(architecture.get('input_schema',{}).get('required',[]))
     defaults=architecture.get('base_config',{})
-    if required-set(body)-set(defaults):raise ValueError('Selected model requires additional controls before generation')
+    if required-set(body)-set(defaults):raise UserError('Selected model requires additional controls before generation')
     for field,value in body.items():
         schema=properties.get(field,{})
         if type(value) in (int,float):
             if not math.isfinite(value) or value<schema.get('minimum',1) or value>schema.get('maximum',8192) or value%schema.get('multipleOf',1):
-                raise ValueError('Image dimensions are outside the selected model schema')
+                raise UserError('Image dimensions are outside the selected model schema')
     return body

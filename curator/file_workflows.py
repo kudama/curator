@@ -14,6 +14,7 @@ from .plex import Plex
 from .store import now
 from .quality import assess
 from .logs import log
+from .errors import UserError
 
 FILE_KINDS = {'rename', 'join', 'group'}
 ACTIVE = {'queued', 'running', 'publishing'}
@@ -77,14 +78,14 @@ class FileWorkflows:
         try:
             checksum=self._copy_with_progress(task,source,destination,phase+' · copying',created=created)
             if self.publication_digest(task,destination,phase+' · verifying copy')!=checksum:
-                raise ValueError('Destination copy failed verification; source retained')
+                raise UserError('Destination copy failed verification; source retained')
             if tools.fingerprint(source)!=before:
-                raise ValueError('Source changed during copy; source retained')
+                raise UserError('Source changed during copy; source retained')
             if preserve_time:
                 stat=source.stat();os.utime(destination,ns=(stat.st_atime_ns,stat.st_mtime_ns))
             current=destination.stat()
             if current.st_dev!=owner['device'] or current.st_ino!=owner['inode']:
-                raise ValueError('Destination changed during copy; source retained')
+                raise UserError('Destination changed during copy; source retained')
             if receipt:receipt(tools.fingerprint(destination))
             if remove_source:
                 source.unlink();source_removed=True
@@ -137,19 +138,19 @@ class FileWorkflows:
             if hashes!=expected['art_hashes']:changed.append('artwork image content')
         elif 'art' in expected and current['art']!=expected['art']:
             changed.append('artwork preview needs content verification')
-        if changed:raise ValueError('Chosen source metadata changed ('+', '.join(changed)+'). Use Refresh metadata preview; the joined video is retained.')
+        if changed:raise UserError('Chosen source metadata changed ('+', '.join(changed)+'). Use Refresh metadata preview; the joined video is retained.')
 
     def refresh_join_metadata(self, key, version):
         with self.operation_lock(key):
             task=self.get_task(key)
             if task['kind']!='join' or task['status'] not in {'blocked','awaiting_review'} or task['version']!=version or not task.get('output') or task.get('validation'):
-                raise ValueError('No validated joined output is available for metadata review')
+                raise UserError('No validated joined output is available for metadata review')
             rows=self.file_sources(task);self._file_conflicts(task)
-            if tools.digest(task['output'])!=task['output_hash']:raise ValueError('Joined output changed')
+            if tools.digest(task['output'])!=task['output_hash']:raise UserError('Joined output changed')
             source=next(r for r in rows if r['id']==task['plan']['metadata_asset'])
             client=self.checked_client(self.library(task['library']))
             item=client.item(source['rating_key'])
-            if source['plex_path'] not in item_paths(item):raise ValueError('Chosen Plex source path changed')
+            if source['plex_path'] not in item_paths(item):raise UserError('Chosen Plex source path changed')
             previous=task['plan'].get('metadata_snapshot') or task['plan'].get('metadata_identity')
             plan={**task['plan'],'metadata_snapshot':self.join_metadata_snapshot(item,client=client),'metadata_identity':identity(item)}
             with self.store.transaction():
@@ -161,21 +162,21 @@ class FileWorkflows:
     def file_suggestions(self, aid):
         asset = self.store.get('assets',aid)
         if not asset or not asset.get('present',True):
-            raise ValueError('Select an available file')
+            raise UserError('Select an available file')
         return multipart.suggestions(self.store.all('assets'),asset)
 
     def _members(self, ids, library=None, check=True):
         if not isinstance(ids,list) or not 1 <= len(ids) <= 16 or any(not isinstance(aid,str) for aid in ids) or len(ids)!=len(set(ids)):
-            raise ValueError('Choose 1–16 distinct files')
+            raise UserError('Choose 1–16 distinct files')
         rows=[]
         for aid in ids:
             row=self.asset({'asset':aid},check=check)
             library=library or row['library']
             if row['library']!=library:
-                raise ValueError('All parts must belong to the selected library')
+                raise UserError('All parts must belong to the selected library')
             rows.append(row)
         if len({r['local_path'] for r in rows})!=len(rows):
-            raise ValueError('The same source file was selected more than once')
+            raise UserError('The same source file was selected more than once')
         return rows
 
     def _file_conflicts(self, task):
@@ -186,12 +187,12 @@ class FileWorkflows:
                 continue
             other_ids=other.get('plan',{}).get('assets',[other['asset']])
             if ids.intersection(other_ids) or any(self.store.get('assets',aid,{}).get('local_path') in paths for aid in other_ids):
-                raise ValueError('Another queued/running task uses one of these files; finish or cancel it first')
+                raise UserError('Another queued/running task uses one of these files; finish or cancel it first')
 
     def _rename_moves(self, source, name):
         destination=source.with_name(multipart.basename(name,source.suffix))
         if destination==source:
-            raise ValueError('Choose a different filename')
+            raise UserError('Choose a different filename')
         moves=[(source,destination)]
         sidecars={'.srt','.ass','.ssa','.vtt','.sub','.idx','.nfo','.jpg','.jpeg','.png','.webp'}
         for child in source.parent.iterdir():
@@ -210,32 +211,32 @@ class FileWorkflows:
                 moves.append((child,child.with_name(multipart.basename(tail))))
         for old,new in moves:
             if old.is_symlink() or not old.is_file():
-                raise ValueError('Rename supports regular files only; inspect related files')
+                raise UserError('Rename supports regular files only; inspect related files')
             if new.exists() or new.is_symlink():
-                raise ValueError('A proposed filename already exists; nothing was renamed')
+                raise UserError('A proposed filename already exists; nothing was renamed')
         return [dict(source=str(old),destination=str(new),fingerprint=tools.fingerprint(old)) for old,new in moves]
 
     def file_plan(self, data):
         kind=data.get('kind')
         if kind not in FILE_KINDS:
-            raise ValueError('Unknown file operation')
+            raise UserError('Unknown file operation')
         rows=self._members(data.get('assets'))
         if any(Path(row['plex_path']).name != Path(row['local_path']).name for row in rows):
-            raise ValueError('Symlink/alias filenames need manual inspection before file operations')
+            raise UserError('Symlink/alias filenames need manual inspection before file operations')
         if kind=='rename' and len(rows)!=1:
-            raise ValueError('Rename one file at a time')
+            raise UserError('Rename one file at a time')
         if kind!='rename' and len(rows)<2:
-            raise ValueError('Select at least two parts')
+            raise UserError('Select at least two parts')
         library=self.library(rows[0]['library'])
         for row in rows:
             plex_path=PurePosixPath(row['plex_path'])
             matching=[m for m in library['mappings'] if plex_path.is_relative_to(PurePosixPath(m['plex_root']))]
             mapping=max(matching,key=lambda m:len(PurePosixPath(m['plex_root']).parts))
             if (Path(mapping['local_root'])/plex_path.relative_to(PurePosixPath(mapping['plex_root']))).is_symlink():
-                raise ValueError('Symlink media files need manual inspection before file operations')
+                raise UserError('Symlink media files need manual inspection before file operations')
         title=data.get('title',rows[0]['title'])
         if not isinstance(title,str) or not title.strip() or len(title)>300:
-            raise ValueError('Supply a title of up to 300 characters')
+            raise UserError('Supply a title of up to 300 characters')
         plan=dict(assets=[r['id'] for r in rows],title=title.strip(),
                   sources=[dict(id=r['id'],fingerprint=r['fingerprint'],plex_path=r['plex_path']) for r in rows])
         evidence={'ordered':[dict(filename=Path(r['plex_path']).name,title=r['title']) for r in rows]}
@@ -243,7 +244,7 @@ class FileWorkflows:
         if kind=='rename':
             source_path=Path(rows[0]['local_path'])
             if any(p!=source_path and p.stem==source_path.stem and p.suffix.lower() in {'.mp4','.mkv','.mov','.m4v'} for p in source_path.parent.iterdir()):
-                raise ValueError('Multiple videos share this basename; resolve shared sidecars before renaming')
+                raise UserError('Multiple videos share this basename; resolve shared sidecars before renaming')
             client.automatic_trash()
             moves=self._rename_moves(Path(rows[0]['local_path']),data.get('filename'))
             plan.update(moves=moves,filename=Path(moves[0]['destination']).name)
@@ -253,30 +254,30 @@ class FileWorkflows:
             source=Path(rows[0]['local_path'])
             filename=multipart.basename(data.get('filename'))
             if Path(filename).suffix.lower() not in {'.mkv','.mp4','.mov','.m4v'}:
-                raise ValueError('Choose MKV, MP4, MOV or M4V for the joined output')
+                raise UserError('Choose MKV, MP4, MOV or M4V for the joined output')
             destination=source.with_name(filename)
             if destination.exists() or destination.is_symlink():
-                raise ValueError('Output filename already exists; choose a new filename')
+                raise UserError('Output filename already exists; choose a new filename')
             for row in rows:
                 p=Path(row['local_path'])
                 if any(child.name.startswith(p.stem+'.') and child.suffix.lower() in {'.srt','.ass','.ssa','.vtt','.sub','.idx'} for child in p.parent.iterdir()):
-                    raise ValueError('A part has external subtitles; embed or combine them before joining so no subtitles are lost')
+                    raise UserError('A part has external subtitles; embed or combine them before joining so no subtitles are lost')
             media=[tools.probe(r['local_path'],self.config()) for r in rows]
             compatible=multipart.compatibility(media)
             mode=data.get('mode','copy')
             if mode not in {'copy','normalize'}:
-                raise ValueError('Choose stream copy or normalization')
+                raise UserError('Choose stream copy or normalization')
             if mode=='copy' and not compatible:
-                raise ValueError('Part stream settings differ. Choose Normalize and review its settings, or use matching parts.')
+                raise UserError('Part stream settings differ. Choose Normalize and review its settings, or use matching parts.')
             canvas=multipart.normalization(media) if mode=='normalize' else None
             if canvas:canvas['encoder']=multipart.normalization_encoder(self.config())
             titles=data.get('chapter_titles') or [f'Part {i+1}' for i in range(len(rows))]
             if not isinstance(titles,list) or len(titles)!=len(rows) or any(not isinstance(t,str) or not t.strip() or len(t)>200 for t in titles):
-                raise ValueError('Supply one chapter title per part (up to 200 characters)')
+                raise UserError('Supply one chapter title per part (up to 200 characters)')
             chapters=multipart.chapters(media,titles)
             selected=data.get('metadata_asset',rows[0]['id'])
             if selected not in plan['assets']:
-                raise ValueError('Choose metadata/artwork from one of the selected parts')
+                raise UserError('Choose metadata/artwork from one of the selected parts')
             plan.update(filename=filename,destination=str(destination),plex_destination=str(PurePosixPath(rows[0]['plex_path']).with_name(filename)),
                         mode=mode,canvas=canvas,chapters=chapters,media=media,metadata_asset=selected)
             chosen=next(r for r in rows if r['id']==selected)
@@ -290,12 +291,12 @@ class FileWorkflows:
         else:
             group_mode=data.get('group_mode','both')
             if group_mode not in {'both','collection','playlist'}:
-                raise ValueError('Choose collection, playlist, or both')
+                raise UserError('Choose collection, playlist, or both')
             if library['type']!='movie' or any(r['item'].get('type')!='movie' for r in rows):
-                raise ValueError('Multipart collections currently support movie/Other Videos items')
+                raise UserError('Multipart collections currently support movie/Other Videos items')
             keys=[r['rating_key'] for r in rows]
             if len(set(keys))!=len(keys):
-                raise ValueError('Each installment must be a distinct Plex item')
+                raise UserError('Each installment must be a distinct Plex item')
             ownership=self.store.get('settings','group:'+library['id']+':'+title.strip(),{})
             kinds=['collection','playlist'] if group_mode=='both' else [group_mode]
             for group_kind in kinds:
@@ -315,20 +316,20 @@ class FileWorkflows:
         rows=self._members(task['plan']['assets'],task['library'])
         for row,snapshot in zip(rows,task['plan']['sources']):
             if row['fingerprint']!=snapshot['fingerprint'] or row['plex_path']!=snapshot['plex_path']:
-                raise ValueError('A source changed after preview; make a new plan')
+                raise UserError('A source changed after preview; make a new plan')
         return rows
 
     def queue_file_task(self, task):
         if task.get('published') or task.get('rename_started') or task.get('group_started'):
-            raise ValueError('Inspect the recorded operation before retrying; do not repeat an uncertain publication')
+            raise UserError('Inspect the recorded operation before retrying; do not repeat an uncertain publication')
         rows=self.file_sources(task)
         self._file_conflicts(task)
         if self.scan_status.get(task['library'],{}).get('running') or self.presence_status.get(task['library'],{}).get('running'):
-            raise ValueError('Wait for the library scan before queueing file operations')
+            raise UserError('Wait for the library scan before queueing file operations')
         if task['kind']=='rename':
             self.checked_client(self.library(task['library'])).automatic_trash()
             if self._rename_moves(Path(rows[0]['local_path']),task['plan']['filename'])!=task['plan']['moves']:
-                raise ValueError('Related files changed; preview the rename again')
+                raise UserError('Related files changed; preview the rename again')
         settings=self.config();settings.pop('plex_token',None)
         task['tool_settings']=settings
 
@@ -347,7 +348,7 @@ class FileWorkflows:
             if path in item_paths(item):
                 return item
             time.sleep(.5)
-        raise ValueError('Plex did not retain the same item at its new path')
+        raise UserError('Plex did not retain the same item at its new path')
 
     def _art_hashes(self, client, item):
         return {kind:hashlib.sha256(client.image(item['ratingKey'],kind)).hexdigest()
@@ -398,7 +399,7 @@ class FileWorkflows:
             for move in moves:
                 old,new=Path(move['source']),Path(move['destination'])
                 if old.is_symlink() or tools.fingerprint(old)!=move['fingerprint']:
-                    raise ValueError('A related file changed; rename stopped')
+                    raise UserError('A related file changed; rename stopped')
                 def receipt(fingerprint):
                     record={**move,'destination_fingerprint':fingerprint}
                     if not any(m['source']==move['source'] for m in moved):moved.append(record)
@@ -406,12 +407,12 @@ class FileWorkflows:
                 self.move_with_fallback(task,old,new,'Renaming file',receipt=receipt,force_copy=self.copy_install_required(new))
                 destination_fingerprint=tools.fingerprint(new)
                 if any(destination_fingerprint[k]!=move['fingerprint'][k] for k in ('size','modified')):
-                    raise ValueError('File size or modification time changed while renaming')
+                    raise UserError('File size or modification time changed while renaming')
             new_plex=str(PurePosixPath(asset['plex_path']).with_name(task['plan']['filename']))
             self.publication_phase(task,'Verifying renamed files')
             destination=Path(moves[0]['destination'])
             if tools.fingerprint(destination)!=moved[0]['destination_fingerprint']:
-                raise ValueError('Renamed file changed during verification')
+                raise UserError('Renamed file changed during verification')
             with self.store.transaction():
                 # Preserve stable asset/task IDs; subsequent scans reuse this path alias.
                 for row in self.store.all('assets'):
@@ -439,7 +440,7 @@ class FileWorkflows:
         except Exception as error:
             log.exception('Rename failed for task %s', task['id'])
             phase=task.get('progress',{}).get('phase','Renaming files');number=getattr(error,'errno',None)
-            detail=str(error) if isinstance(error,ValueError) else (os.strerror(number) if number else type(error).__name__)
+            detail=str(error) if isinstance(error, UserError) else (os.strerror(number) if number else type(error).__name__)
             diagnostic=dict(phase=phase,error_type=type(error).__name__,errno=number,detail=detail)
             with self.store.transaction():self.store.event(task['id'],dict(action='publication failed',**diagnostic))
             self._save(task,rename_error=diagnostic)
@@ -450,9 +451,9 @@ class FileWorkflows:
                     if not new.exists() and old.exists() and tools.fingerprint(old)==move['fingerprint']:
                         continue
                     if tools.fingerprint(new)!=move.get('destination_fingerprint',move['fingerprint']):
-                        raise ValueError('Renamed file changed')
+                        raise UserError('Renamed file changed')
                     if old.exists():
-                        if tools.fingerprint(old)!=move['fingerprint']:raise ValueError('Original path changed')
+                        if tools.fingerprint(old)!=move['fingerprint']:raise UserError('Original path changed')
                         new.unlink()
                     else:
                         self.move_with_fallback(task,new,old,'Restoring original filename',force_copy=self.copy_install_required(old))
@@ -465,7 +466,7 @@ class FileWorkflows:
                     for row in self.store.all('assets'):
                         if row['library']==asset['library'] and row.get('local_path')==moves[0]['source']:
                             row['fingerprint']=tools.fingerprint(moves[0]['source']);self.store.put('assets',row['id'],row)
-            raise ValueError('Rename failed at '+phase+': '+detail+(f' (errno {number})' if number else '')+'. '+('Some names need manual recovery; inspect the retained receipt.' if failures else 'Original filenames restored; inspect the filesystem error before trying again.')) from None
+            raise UserError('Rename failed at '+phase+': '+detail+(f' (errno {number})' if number else '')+'. '+('Some names need manual recovery; inspect the retained receipt.' if failures else 'Original filenames restored; inspect the filesystem error before trying again.')) from None
 
     def restore_rename(self, key, version):
         return self.queue_file_operation('restore_rename',{'task':key,'version':version})
@@ -474,7 +475,7 @@ class FileWorkflows:
         with self.operation_lock(key):
             task=self.get_task(key)
             if task['kind']!='rename' or task['status']!='blocked' or task['version']!=version or not task.get('rename_started'):
-                raise ValueError('No interrupted rename is available to recover')
+                raise UserError('No interrupted rename is available to recover')
             self._file_conflicts(task)
             library=self.library(task['library']);client=self.checked_client(library)
             client.automatic_trash()
@@ -485,14 +486,14 @@ class FileWorkflows:
                     move=recorded.get(original['source'],original)
                     old,new=Path(move['source']),Path(move['destination'])
                     if old.exists() and tools.fingerprint(old)!=move['fingerprint']:
-                        raise ValueError('An original filename now contains another file; recovery stopped')
+                        raise UserError('An original filename now contains another file; recovery stopped')
                     if new.exists():
                         if new.is_symlink() or tools.fingerprint(new)!=move.get('destination_fingerprint',move['fingerprint']):
-                            raise ValueError('A renamed file changed; recovery stopped')
+                            raise UserError('A renamed file changed; recovery stopped')
                         if old.exists():new.unlink()
                         else:self.move_with_fallback(task,new,old,'Restoring original filename',force_copy=self.copy_install_required(old))
                     elif not old.exists():
-                        raise ValueError('A retained rename file is missing; recovery stopped')
+                        raise UserError('A retained rename file is missing; recovery stopped')
                 asset=self.asset(task,check=False)
                 old_path=task['plan']['sources'][0]['plex_path']
                 destination=str(PurePosixPath(old_path).with_name(task['plan']['filename']))
@@ -505,9 +506,9 @@ class FileWorkflows:
                 self._save(task,status='resolved',rename_restored=True,rename_recovery_verified=True,error=None,result={'restored':True})
             except Exception as error:
                 log.exception('Rename recovery failed for task %s', task['id'])
-                message=str(error) if isinstance(error,ValueError) else 'Recovery stopped; inspect retained filenames'
+                message=str(error) if isinstance(error, UserError) else 'Recovery stopped; inspect retained filenames'
                 self._save(task,status='blocked',error=message)
-                raise ValueError(message) from None
+                raise UserError(message) from None
             return task
 
     def _run_file_tool(self, task, argv, output, phase, folder):
@@ -520,11 +521,11 @@ class FileWorkflows:
                         process.terminate()
                         try:process.wait(timeout=5)
                         except subprocess.TimeoutExpired:process.kill()
-                        raise ValueError('Cancelled; original parts preserved')
+                        raise UserError('Cancelled; original parts preserved')
                     self._save(task,progress={'phase':phase,'output_bytes':output.stat().st_size if output.exists() else 0})
                     time.sleep(.5)
                 if process.returncode:
-                    raise ValueError('FFmpeg failed; inspect the private task log. Original parts preserved.')
+                    raise UserError('FFmpeg failed; inspect the private task log. Original parts preserved.')
             finally:
                 if process.poll() is None:process.kill()
                 process.wait()
@@ -544,7 +545,7 @@ class FileWorkflows:
                 normalized.append(out)
             inputs=normalized
             if not multipart.compatibility([tools.probe(p,settings) for p in inputs]):
-                raise ValueError('Normalized stream parameters still differ; inspect parts before retrying')
+                raise UserError('Normalized stream parameters still differ; inspect parts before retrying')
         out=folder/('joined'+Path(plan['filename']).suffix.lower())
         metadata=folder/'chapters.txt';multipart.metadata_file(metadata,plan['chapters'])
         first=tools.probe(inputs[0],settings)
@@ -573,18 +574,18 @@ class FileWorkflows:
                                  '-map','0:v:0','-map','0:a?','-f','null','-'],out,'Checking complete output decode',folder)
         self.file_sources(task)
         if [tools.digest(row['local_path']) for row in rows]!=task['source_hashes']:
-            raise ValueError('A part changed during processing')
-        if task['id'] in self.cancels:raise ValueError('Cancelled; original parts preserved')
+            raise UserError('A part changed during processing')
+        if task['id'] in self.cancels:raise UserError('Cancelled; original parts preserved')
         self._save(task,output=str(out),output_hash=tools.digest(out),result=result,validation=issues,
                    status='blocked' if issues else 'awaiting_review',error='; '.join(issues) if issues else None)
 
     def join_comparison(self, key):
         task=self.get_task(key)
         if task['kind']!='join' or task['status']!='awaiting_review':
-            raise ValueError('No joined output awaiting review')
+            raise UserError('No joined output awaiting review')
         rows=self.file_sources(task)
         if tools.digest(task['output'])!=task['output_hash']:
-            raise ValueError('Joined output changed')
+            raise UserError('Joined output changed')
         folder=self.store.root/'join-samples'/key/uuid.uuid4().hex;folder.mkdir(parents=True,mode=0o700)
         samples=[];offset=0
         for i,(row,media) in enumerate(zip(rows,task['plan']['media'])):
@@ -603,12 +604,12 @@ class FileWorkflows:
     def join_sample(self, key, name):
         task=self.get_task(key)
         names=[n for pair in task.get('samples',[]) for n in pair['files']]
-        if name not in names:raise ValueError('Unknown sample')
+        if name not in names:raise UserError('Unknown sample')
         return tools.image_bytes(Path(task['sample_folder'])/name)
 
     def publish_join(self, task):
         if not task.get('comparison_loaded') or task.get('validation'):
-            raise ValueError('Load and review all part-boundary comparisons before publishing')
+            raise UserError('Load and review all part-boundary comparisons before publishing')
         self.publication_phase(task,'Checking approved join sources')
         rows=self.file_sources(task);plan=task['plan']
         self.publication_phase(task,'Checking Plex source metadata')
@@ -619,19 +620,19 @@ class FileWorkflows:
         self.check_join_metadata(plan,item,client)
         destination=map_path(plan['plex_destination'],library['mappings'],require_exists=False)
         if str(destination)!=plan['destination']:
-            raise ValueError('Output mapping changed')
+            raise UserError('Output mapping changed')
         already_published=bool(task.get('published'))
         if destination.is_symlink() or (destination.exists() and not already_published):
-            raise ValueError('Output filename now exists; original parts preserved')
+            raise UserError('Output filename now exists; original parts preserved')
         if already_published and (not destination.is_file() or tools.digest(destination)!=task['output_hash']):
-            raise ValueError('Previously published join changed; inspect before retrying verification')
+            raise UserError('Previously published join changed; inspect before retrying verification')
         hashes=[self.publication_digest(task,r['local_path'],f'Verifying original part {i+1} of {len(rows)}') for i,r in enumerate(rows)]
         if hashes!=task['source_hashes'] or self.publication_digest(task,task['output'],'Verifying retained joined output')!=task['output_hash']:
-            raise ValueError('A source or joined output changed')
+            raise UserError('A source or joined output changed')
         art={kind:client.image(source['rating_key'],kind) for kind in Plex.ARTWORK if Plex.artwork_path(item,kind)}
         approved=plan.get('metadata_snapshot',{}).get('art_hashes')
         if approved is not None and {kind:hashlib.sha256(image).hexdigest() for kind,image in art.items()}!=approved:
-            raise ValueError('Artwork image content changed; use Refresh metadata preview. Joined output retained.')
+            raise UserError('Artwork image content changed; use Refresh metadata preview. Joined output retained.')
         self._save(task,join_metadata_before=item,progress={'phase':'Publishing joined file; retaining every part'})
         stage=destination.parent/('.curator-'+uuid.uuid4().hex+destination.suffix)
         try:
@@ -640,7 +641,7 @@ class FileWorkflows:
                 self._save(task,published=True,published_path=str(destination))
             elif not already_published:
                 self._copy_with_progress(task,Path(task['output']),stage,'Staging joined video')
-                if self.publication_digest(task,stage,'Verifying staged joined video')!=task['output_hash']:raise ValueError('Staged output hash differs')
+                if self.publication_digest(task,stage,'Verifying staged joined video')!=task['output_hash']:raise UserError('Staged output hash differs')
                 self.publication_phase(task,'Checking source files before installation')
                 self.file_sources(task)
                 self.check_join_metadata(plan,client.item(source['rating_key']),client)
@@ -664,13 +665,13 @@ class FileWorkflows:
             if found:break
             time.sleep(.5)
         if len(found)!=1 or str(found[0]['ratingKey']) in {r['rating_key'] for r in rows}:
-            raise ValueError('Joined file retained, but Plex did not create one distinct item. Inspect Plex; source parts are unchanged.')
+            raise UserError('Joined file retained, but Plex did not create one distinct item. Inspect Plex; source parts are unchanged.')
         target=found[0]
         self._save(task,joined_rating_key=str(target['ratingKey']))
         self.publication_phase(task,'Applying joined item metadata and artwork')
         changes=self.metadata_fields(item);changes['title']=plan['title']
         verified=client.edit(library,target,changes)
-        if not self._same_metadata(self.metadata_fields(verified),changes):raise ValueError('Joined item metadata readback differs')
+        if not self._same_metadata(self.metadata_fields(verified),changes):raise UserError('Joined item metadata readback differs')
         for kind,image in art.items():client.artwork(target['ratingKey'],image,kind)
         self.publication_phase(task,'Verifying final metadata after artwork and indexing')
         self._save(task,metadata_copy_expected=changes)
@@ -682,8 +683,8 @@ class FileWorkflows:
             self._save(task,metadata_copy_observed=observed,metadata_copy_checks=attempt+1)
             if differing:
                 self._save(task,metadata_copy_differing=differing,plex_verified=False)
-                raise ValueError('Copied metadata did not persist after artwork/indexing ('+', '.join(differing)+'). Joined file is retained; review metadata before retrying.')
-            if plan['plex_destination'] not in item_paths(final):raise ValueError('Plex joined item path changed')
+                raise UserError('Copied metadata did not persist after artwork/indexing ('+', '.join(differing)+'). Joined file is retained; review metadata before retrying.')
+            if plan['plex_destination'] not in item_paths(final):raise UserError('Plex joined item path changed')
             if attempt<2:time.sleep(.5)
         self._save(task,metadata_copy_differing=[])
         from .service import identifier
@@ -700,9 +701,9 @@ class FileWorkflows:
         plan=task['plan'];library=self.library(task['library']);client=self.checked_client(library)
         for row in rows:
             item=client.item(row['rating_key'])
-            if row['plex_path'] not in item_paths(item):raise ValueError('An installment changed in Plex')
+            if row['plex_path'] not in item_paths(item):raise UserError('An installment changed in Plex')
         ownership=self.store.get('settings','group:'+library['id']+':'+plan['title'],{})
-        if ownership!=plan['ownership']:raise ValueError('Managed grouping changed since preview')
+        if ownership!=plan['ownership']:raise UserError('Managed grouping changed since preview')
         self._save(task,group_started=True,progress={'phase':'Applying collection and viewing order'})
         result=dict(ownership)
         for kind in plan['group_kinds']:

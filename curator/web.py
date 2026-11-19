@@ -20,27 +20,28 @@ from .tools import image_bytes
 from .tools import handbrake_presets
 from .runtime import ServiceRuntime, RestartBlocked, Restarting, RESTART_EXIT_CODE
 from .logs import configure as configure_logging, log
+from .errors import UserError
 
 
 def listener_settings(host, expected_hosts=()):
     if not isinstance(host, str):
-        raise ValueError('Bind host must be an explicit IPv4 address')
+        raise UserError('Bind host must be an explicit IPv4 address')
     try:
         address = ipaddress.IPv4Address(host)
     except ipaddress.AddressValueError:
-        raise ValueError('Bind host must be an explicit loopback or RFC1918 IPv4 address') from None
+        raise UserError('Bind host must be an explicit loopback or RFC1918 IPv4 address') from None
     private = any(address in ipaddress.IPv4Network(network)
                   for network in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
     if not address.is_loopback and not private:
-        raise ValueError('Bind host must be loopback or RFC1918 IPv4; wildcard/public binds are refused')
+        raise UserError('Bind host must be loopback or RFC1918 IPv4; wildcard/public binds are refused')
     if not isinstance(expected_hosts, (tuple, list)):
-        raise ValueError('Expected hostnames must be a list or tuple')
+        raise UserError('Expected hostnames must be a list or tuple')
     aliases = []
     for name in expected_hosts:
         if (not isinstance(name, str) or len(name) > 253 or not name
                 or any(not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?', label)
                        for label in name.split('.'))):
-            raise ValueError('Expected hostnames must be bare DNS names without scheme, port or path')
+            raise UserError('Expected hostnames must be bare DNS names without scheme, port or path')
         aliases.append(name.lower())
     return str(address), tuple(aliases)
 
@@ -118,6 +119,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         return self.dispatch(self.get_response)
+
+    def error_reply(self, error, resource=False):
+        """One policy for GET and POST: show only messages written for users, log the rest.
+
+        resource=True (GET) reports filesystem errors as an unavailable resource rather
+        than a server failure, as before.
+        """
+        if isinstance(error, Restarting):
+            raise error
+        path, method = urlsplit(self.path).path, getattr(self, 'command', 'request')
+        if isinstance(error, RestartBlocked):
+            return self.reply({'error': str(error)}, 409)
+        if isinstance(error, UserError):
+            return self.reply({'error': str(error)}, 400)
+        if isinstance(error, (ValueError, KeyError, TypeError)):
+            log.warning('Invalid %s request to %s', method, path, exc_info=error)
+            return self.reply({'error': 'Missing or invalid request field'}, 400)
+        if resource and isinstance(error, OSError):
+            log.warning('Resource unavailable for %s %s', method, path, exc_info=error)
+            return self.reply({'error': 'Resource unavailable'}, 400)
+        log.error('Unhandled error in %s %s', method, path, exc_info=error)
+        return self.reply({'error': 'Operation failed; configuration or provider needs attention'}, 500)
 
     def get_response(self):
         if self.request_host() is None:
@@ -211,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[:2] == ['api', 'frames']:
                 asset, name = parts[2:]
                 if len(asset) != 24 or not all(c in '0123456789abcdef' for c in asset) or name not in {'0.jpg', '1.jpg', '2.jpg', '3.jpg'}:
-                    raise ValueError('Unknown frame')
+                    raise UserError('Unknown frame')
                 target = self.server.service.store.root / 'frames' / asset / name
                 return self.reply(image_bytes(target), content_type='image/jpeg')
             if path in {'/api/branding', '/api/branding/logo'}:
@@ -237,14 +260,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 5 and parts[:2] == ['api', 'comparison']:
                 key, side, name = parts[2:]
                 if len(key) != 24 or not all(c in '0123456789abcdef' for c in key) or side not in {'source', 'output'} or name not in {'0.jpg', '1.jpg', '2.jpg', '3.jpg'}:
-                    raise ValueError('Unknown comparison')
+                    raise UserError('Unknown comparison')
                 target = self.server.service.store.root / 'comparisons' / key / side / name
                 return self.reply(image_bytes(target), content_type='image/jpeg')
             return self.reply({'error': 'Not found'}, 404)
-        except (ValueError, OSError, KeyError) as e:
-            if not isinstance(e, ValueError):
-                log.warning('Resource unavailable for GET %s', urlsplit(self.path).path, exc_info=True)
-            return self.reply({'error': str(e) if isinstance(e, ValueError) else 'Resource unavailable'}, 400)
+        except Exception as error:
+            return self.error_reply(error, resource=True)
 
     def do_POST(self):
         return self.dispatch(self.post_response, mutate=True)
@@ -255,15 +276,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             size = int(self.headers.get('Content-Length', 0))
             if size <= 0 or size > 16 * 1024 * 1024:
-                raise ValueError('Request must be between 1 byte and 16 MiB')
+                raise UserError('Request must be between 1 byte and 16 MiB')
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
-                raise ValueError('Expected a JSON object')
+                raise UserError('Expected a JSON object')
             service = self.server.service
             path = urlsplit(self.path).path
             if path == '/api/service/restart':
                 if data:
-                    raise ValueError('Restart accepts no parameters')
+                    raise UserError('Restart accepts no parameters')
                 result = self.server.runtime.request_restart()
                 try:
                     self.reply(result,202)
@@ -322,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/mage/resume':
                 result = service.resume_mage(data['id'],data['version'])
             elif path == '/api/cast/profile/create':
-                if set(data)-{'name','image'}:raise ValueError('Invalid new person fields')
+                if set(data)-{'name','image'}:raise UserError('Invalid new person fields')
                 result = service.create_cast_profile(data['name'],data.get('image'))
             elif path == '/api/portrait/remember':
                 result = service.remember_portrait_identity(data['asset'],data['index'])
@@ -369,7 +390,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/queue/change':
                 result=service.change_queue(None if data.get('scope')=='all' else data['library'],data['expected'],order=data.get('order'),remove=data.get('remove'))
             elif path == '/api/file-queue/order':
-                if set(data)!={'expected','order'}:raise ValueError('File ordering requires the full waiting snapshot and order')
+                if set(data)!={'expected','order'}:raise UserError('File ordering requires the full waiting snapshot and order')
                 result=service.change_file_queue_order(data['expected'],data['order'])
             elif path == '/api/task/review':
                 result = service.review(data['id'], data['version'], 'manual comparison', background=True)
@@ -411,18 +432,13 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/cover/apply':
                 image = base64.b64decode(data['image'], validate=True)
                 if len(image) > 10 * 1024 * 1024 or not (image.startswith(b'\xff\xd8\xff') or image.startswith(b'\x89PNG\r\n\x1a\n')):
-                    raise ValueError('Invalid JPEG/PNG artwork')
+                    raise UserError('Invalid JPEG/PNG artwork')
                 result = service.apply_cover(data['id'], image, data.get('kind', 'cover'))
             else:
                 return self.reply({'error': 'Not found'}, 404)
             self.reply(result)
-        except RestartBlocked as error:
-            self.reply({'error':str(error)},409)
-        except (ValueError, KeyError, TypeError) as e:
-            self.reply({'error': str(e) if isinstance(e, ValueError) else 'Missing or invalid request field'}, 400)
-        except Exception:
-            log.exception('Unhandled error in %s %s', self.command, urlsplit(self.path).path)
-            self.reply({'error': 'Operation failed; configuration or provider needs attention'}, 500)
+        except Exception as error:
+            self.error_reply(error)
 
 
 def main():

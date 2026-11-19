@@ -7,20 +7,21 @@ import tempfile
 import unicodedata
 from pathlib import Path
 from .store import now
+from .errors import UserError
 
 
 def archive_root(value, check_write=False):
-    if not isinstance(value,str):raise ValueError('Artwork archive path must be text')
+    if not isinstance(value,str):raise UserError('Artwork archive path must be text')
     if not value.strip():return None
     path=Path(value.strip()).expanduser()
     if not path.is_absolute() or path.is_symlink() or not path.is_dir():
-        raise ValueError('Choose an existing absolute artwork archive folder, not a symlink')
+        raise UserError('Choose an existing absolute artwork archive folder, not a symlink')
     path=path.resolve(strict=True)
     if check_write:
         try:
             with tempfile.NamedTemporaryFile(prefix='.curator-write-check-',dir=path) as probe:
                 probe.write(b'Curator archive check');probe.flush();os.fsync(probe.fileno())
-        except OSError:raise ValueError('Artwork archive folder is unavailable or not writable') from None
+        except OSError:raise UserError('Artwork archive folder is unavailable or not writable') from None
     return path
 
 
@@ -33,18 +34,18 @@ def directory(root,parts):
     target=root
     for part in parts:
         target=target/part
-        if target.is_symlink():raise ValueError('Artwork archive contains a symlink; choose a safe folder')
+        if target.is_symlink():raise UserError('Artwork archive contains a symlink; choose a safe folder')
         target.mkdir(mode=0o700,exist_ok=True)
-        if not target.is_dir():raise ValueError('Artwork archive destination is not a folder')
+        if not target.is_dir():raise UserError('Artwork archive destination is not a folder')
     return target
 
 
 def retain(path,data):
-    if path.is_symlink():raise ValueError('Archive file is a symlink')
+    if path.is_symlink():raise UserError('Archive file is a symlink')
     digest=hashlib.sha256(data).hexdigest()
     if path.exists():
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=digest:
-            raise ValueError('Archive filename already contains different data; existing files were kept')
+            raise UserError('Archive filename already contains different data; existing files were kept')
         return digest
     fd,temporary=tempfile.mkstemp(prefix='.curator-artwork-',dir=path.parent)
     try:
@@ -53,7 +54,7 @@ def retain(path,data):
         except FileExistsError:
             # Another archive worker may have retained this exact immutable file.
             if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=digest:
-                raise ValueError('Archive filename already contains different data; existing files were kept') from None
+                raise UserError('Archive filename already contains different data; existing files were kept') from None
     finally:
         os.unlink(temporary)
     return digest
@@ -66,11 +67,11 @@ class ArtworkArchives:
         with self.operation_lock(task['id']):
             current=self.get_task(task['id'])
             if current['version']!=task['version'] or current['plan'].get('candidate')!=task['plan'].get('candidate'):
-                raise ValueError('Artwork changed before archive copy')
+                raise UserError('Artwork changed before archive copy')
             asset=self.asset(task,check=False);plan=task['plan']
-            if not plan.get('candidate'):raise ValueError('There is no downloaded artwork candidate to archive')
+            if not plan.get('candidate'):raise UserError('There is no downloaded artwork candidate to archive')
             kind=plan['kind'];types={'cover':'Posters','background':'Backgrounds','square':'Squares','logo':'Logos'}
-            if kind not in types:raise ValueError('Unsupported artwork archive type')
+            if kind not in types:raise UserError('Unsupported artwork archive type')
             identity=hashlib.sha256(json.dumps([asset['library'],asset['rating_key']]).encode()).hexdigest()[:12]
             target=directory(root,['Cast']) if asset.get('artwork_target')=='person' else directory(root,['Collections' if asset.get('artwork_target')=='collection' else 'Movies',types[kind],readable(task['title'])+'--'+identity])
             directory(root,['Cast'])
@@ -91,7 +92,7 @@ class ArtworkArchives:
             record=dict(root=str(root),directory=str(target.relative_to(root)),manifest=name)
             with self.store.transaction():
                 latest=self.get_task(task['id'])
-                if latest['version']!=task['version']:raise ValueError('Artwork task changed while archiving')
+                if latest['version']!=task['version']:raise UserError('Artwork task changed while archiving')
                 locations=latest.get('archive_locations',[])
                 if record not in locations:locations.append(record)
                 latest.update(archive_locations=locations,archive_error=None,updated=now())
@@ -110,7 +111,7 @@ class ArtworkArchives:
             profiles=self.store.get('settings','cast_profiles',{})
             profile=profiles.get(profile_id)
             if not profile or profile['revision']!=revision or not profile.get('photo'):
-                raise ValueError('Person portrait changed before archive copy')
+                raise UserError('Person portrait changed before archive copy')
             data=self.cast_profile_image(profile_id)
             suffix='.png' if data.startswith(b'\x89PNG') else '.jpg'
             target=directory(root,['Cast'])

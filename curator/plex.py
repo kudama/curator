@@ -5,9 +5,10 @@ import hashlib
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, quote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+from .errors import UserError
 
 
-class PlexError(ValueError):
+class PlexError(UserError):
     pass
 
 
@@ -36,7 +37,7 @@ class Plex:
     @staticmethod
     def artwork_path(item, kind):
         if kind not in Plex.ARTWORK:
-            raise ValueError('Unknown artwork kind')
+            raise UserError('Unknown artwork kind')
         _, _, field, image_type = Plex.ARTWORK[kind]
         return item.get(field) or next((row.get('url') for row in item.get('Image', [])
                                        if row.get('type') == image_type), None)
@@ -169,7 +170,7 @@ class Plex:
 
     def artwork(self, key, image, kind='cover'):
         if kind not in self.ARTWORK:
-            raise ValueError('Unknown artwork kind')
+            raise UserError('Unknown artwork kind')
         base = '/library/metadata/' + quote(str(key), safe='')
         plural, singular, _, _ = self.ARTWORK[kind]
         endpoint = base + '/' + plural
@@ -196,7 +197,7 @@ class Plex:
 
     def image(self, key, kind):
         if kind not in self.ARTWORK:
-            raise ValueError('Unknown artwork kind')
+            raise UserError('Unknown artwork kind')
         item = self.item(key)
         path = self.artwork_path(item, kind)
         if not isinstance(path, str) or not path.startswith('/library/metadata/') or '..' in path.split('/') or '?' in path or '#' in path:

@@ -2,6 +2,7 @@
 import threading
 import time
 from .queue_workflows import SourceBusy
+from .errors import UserError
 
 
 class TaskQueues:
@@ -18,7 +19,7 @@ class TaskQueues:
     def set_queue_limits(self,limits):
         kinds={'upscale','optimize','home','metadata','folder_metadata','playlist','join','rename','group','mage_generation','file_operations'}
         if not isinstance(limits,dict) or set(limits)-kinds or any(type(v) is not int or not 1<=v<=(4 if k=='file_operations' else 8) for k,v in limits.items()):
-            raise ValueError('Choose 1–8 processing jobs per type, or 1–4 file operations')
+            raise UserError('Choose 1–8 processing jobs per type, or 1–4 file operations')
         with self.lock:
             with self.store.transaction():
                 saved=self.queue_limits();saved.update(limits);self.store.put('settings','queue-limits',saved)
@@ -48,9 +49,9 @@ class TaskQueues:
         with self.lock:
             kinds={t['kind'] for t in self.waiting_tasks(library)}
             if kind is not None:
-                if not isinstance(kind,str) or kind not in kinds:raise ValueError('No waiting jobs in this task-type queue')
+                if not isinstance(kind,str) or kind not in kinds:raise UserError('No waiting jobs in this task-type queue')
                 kinds={kind}
-            if not kinds and not files:raise ValueError('No waiting jobs to run')
+            if not kinds and not files:raise UserError('No waiting jobs to run')
             with self.store.transaction():
                 for task_kind in sorted(kinds):
                     workers=self.queue_workers.setdefault(task_kind,{})
@@ -76,7 +77,7 @@ class TaskQueues:
             kinds={t['kind'] for t in self.waiting_tasks(library)}|set(self.queue_workers)
             if library is None and any(j['phase'] in {'waiting','running'} for j in self.file_jobs()):kinds.add('file_operations')
             if kind is not None:
-                if not isinstance(kind,str) or kind not in kinds:raise ValueError('Task-type queue unavailable')
+                if not isinstance(kind,str) or kind not in kinds:raise UserError('Task-type queue unavailable')
                 kinds={kind}
             with self.store.transaction():
                 for task_kind in kinds:self.store.put('settings',self.pause_key(None,task_kind),True)

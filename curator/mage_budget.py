@@ -2,11 +2,12 @@
 import math
 from datetime import datetime
 from .store import now
+from .errors import UserError
 
 
 def gems(value, label='Gems allowance'):
     if type(value) not in (int,float) or not math.isfinite(value) or value<0:
-        raise ValueError(label+' must be a finite nonnegative number')
+        raise UserError(label+' must be a finite nonnegative number')
     return value
 
 
@@ -31,13 +32,13 @@ class MageBudgets:
         total=gems(receipt['total'],'Generation estimate')
         cap=receipt.get('batch_limit')
         if cap is not None and total>gems(cap,'Batch budget'):
-            raise ValueError(over_budget_message(total, cap, 'Curator batch budget', receipt.get('count')))
+            raise UserError(over_budget_message(total, cap, 'Curator batch budget', receipt.get('count')))
         monthly=gems(self.config().get('mage_monthly_budget',0),'Monthly Gems allowance')
         if monthly and usage['committed']+total>monthly:
-            raise ValueError(over_budget_message(total, max(0,monthly-usage['committed']), 'Remaining Curator monthly allowance', receipt.get('count')))
+            raise UserError(over_budget_message(total, max(0,monthly-usage['committed']), 'Remaining Curator monthly allowance', receipt.get('count')))
         ledger={'rows':usage['rows']}
         for row in receipt['rows']:
-            if row['id'] in ledger['rows']:raise ValueError('This generation already has a budget reservation')
+            if row['id'] in ledger['rows']:raise UserError('This generation already has a budget reservation')
             ledger['rows'][row['id']]=dict(estimate=gems(row['quote']['gems']),phase='reserved',created=now(),charged=0,refunded=0)
         self.store.put('settings','mage-budget:'+period,ledger)
         return period
@@ -73,10 +74,10 @@ class MageBudgets:
             row=old['rows'].get(task['id'])
             if row and row['phase']=='reserved' and period==old_period:return
             if not row or row['phase'] not in {'released','reserved'}:
-                raise ValueError('Generation budget outcome needs review before resubmission')
+                raise UserError('Generation budget outcome needs review before resubmission')
             usage=self.mage_budget_usage(period);monthly=gems(usage['limit'])
             if monthly and usage['committed']+provider['estimate']>monthly:
-                raise ValueError(over_budget_message(provider['estimate'], max(0,monthly-usage['committed']), 'Remaining Curator monthly allowance', 1))
+                raise UserError(over_budget_message(provider['estimate'], max(0,monthly-usage['committed']), 'Remaining Curator monthly allowance', 1))
             row.update(phase='released',charged=0,refunded=0)
             self.store.put('settings','mage-budget:'+old_period,old)
             ledger=self.store.get('settings','mage-budget:'+period,{'rows':{}})
