@@ -11,7 +11,7 @@ from .store import now
 RATIOS = {'21:9', '16:9', '3:2', '5:4', '1:1', '4:5', '2:3', '9:16', '9:21'}
 
 
-def resolve_style(preset, item, profile, kind, overrides):
+def resolve_style(preset, item, profile, kind, overrides, has_reference=False):
     if kind not in Plex.ARTWORK:
         raise ValueError('Unsupported artwork destination')
     if not isinstance(overrides, dict) or set(overrides) - {'prompt', 'negative_prompt', 'model', 'ratio', 'resolution'}:
@@ -26,6 +26,7 @@ def resolve_style(preset, item, profile, kind, overrides):
     if result['ratio'] not in RATIOS or not __import__('re').fullmatch(r'[A-Za-z0-9_.-]{0,40}',result['resolution']):
         raise ValueError('Choose a supported ratio and resolution')
     title, summary = item.get('title',''), item.get('summary','')
+    if has_reference:result.setdefault('prompt', 're-imagine this image in style guidance '+preset['details'])
     result.setdefault('prompt', f"Create {kind} artwork for {title}. Context: {summary}\n{preset['details']}\nBackground: {preset['background']}. Typography: {preset['typography']}\nTarget ratio: {result['ratio']}; resolution: {result['resolution']}. Preserve reference proportions.")
     if not result['prompt'].strip():
         raise ValueError('A prompt is required')
@@ -66,7 +67,7 @@ class ArtworkWorkflows:
             if person and not profile:raise ValueError('Person no longer exists')
             if str(item.get('ratingKey')) != asset['rating_key']:
                 raise ValueError('Plex title identity changed; rescan before planning')
-            plan = resolve_style(preset, item, self.library(asset['library'])['profile'], kind, overrides or {})
+            plan = resolve_style(preset, item, self.library(asset['library'])['profile'], kind, overrides or {}, has_reference=bool(reference_photos))
             plan.update(assets=[aid], rating_key=asset['rating_key'], reference_photos=reference_photos, target=dict(guid=item.get('guid'),paths=sorted(part.get('file','') for media in item.get('Media',[]) for part in media.get('Part',[]))))
             if person:plan.update(profile_id=asset['profile_id'],profile_revision=profile['revision'],original=self._folder_photo(encoded=base64.b64encode(self.cast_profile_image(asset['profile_id'])).decode()) if profile.get('photo') else None)
             task_kind, status = 'mage_generation', 'recommendation'
