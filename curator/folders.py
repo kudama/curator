@@ -41,9 +41,10 @@ def combine(before, proposed, mode, field):
 
 
 class FolderWorkflows:
-    def folder_nodes(self):
+    def folder_nodes(self, assets=None, libraries=None):
+        """state() passes the rows it already loaded, so a poll decodes each table once."""
         nodes = {}
-        libraries = {row['id']:row for row in self.store.all('libraries')}
+        libraries = {row['id']:row for row in (self.store.all('libraries') if libraries is None else libraries)}
         roots = {}
         for library in libraries.values():
             declared = [PurePosixPath(row['path']) for row in library.get('locations',[]) if isinstance(row,dict) and isinstance(row.get('path'),str) and row['path'].startswith('/') and '..' not in PurePosixPath(row['path']).parts]
@@ -52,21 +53,29 @@ class FolderWorkflows:
                 fid = key(library['id'],str(root))
                 mapped = any(root.is_relative_to(m['plex_root']) for m in library['mappings'])
                 nodes.setdefault(fid,dict(id=fid,library=library['id'],path=str(root),name=root.name or str(root),parent=None,count=0,direct_count=0,mapped=mapped))
-        for asset in self.store.all('assets'):
-            if asset.get('present') is False:continue
-            library = libraries.get(asset['library'])
-            if not library:continue
-            path = PurePosixPath(asset['plex_path']).parent
-            matches = [root for root in roots[library['id']] if path.is_relative_to(root)]
+        # Count files per directory first: every file in a directory has the same
+        # ancestor chain, so each chain is walked once per directory, not once per file.
+        # Directories keep first-seen order, so nodes are created in the same order.
+        directories = {}
+        for asset in (self.store.all('assets') if assets is None else assets):
+            if asset.get('present') is False or asset['library'] not in libraries:continue
+            directory = (asset['library'], str(PurePosixPath(asset['plex_path']).parent))
+            directories[directory] = directories.get(directory, 0) + 1
+        for (library_id, directory), files in directories.items():
+            library = libraries[library_id]
+            path = PurePosixPath(directory)
+            matches = [root for root in roots[library_id] if path.is_relative_to(root)]
             root = max(matches,key=lambda p:len(p.parts)) if matches else path
             for folder in [path, *path.parents]:
                 if not folder.is_relative_to(root):break
-                fid = key(library['id'],str(folder))
-                mapped = any(folder.is_relative_to(m['plex_root']) for m in library['mappings'])
-                row = nodes.setdefault(fid,dict(id=fid,library=library['id'],path=str(folder),name=folder.name or str(folder),
-                    parent=key(library['id'],str(folder.parent)) if folder != root else None,count=0,direct_count=0,mapped=mapped))
-                row['count'] += 1
-                if folder == path:row['direct_count'] += 1
+                fid = key(library_id,str(folder))
+                row = nodes.get(fid)
+                if row is None:
+                    mapped = any(folder.is_relative_to(m['plex_root']) for m in library['mappings'])
+                    row = nodes[fid] = dict(id=fid,library=library_id,path=str(folder),name=folder.name or str(folder),
+                        parent=key(library_id,str(folder.parent)) if folder != root else None,count=0,direct_count=0,mapped=mapped)
+                row['count'] += files
+                if folder == path:row['direct_count'] += files
         return sorted(nodes.values(),key=lambda row:(row['library'],row['path']))
 
     def folder_node(self, fid):
