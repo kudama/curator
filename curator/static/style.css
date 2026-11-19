@@ -212,3 +212,5 @@
 @media(min-width:1051px) and (max-width:1450px){.queue-board{grid-template-columns:repeat(min(2,var(--queue-columns,5)),minmax(0,360px))}.queue-inspecting .queue-board{grid-template-columns:minmax(0,360px)}}
 
 .metadata-generation-warning{max-width:620px;width:calc(100vw - 40px);max-height:85vh;overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:24px}.metadata-generation-warning::backdrop{background:#0009}.metadata-generation-warning section{border-top:1px solid var(--line);padding-top:8px}
+
+.queue-waiting-more[hidden]{display:none}.queue-waiting-toggle{display:block;margin:10px 0;padding:4px 0;font-size:12px}

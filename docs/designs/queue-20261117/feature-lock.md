@@ -129,3 +129,12 @@ Approved: add Metadata as the fifth queue column, including local **AI assist** 
 Remove the three manager shortcuts from the file suggestions overview; task-specific Review actions and deliberate editor handoffs remain. Pending saved video review groups appear under Ready to review; receipts without reviewable results appear in History. Failed preparation offers an explicit new preparation attempt using current task versions; never retry publication or generation automatically.
 
 A rename completes after the filesystem moves and verification succeed. Do not force a Plex scan or require immediate Plex identity/metadata/artwork readback. Keep exclusive destinations, source fingerprints, sidecar receipts, rollback and automatic-trash protection. Preserve the stable asset identity while Plex still reports an earlier path, then reconcile it on a later scheduled Plex refresh. Old blocked renames are not retried automatically.
+
+
+## Waiting queue disclosure — 2026-11-18
+
+Keep every active job visible. Each queue column initially shows its first five waiting jobs, counting a waiting head card among those five. Put additional waiting jobs in a collapsed container with Show N more / Show fewer. Expansion is independent per column and survives background refreshes for the current browser session. File copy/delete and file preparation share the File operations column’s five-item allowance; Metadata and AI assist share Metadata’s allowance. Attention and ready-to-review results are never hidden by this disclosure. Keep total waiting counts and explicit Select all N selection scope; expanding retains the complete drag-and-drop and bulk ordering behavior.
+
+Queue run/pause and selection/order controls, including metadata subtypes and file preparation, belong directly below the column heading and above every job card. Waiting counts remain beside the waiting list.
+
+Renaming must retain unsubmitted non-file suggestions as suggestions, preserving drafts. Only approved or path-dependent unfinished plans are invalidated. Deleted tasks and provider receipts remain untouched. Repair existing rename-only blocked suggestions only when the latest audit record proves their previous recommendation state, unchanged draft and exact version transition; never queue, publish or submit a generation as part of this repair.

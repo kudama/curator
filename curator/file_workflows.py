@@ -359,6 +359,31 @@ class FileWorkflows:
             if (before.get(field) or 0)!=(after.get(field) or 0):return False
         return self._same_metadata(self.metadata_fields(after),self.metadata_fields(before))
 
+    @staticmethod
+    def rename_safe_suggestion(task):
+        return (task.get('status')=='recommendation' and not task.get('deleted')
+                and task.get('kind') not in FILE_KINDS|{'folder_metadata'}
+                and not any(task.get(key) for key in ('provider','output','published','rename_started','file_move_pending','cleanup_pending')))
+
+    def recover_rename_suggestions(self):
+        """Repair only untouched suggestions incorrectly blocked by an audited rename."""
+        count=0
+        with self.store.transaction():
+            events=self.store.latest_task_events()
+            for task in self.store.all('tasks'):
+                if task.get('status')!='blocked' or task.get('error')!='Filename changed; rescan and review a fresh plan':continue
+                event=events.get(task['id'],{});previous=event.get('previous',{})
+                if (event.get('action')!='source renamed' or not self.rename_safe_suggestion(previous)
+                    or task.get('deleted') or task.get('version')!=previous.get('version',0)+1
+                    or any(task.get(key) for key in ('provider','output','published','rename_started','file_move_pending','cleanup_pending'))
+                    or any(task.get(key)!=previous.get(key) for key in ('asset','library','kind','plan'))):continue
+                task.update(status='recommendation',error=previous.get('error'),version=task['version']+1,updated=now())
+                task.pop('approval',None)
+                self.store.put('tasks',task['id'],task)
+                self.store.event(task['id'],dict(action='rename-only suggestion restored'))
+                count+=1
+        return count
+
     def _rename(self, task, asset):
         library=self.library(task['library']);client=self.checked_client(library)
         client.automatic_trash()
@@ -394,14 +419,15 @@ class FileWorkflows:
                         row.update(local_path=str(destination),plex_path=new_plex,fingerprint=tools.fingerprint(destination),rename_pending_plex={'previous_paths':previous_paths,'destination':new_plex})
                         self.store.put('assets',row['id'],row)
                 for old in self.store.all('tasks'):
-                    if old['id']==task['id']:
+                    if old['id']==task['id'] or old.get('deleted') or old['status']=='deleted':
                         continue
                     if old['asset']==asset['id'] or asset['id'] in old.get('plan',{}).get('assets',[]):
                         self.store.event(old['id'],dict(action='source renamed',previous=old))
+                        suggestion=self.rename_safe_suggestion(old)
                         old.update(version=old['version']+1,comparison_loaded=False)
                         old.pop('approval',None)
-                        # Finished history remains finished; unfinished plans must be rebuilt.
-                        if old['status'] not in {'applied','resolved','rejected','cancelled'}:
+                        # Preserve suggestions and finished history; approved/path-based plans need review.
+                        if old['status'] not in {'applied','resolved','rejected','cancelled'} and not suggestion:
                             old.update(status='blocked',error='Filename changed; rescan and review a fresh plan')
                         self.store.put('tasks',old['id'],old)
                 for move in moves:

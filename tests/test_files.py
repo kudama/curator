@@ -107,6 +107,32 @@ class Plans(unittest.TestCase):
         task=self.plan();before=copy.deepcopy(self.plex.rows);self.plex.change_metadata=True
         result=self.run_task(task)
         self.assertEqual(result['status'],'applied');self.assertEqual(self.plex.scans,[]);self.assertEqual(self.plex.rows,before)
+    def test_rename_preserves_suggestions_and_deleted_receipts_but_invalidates_approved_work(self):
+        task=self.plan();rows=[]
+        for i,kind in enumerate(('metadata','upscale','mage_generation')):
+            rows.append(dict(id='suggestion'+str(i),asset=self.assets[0]['id'],library=self.library['id'],kind=kind,status='recommendation',version=1,plan={'draft':'keep'}))
+        rows.append(dict(rows[0],id='approved',status='queued',approval=1))
+        rows.append(dict(rows[2],id='deleted',status='deleted',deleted=True,provider={'request_id':'keep-receipt'}))
+        with self.store.transaction():
+            for row in rows:self.store.put('tasks',row['id'],row)
+        self.service._rename(task,self.assets[0]);self.assertEqual(self.service.get_task(task['id'])['status'],'applied')
+        for row in rows[:3]:
+            current=self.service.get_task(row['id']);self.assertEqual(current['status'],'recommendation');self.assertEqual(current['plan'],row['plan']);self.assertNotIn('approval',current)
+        self.assertEqual(self.service.get_task('approved')['status'],'blocked')
+        self.assertEqual(self.service.get_task('deleted'),rows[-1])
+
+    def test_repair_only_untouched_rename_blocked_suggestions_without_replaying_work(self):
+        base=dict(asset=self.assets[0]['id'],library=self.library['id'],kind='metadata',status='recommendation',version=1,plan={'changes':{'summary':'Keep draft'}})
+        with self.store.transaction():
+            for name,changes in [('safe',{}),('approved',{'status':'queued'}),('paid',{'provider':{'request_id':'retain'}}),('deleted',{'deleted':True}),('edited',{}),('path',{'kind':'rename'})]:
+                prior=dict(base,id=name,**changes);current=dict(prior,status='blocked',error='Filename changed; rescan and review a fresh plan',version=2)
+                self.store.put('tasks',name,current);self.store.event(name,dict(action='source renamed',previous=prior))
+                if name=='edited':self.store.event(name,dict(action='user updated task'))
+        self.assertEqual(self.service.recover_rename_suggestions(),1)
+        restored=self.service.get_task('safe');self.assertEqual(restored['status'],'recommendation');self.assertEqual(restored['version'],3);self.assertEqual(restored['plan'],base['plan']);self.assertNotIn('approval',restored)
+        for name in ('approved','paid','deleted','edited','path'):self.assertEqual(self.service.get_task(name)['status'],'blocked')
+        self.assertEqual(self.service.recover_rename_suggestions(),0)
+
     def test_rename_missing_mount_and_collision_and_traversal(self):
         for name in ('../bad.mkv','Other.mp4','.hidden.mkv'):
             with self.subTest(name=name),self.assertRaises(ValueError):self.plan(filename=name)
