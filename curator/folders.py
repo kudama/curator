@@ -344,9 +344,14 @@ class FolderWorkflows:
             self.store.put('settings','folder-applied:' + key(task['plan']['folder'],asset['rating_key']),dict(signature=plan['settings_signature'],metadata=self.metadata_fields(final),art={kind:Plex.artwork_path(final,kind) for kind in plan['artwork']}))
         self._save(task,status='applied',result={**task.get('result',{}),'verified':True})
 
-    def recommend_folder_defaults(self, asset):
-        choices = [r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record') == 'folder_defaults' and r['library'] == asset['library']
-            and (str(PurePosixPath(asset['plex_path']).parent) == r['folder'] or r['recursive'] and PurePosixPath(asset['plex_path']).parent.is_relative_to(r['folder']))]
+    def folder_default_records(self, library):
+        return [r for r in self.store.all('settings') if isinstance(r,dict) and r.get('record') == 'folder_defaults' and r['library'] == library]
+
+    def recommend_folder_defaults(self, asset, defaults=None, task_ids=None):
+        """A scan passes its preloaded folder defaults and per-asset task ids; see asset_tasks."""
+        if defaults is None:defaults = self.folder_default_records(asset['library'])
+        choices = [r for r in defaults
+            if (str(PurePosixPath(asset['plex_path']).parent) == r['folder'] or r['recursive'] and PurePosixPath(asset['plex_path']).parent.is_relative_to(r['folder']))]
         if not choices:return
         defaults = max(choices,key=lambda r:len(PurePosixPath(r['folder']).parts))
         _, changes, artwork = self._folder_changes(asset['item'],defaults)
@@ -356,11 +361,12 @@ class FolderWorkflows:
         if receipt and receipt['signature'] == key(settings) and self._same_metadata(self.metadata_fields(asset['item']),receipt['metadata']) and all(Plex.artwork_path(asset['item'],kind)==path for kind,path in receipt['art'].items()):
             changes, artwork = {}, {}
         tid = key('folder-defaults',asset['id'],defaults['revision'])
-        for old in self.store.all('tasks'):
-            if old['kind']=='folder_metadata' and old['asset']==asset['id'] and old['status']=='recommendation' and (old['id']!=tid or not changes and not artwork):
+        for old in self.asset_tasks(asset['id'],task_ids):
+            if old['kind']=='folder_metadata' and old['status']=='recommendation' and (old['id']!=tid or not changes and not artwork):
                 old.update(status='resolved',updated=now());self.store.put('tasks',old['id'],old)
         if not changes and not artwork:return
         if self.store.get('tasks',tid):return
         self.store.put('tasks',tid,dict(id=tid,asset=asset['id'],library=asset['library'],title=asset['title'],kind='folder_metadata',
             status='recommendation',version=1,created=now(),updated=now(),reason='Review saved folder defaults for this file',
             evidence={'folder':defaults['folder']},plan={'folder':key(asset['library'],defaults['folder'])}))
+        if task_ids is not None:task_ids[tid]=None

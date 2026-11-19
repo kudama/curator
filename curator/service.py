@@ -193,11 +193,24 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         self.store.put('tasks', key, task)
         return task
 
-    def reconcile_findings(self, asset, findings):
+    def asset_tasks(self, asset_id, task_ids=None):
+        """Current rows of one asset's tasks.
+
+        A scan passes task_ids, its own index of ids per asset, so it never decodes every
+        task for every file. Rows are always re-read here, inside the caller's
+        transaction, so a change made elsewhere during a scan (an approval, say) is
+        never overwritten with stale data.
+        """
+        if task_ids is None:
+            return [task for task in self.store.all('tasks') if task['asset'] == asset_id]
+        rows = (self.store.get('tasks', task_id) for task_id in list(task_ids))
+        return [task for task in rows if task and task['asset'] == asset_id]
+
+    def reconcile_findings(self, asset, findings, task_ids=None):
         """Called inside the scan transaction; superseded observations stay in history."""
         current_kinds = {finding['kind'] for finding in findings}
-        for old in self.store.all('tasks'):
-            if (old['asset'] == asset['id'] and old['kind'] not in current_kinds
+        for old in self.asset_tasks(asset['id'], task_ids):
+            if (old['kind'] not in current_kinds
                     and old['status'] == 'recommendation' and (old['kind'] not in FILE_KINDS | {'folder_metadata','artwork','mage_generation','portrait'} or old['kind']=='artwork' and old.get('evidence',{}).get('discovery'))):
                 old.update(status='resolved', reason='Resolved by the latest scan', updated=now(), error=None)
                 old.pop('approval', None)
@@ -213,7 +226,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                               'archive', 'original_renamed', 'plex_verified', 'comparison_loaded', 'validation', 'progress'):
                     previous.pop(field, None)
                 self.store.put('tasks', previous['id'], previous)
-            self.task(asset, finding)
+            task = self.task(asset, finding)
+            if task_ids is not None:
+                task_ids[task['id']] = None
 
     def file_reservations(self, library):
         ids = set()
@@ -240,10 +255,19 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         state = self.scan_status[library['id']]
         seen = set()
         reserved, reserved_keys = self.file_reservations(library['id'])
-        existing_ids = {a['id'] for a in self.store.all('assets')}
+        assets = self.store.all('assets')
+        existing_ids = {a['id'] for a in assets}
         state['skipped_reserved'] = len(reserved)
+        # Load once per scan instead of once per file: task ids per asset (insertion
+        # ordered; rows are re-read fresh per file), this library's folder defaults
+        # and the configuration.
+        task_index = {}
+        for task in self.store.all('tasks'):
+            task_index.setdefault(task['asset'], {})[task['id']] = None
+        folder_defaults = self.folder_default_records(library['id'])
+        config = self.config()
         known={};pending_renames=[]
-        for a in self.store.all('assets'):
+        for a in assets:
             if a['library']==library['id']:
                 known.setdefault((a['rating_key'],a['plex_path']),[]).append(a)
                 if a.get('rename_pending_plex'):pending_renames.append(a)
@@ -280,10 +304,10 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                         try:
                             path = map_path(part['file'], library['mappings'])
                             asset.update(local_path=str(path), fingerprint=tools.fingerprint(path))
-                            technical = tools.probe(path, self.config())
+                            technical = tools.probe(path, config)
                             technical['preserve_quality'] = asset['preserve_quality']
                             asset['technical'] = technical
-                            findings = assess(technical, self.config())
+                            findings = assess(technical, config)
                         except (ValueError, OSError, subprocess.SubprocessError) as e:
                             asset['blocked'] = str(e)[:200]
                             findings = [dict(kind='inspect', reason=asset['blocked'],
@@ -296,8 +320,9 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                             findings.append(dict(kind='home', reason='Suggest a title, description, collections and cover frames using local AI', evidence={}))
                         with self.store.transaction():
                             self.store.put('assets', aid, asset)
-                            self.reconcile_findings(asset, findings)
-                            self.recommend_folder_defaults(asset)
+                            task_ids = task_index.setdefault(aid, {})
+                            self.reconcile_findings(asset, findings, task_ids)
+                            self.recommend_folder_defaults(asset, folder_defaults, task_ids)
                         state['count'] += 1
             with self.store.transaction():
                 for asset in self.store.all('assets'):
