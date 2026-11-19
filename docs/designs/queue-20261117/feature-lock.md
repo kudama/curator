@@ -124,7 +124,7 @@ Small layout fixes in the same delivery: use Collapse all groups for both librar
 
 ## Library and queue correction — 2026-11-18
 
-Approved: add Metadata as the fifth queue column, including local **AI assist** (formerly Home-movie analysis) and folder metadata. Hide columns without matching waiting, active, review or attention work; surviving columns use the available width. Processing limits remain reachable for hidden queues. Preserve per-type concurrency and ordering, including all parallel Mage options and file-operation preparation.
+Approved: add Metadata as the fifth queue column, including local **AI assist** (formerly Home-movie analysis) and folder metadata. Hide columns without matching waiting, active, review or attention work; surviving columns stay compact (at most 360 CSS pixels each), aligned to the left, and shrink to fit narrower screens. Hiding empty columns must not stretch a single queue or its head card across the page. Processing limits remain reachable for hidden queues. Preserve per-type concurrency and ordering, including all parallel Mage options and file-operation preparation.
 
 Remove the three manager shortcuts from the file suggestions overview; task-specific Review actions and deliberate editor handoffs remain. Pending saved video review groups appear under Ready to review; receipts without reviewable results appear in History. Failed preparation offers an explicit new preparation attempt using current task versions; never retry publication or generation automatically.
 
