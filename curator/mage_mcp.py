@@ -76,8 +76,15 @@ class MagePricing:
 
     def quote(self,body,architecture='mango'):
         result=self.call('estimate_cost',dict(architecture=architecture,config=body))
-        # Accept explicitly named Gems fields, never a generic currency/cost number.
-        price=result.get('estimated_gems',result.get('gems',result.get('total_gems')))
+        # Current Mage responses wrap the exact price in an estimate receipt.
+        if 'estimate' in result:
+            estimate=result['estimate']
+            if not isinstance(estimate,dict) or estimate.get('status')!='priced' or estimate.get('architecture')!=architecture or body.get('model_id') is not None and estimate.get('model_id')!=body['model_id']:
+                raise ValueError('Mage did not price this exact model and request; no generation submitted')
+            price=estimate.get('gems')
+        else:
+            # Legacy explicitly named Gems fields; never generic currency/cost.
+            price=result.get('estimated_gems',result.get('gems',result.get('total_gems')))
         if type(price) not in (int,float) or price<0 or not __import__('math').isfinite(price):
             raise ValueError('Mage returned no usable request-specific Gems estimate')
         return dict(gems=price,body=body,**({'architecture':architecture} if architecture!='mango' else {}),basis='Mage estimate_cost for this exact request; estimate, not a provider-enforced cap')

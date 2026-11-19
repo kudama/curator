@@ -26,12 +26,12 @@ test('a changed setting during pricing cannot authorize an obsolete quote',async
  h.context.api=async(endpoint,data)=>{calls.push({endpoint,data});if(endpoint==='artwork/plan')return {tasks:[{id:'draft',version:1}]};if(endpoint==='artwork/candidates')return {tasks:[{id:'draft',version:1}]};if(endpoint==='mage/quote')return pending;throw Error('Unexpected '+endpoint);};
  h.run("openManagerGenerate(asset,{},'cover','2:3')");const action=h.find('Check cost').onclick();await new Promise(resolve=>setImmediate(resolve));
  const prompt=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Resolved generation prompt');prompt.value='Changed';prompt.oninput();release({id:'old',total:10});await action;
- assert.equal(h.find('Generate options').disabled,true);assert.ok(!calls.some(c=>c.endpoint==='mage/check'||c.endpoint==='mage/authorize'));
+ assert.equal(h.find('Generate').disabled,true);assert.ok(!calls.some(c=>c.endpoint==='mage/check'||c.endpoint==='mage/authorize'));
 });
 test('monthly allowance blocks generation and exact batch limit is priced',async()=>{
  const h=setup(),calls=[];h.context.api=async(endpoint,data)=>{calls.push({endpoint,data});return endpoint==='mage/check'?{balance_status:'available',balance:100,budget:{limit:20,committed:18}}:endpoint==='mage/quote'?{id:'quote',total:7}:{tasks:[{id:'draft',version:1}]};};
  h.run("openManagerGenerate(asset,{},'cover','2:3')");const budget=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Batch Gems budget');budget.value='8';budget.oninput();await h.find('Check cost').onclick();
- assert.equal(calls.find(c=>c.endpoint==='mage/quote').data.batch_limit,8);assert.equal(h.find('Generate 2 options · 7 Gems').disabled,true);assert.ok(all(h.ids['task-buttons']).some(e=>e.textContent.includes('Over monthly allowance')));assert.ok(!calls.some(c=>c.endpoint==='mage/authorize'));
+ assert.equal(calls.find(c=>c.endpoint==='mage/quote').data.batch_limit,8);assert.equal(h.find('Generate').disabled,true);assert.ok(all(h.ids['task-buttons']).some(e=>e.textContent.includes('Over monthly allowance')));assert.ok(!calls.some(c=>c.endpoint==='mage/authorize'));
 });
 test('queued metadata opens an explanation instead of editable controls',async()=>{
  const h=setup();h.context.api=()=>{throw Error('No read or write needed');};await h.run("openMetadataManager([{id:'task',asset:'a',version:2,status:'queued'}])");
@@ -76,4 +76,13 @@ test('metadata and artwork panels open without secure-context crypto APIs',async
 test('draft identities use getRandomValues on HTTP without randomUUID',()=>{
  const h=setup();let called=0;h.context.crypto={getRandomValues(bytes){bytes.fill(++called);return bytes;}};
  const a=h.run('clientId()'),b=h.run('clientId()');assert.match(a,/^[a-f0-9]{32}$/);assert.notEqual(a,b);assert.equal(called,2);
+});
+
+test('Generate stays compact and requires a valid current quote',async()=>{
+ const h=setup(),calls=[];h.context.api=async(endpoint,data)=>{calls.push(endpoint);return endpoint==='mage/check'?{balance_status:'available',balance:1000,budget:{limit:200,committed:0}}:endpoint==='mage/quote'?{id:'quote',total:135}:{tasks:[{id:'draft',version:1}]};};
+ h.run("openManagerGenerate(asset,{},'cover','2:3')");assert.equal(h.find('Generate').disabled,true);
+ const count=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Number of options');count.value='1';count.onchange();await h.find('Check cost').onclick();
+ assert.equal(h.find('Generate').disabled,false);assert.ok(all(h.ids['task-buttons']).some(e=>e.textContent.includes('1 option · 135 Gems')));assert.ok(!calls.includes('mage/authorize'));
+ count.value='2';count.onchange();assert.equal(h.find('Generate').disabled,true);
+ const links=all(h.ids['task-detail']).find(e=>e.className==='manager-reference-actions');assert.deepEqual(links.children.map(e=>e.textContent),['Use current artwork','Choose a source frame','No reference']);
 });
