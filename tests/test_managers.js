@@ -118,3 +118,11 @@ test('selecting a family reference uses the exact style template and removing it
  h.find('No reference').onclick();assert.ok(prompt.value.startsWith('Create cover artwork for Family picnic'));
  prompt.value='My custom pet portrait';prompt.oninput();await upload.onchange();assert.equal(prompt.value,'My custom pet portrait');h.find('No reference').onclick();assert.equal(prompt.value,'My custom pet portrait');
 });
+
+test('an over-budget cost check keeps the estimate visible and generation disabled',async()=>{
+ const h=setup(),calls=[];
+ h.context.api=async(endpoint)=>{calls.push(endpoint);if(endpoint==='mage/quote')throw Error('Estimated cost: 270 Gems for 2 options. Curator batch budget: 200 Gems (70 Gems over budget).');return {tasks:[{id:'draft',version:1}]};};
+ h.run("openManagerGenerate(asset,{},'cover','2:3')");await h.find('Check cost').onclick();
+ const message=all(h.ids['task-buttons']).find(e=>e.className==='muted editor-status').textContent;
+ assert.ok(message.includes('270 Gems'));assert.ok(message.includes('200 Gems'));assert.ok(message.includes('70 Gems over budget'));assert.equal(h.find('Generate').disabled,true);assert.ok(!calls.includes('mage/authorize'));
+});
