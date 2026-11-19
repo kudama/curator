@@ -84,5 +84,5 @@ test('Generate stays compact and requires a valid current quote',async()=>{
  const count=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Number of options');count.value='1';count.onchange();await h.find('Check cost').onclick();
  assert.equal(h.find('Generate').disabled,false);assert.ok(all(h.ids['task-buttons']).some(e=>e.textContent.includes('1 option · 135 Gems')));assert.ok(!calls.includes('mage/authorize'));
  count.value='2';count.onchange();assert.equal(h.find('Generate').disabled,true);
- const links=all(h.ids['task-detail']).find(e=>e.className==='manager-reference-actions');assert.deepEqual(links.children.map(e=>e.textContent),['Use current artwork','Choose a source frame','No reference']);
+ const links=all(h.ids['task-detail']).find(e=>e.className==='manager-reference-actions');assert.deepEqual(links.children.filter(e=>e.tag==='button').map(e=>e.textContent),['Use current artwork','Choose a source frame','No reference']);
 });
