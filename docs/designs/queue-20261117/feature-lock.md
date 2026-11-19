@@ -155,3 +155,8 @@ Artwork previews must fetch the current selected Plex images on reopening. If a 
 ## Artwork approval handoff — 2026-11-18
 
 After Approve & queue accepts every artwork change, close that preview panel immediately, before background refresh. Keep it open for failed or partially failed queueing, and do not close a different panel opened while requests were in flight. No additional success popup is needed.
+
+
+### Library navigation — 2026-11-18
+
+Selecting a library reveals indented Queue, File management and Artwork links immediately beneath that library only. These open the selected library's workspace; Queue starts with that library's view filter. The existing All libraries queue filter and global execution/limits scope remain explicit and unchanged. History and Settings remain workspace navigation. Navigation respects unsaved-edit checks and never starts work.
