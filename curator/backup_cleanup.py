@@ -9,6 +9,7 @@ from . import tools
 from .paths import map_path
 from .file_workflows import exclusive_move, UNSUPPORTED_MOVE
 from .store import now
+from .logs import log
 from .rules import ACTIVE
 
 
@@ -102,6 +103,7 @@ class BackupCleanupWorkflows:
                 with self.store.transaction():self.store.put('settings',identity,record)
                 try:self._delete_one_backup(row,identity);row['status']='deleted'
                 except Exception as error:
+                    log.exception('Backup cleanup failed for one file')
                     message=str(error)[:300] if isinstance(error,ValueError) else ('Filesystem error '+str(error.errno)+': '+str(error.strerror) if isinstance(error,OSError) else 'Cleanup failed; retained files require inspection')
                     row.update(status='failed',error=message)
                 with self.store.transaction():
@@ -109,6 +111,7 @@ class BackupCleanupWorkflows:
             record.update(phase='complete',current=None,updated=now())
             with self.store.transaction():self.store.put('settings',identity,record)
         except Exception:
+            log.exception('Backup cleanup run interrupted')
             with self.store.transaction():
                 record=self.cleanup_receipt(identity);record.update(phase='interrupted',updated=now())
                 self.store.put('settings',identity,record)
@@ -155,6 +158,7 @@ class BackupCleanupWorkflows:
                         backup_cleanup=dict(receipt=receipt,deleted_at=now(),bytes=row['bytes']),version=latest['version']+1,updated=now())
                     self.store.put('tasks',task['id'],latest);self.store.event(task['id'],dict(action='backup cleanup deleted',receipt=receipt,bytes=row['bytes']))
             except Exception:
+                log.exception('Backup cleanup stopped for task %s; restoring staged file', task['id'])
                 # Never unlink an uncertain staged file. Restore only without overwriting.
                 if stage.exists() or stage.is_symlink():
                     try:self.restore_cleanup_backup(task['id'],allow_active=True)

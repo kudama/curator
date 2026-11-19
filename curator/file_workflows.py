@@ -13,6 +13,7 @@ from .paths import map_path
 from .plex import Plex
 from .store import now
 from .quality import assess
+from .logs import log
 from .rules import ACTIVE, FILE_KINDS
 
 UNSUPPORTED_MOVE = {errno.ENOTSUP,errno.EOPNOTSUPP,errno.ENOSYS}
@@ -435,6 +436,7 @@ class FileWorkflows:
                             old['archive']=move['destination'];self.store.put('tasks',old['id'],old)
             self._save(task,status='applied',result={'verified':True,'verification':'filesystem','plex_refresh_pending':True,'filename':destination.name},rename_verified=True,rename_plex_verified=False)
         except Exception as error:
+            log.exception('Rename failed for task %s', task['id'])
             phase=task.get('progress',{}).get('phase','Renaming files');number=getattr(error,'errno',None)
             detail=str(error) if isinstance(error,ValueError) else (os.strerror(number) if number else type(error).__name__)
             diagnostic=dict(phase=phase,error_type=type(error).__name__,errno=number,detail=detail)
@@ -454,6 +456,7 @@ class FileWorkflows:
                     else:
                         self.move_with_fallback(task,new,old,'Restoring original filename',force_copy=self.copy_install_required(old))
                 except Exception:
+                    log.exception('Rename rollback failed for one file of task %s', task['id'])
                     failures.append(move)
             self._save(task,rename_rollback_failures=failures,rename_restored=not failures)
             if not failures and Path(moves[0]['source']).is_file():
@@ -500,6 +503,7 @@ class FileWorkflows:
                             self.store.put('assets',row['id'],row)
                 self._save(task,status='resolved',rename_restored=True,rename_recovery_verified=True,error=None,result={'restored':True})
             except Exception as error:
+                log.exception('Rename recovery failed for task %s', task['id'])
                 message=str(error) if isinstance(error,ValueError) else 'Recovery stopped; inspect retained filenames'
                 self._save(task,status='blocked',error=message)
                 raise ValueError(message) from None

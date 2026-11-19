@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
+from .logs import register_secret
+
 BASE = 'https://api.mage.space/v1'
 DEFAULT_MODEL = 'mango-v3'
 
@@ -32,6 +34,7 @@ class Mage:
         if not key:
             self.key_path.unlink(missing_ok=True)
             return
+        register_secret(key)
         fd = os.open(self.key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as out:
             os.fchmod(out.fileno(), 0o600)
@@ -41,6 +44,14 @@ class Mage:
 
     def configured(self):
         return self.key_path.is_file() and not self.key_path.is_symlink()
+
+    def register_key_secret(self):
+        """Keep a stored key out of the diagnostic log; never fails startup."""
+        try:
+            if self.configured():
+                register_secret(self.key_path.read_text().strip())
+        except (OSError, UnicodeError):
+            pass
 
     def get(self, path):
         if path not in {'/architectures', '/account'}:

@@ -19,6 +19,7 @@ from .store import Store
 from .tools import image_bytes
 from .tools import handbrake_presets
 from .runtime import ServiceRuntime, RestartBlocked, Restarting, RESTART_EXIT_CODE
+from .logs import configure as configure_logging, log
 
 
 def listener_settings(host, expected_hosts=()):
@@ -241,6 +242,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(image_bytes(target), content_type='image/jpeg')
             return self.reply({'error': 'Not found'}, 404)
         except (ValueError, OSError, KeyError) as e:
+            if not isinstance(e, ValueError):
+                log.warning('Resource unavailable for GET %s', urlsplit(self.path).path, exc_info=True)
             return self.reply({'error': str(e) if isinstance(e, ValueError) else 'Resource unavailable'}, 400)
 
     def do_POST(self):
@@ -418,6 +421,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError) as e:
             self.reply({'error': str(e) if isinstance(e, ValueError) else 'Missing or invalid request field'}, 400)
         except Exception:
+            log.exception('Unhandled error in %s %s', self.command, urlsplit(self.path).path)
             self.reply({'error': 'Operation failed; configuration or provider needs attention'}, 500)
 
 
@@ -442,6 +446,11 @@ def main():
     except (OSError, ValueError) as error:
         parser.exit(2, f'Curator could not open its local state: {error}\n')
     try:
+        log_path = configure_logging(store.root)
+    except (OSError, ValueError) as error:
+        store.close()
+        parser.exit(2, f'Curator could not open its private log: {error}\n')
+    try:
         server = App((host, args.port), Service(store), expected_hosts=expected_hosts,
                      managed_service=args.managed_service)
     except OSError as error:
@@ -452,6 +461,8 @@ def main():
     print('Curator version '+RUNNING_BUILD['version']+' | build '+RUNNING_BUILD['revision']+
           (' (modified checkout)' if RUNNING_BUILD['dirty'] else '')+
           ' | started '+RUNNING_BUILD['started_at'], flush=True)
+    log.info('Curator %s (build %s) listening on %s:%s', RUNNING_BUILD['version'], RUNNING_BUILD['revision'], host, server.server_port)
+    print('Diagnostic log: '+str(log_path), flush=True)
     if args.open:
         import webbrowser
         webbrowser.open(f'http://{host}:{server.server_port}')

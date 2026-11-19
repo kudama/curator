@@ -37,6 +37,7 @@ from .metadata_workflows import MetadataWorkflows
 from .artwork_targets import ArtworkTargets
 from .mage_budget import MageBudgets, gems
 from .artwork_archive import ArtworkArchives, archive_root
+from .logs import log, register_secret
 from .rules import ACTIVE, RESERVING, reserves_source, stable_id
 
 
@@ -46,11 +47,20 @@ identifier = stable_id
 class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, ArtworkTargets, MetadataWorkflows, FileWorkflows, FolderWorkflows, ArtworkWorkflows, BulkReviewWorkflows, BackupCleanupWorkflows, QueueWorkflows, TaskQueues, FileQueueWorkflows, ReviewSessions, RunReadiness, RecoveryWorkflows, RunSummaries):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
+        # Every attribute exists before any recovery or migration runs, so a
+        # recovery that touches cancels, scan status or task locks cannot fail at startup.
         self.lock = threading.RLock()
         self.active = set()
         self.queue_workers = {}
         self.file_workers = {}
         self.file_errors = {}
+        self.cancels = set()
+        self.scan_status = {}
+        self.presence_status = {}
+        self.task_locks = {}
+        self.thumbnail_cache = {}
+        register_secret(self.config().get('plex_token'))
+        Mage(self.store.root).register_key_secret()
         self.recover_file_jobs()
         self.recover_review_batches()
         self.recover_backup_cleanups()
@@ -58,11 +68,6 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         self.recover_rename_suggestions()
         self.migrate_universal_queue()
         self.recover_run_receipts()
-        self.cancels = set()
-        self.scan_status = {}
-        self.presence_status = {}
-        self.task_locks = {}
-        self.thumbnail_cache = {}
         self.split_metadata_findings()
 
     def operation_lock(self, key):
@@ -102,6 +107,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         cfg = self.config()
         if not data.get('plex_token'):
             data.pop('plex_token', None)
+        register_secret(data.get('plex_token'))
         cfg.update(data)
         if any(key in data for key in ('topaz_rate_control','topaz_quality','topaz_bitrate_mbps')):
             tools.topaz_encoding(cfg)
@@ -331,6 +337,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                         self.store.put('assets', asset['id'], asset)
             state['finished'] = now()
         except Exception:
+            log.exception('Library scan failed')
             state['error'] = 'Scan failed; check Plex configuration and permissions'
         finally:
             state['running'] = False
@@ -382,6 +389,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     self.store.put('assets',latest['id'],latest)
             status.update(finished=now(),error=None)
         except Exception:
+            log.exception('Catalog availability refresh failed')
             status['error']='Catalog refresh failed; existing file availability was retained'
         finally:
             status['running']=False
@@ -637,6 +645,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 self._process(task, asset)
             self._save(self.get_task(key),processing_seconds=time.monotonic()-started)
         except Exception as e:
+            log.exception('Task %s failed', key)
             if task.get('kind')=='mage_generation' and task.get('provider') and not task['provider'].get('attempted') and not task['provider'].get('request_id'):
                 self.reconcile_mage_budget(key,task['provider'],unsubmitted=True)
             if self.schedule_preflight_retry(task,e,side_effects_started):return 'retry_scheduled'
@@ -803,6 +812,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 self._save(task, status='applied', result={**(task.get('result') or {}), 'cast_verified': True})
                 return dict(version=task['version'], cast=changes, profiles=self.cast_profiles())
             except Exception as error:
+                log.exception('Cast save failed for task %s', task['id'])
                 message = str(error) if isinstance(error, ValueError) else 'Cast save failed; inspect Plex before retrying'
                 self._save(task, status='blocked', error=message[:300])
                 raise ValueError(message) from None
@@ -857,6 +867,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             observed = self._write_metadata(client, asset, changes, before)
             self._save(task, status='applied', result={**(task.get('result') or {}), 'metadata_verified': True})
         except Exception as error:
+            log.exception('Metadata apply failed for task %s', task['id'])
             message = str(error) if isinstance(error, ValueError) else 'Metadata apply failed; inspect Plex before retrying'
             self._save(task, status='blocked', error=message[:300])
             raise ValueError(message) from None
@@ -949,6 +960,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             allowed = self.library(asset['library'])['themes']
             result['themes'] = [x for x in result.get('themes', []) if x in allowed]
         except Exception:
+            log.exception('Local frame analysis failed for task %s', task['id'])
             raise ValueError('Local frame analysis unavailable or invalid; frames remain available for manual review') from None
         self.asset(task)
         self._save(task, status='awaiting_review', candidates=candidates, result=result,
@@ -1121,6 +1133,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
             else:
                 raise ValueError('Unsupported review type')
         except Exception as e:
+            log.exception('Publication failed for task %s', task['id'])
             phase=task.get('progress',{}).get('phase','Publishing')
             number=getattr(e,'errno',None)
             detail=str(e)[:250] if isinstance(e,ValueError) else (os.strerror(number) if number else 'Unexpected publication error')
@@ -1245,9 +1258,11 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                     client = self.checked_client(self.library(asset['library']))
                     client.refresh(asset['rating_key'])
                 except Exception:
+                    log.exception('Plex refresh after QuickTime repair failed for task %s', task['id'])
                     warning = 'File repaired; Plex refresh failed. Refresh its metadata in Plex.'
                 self._save(task, status='applied', quicktime_repair_warning=warning, progress={'phase':'QuickTime container repaired'})
             except Exception as error:
+                log.exception('QuickTime repair failed for task %s', task['id'])
                 message = str(error) if isinstance(error, ValueError) else 'QuickTime repair failed; inspect retained files before retrying'
                 self._save(task, status='blocked', error=message[:300])
                 raise ValueError(message) from None
@@ -1299,6 +1314,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
                 self.store.event(key, dict(action=kind + ' uploaded and selected', observed_artwork=observed))
             return {'observed_artwork': observed, 'kind': kind, 'selected': True}
         except Exception as error:
+            log.exception('Artwork upload failed for %s', key)
             message = str(error) if isinstance(error, ValueError) else 'Artwork upload failed; check Plex connectivity'
             with self.store.transaction():
                 self.store.event(key, dict(action=kind + ' upload failed', error=message[:300]))
