@@ -126,3 +126,8 @@ test('an over-budget cost check keeps the estimate visible and generation disabl
  const message=all(h.ids['task-buttons']).find(e=>e.className==='muted editor-status').textContent;
  assert.ok(message.includes('270 Gems'));assert.ok(message.includes('200 Gems'));assert.ok(message.includes('70 Gems over budget'));assert.equal(h.find('Generate').disabled,true);assert.ok(!calls.includes('mage/authorize'));
 });
+
+test('reopened artwork cards use fresh preview URLs without creating drafts',()=>{
+ const h=setup();h.context.state.libraries=[];const previous=Element.prototype.classList;Element.prototype.classList={add(){},toggle(){}};Element.prototype.style={};
+ try{const first=h.run("managerArtworkCard(asset,{},'cover',()=>{})"),second=h.run("managerArtworkCard(asset,{},'cover',()=>{})");assert.notEqual(first.current.src,second.current.src);assert.ok(first.current.src.includes('asset=a&kind=cover&v='));assert.equal(first.dirty(),false);assert.equal(second.dirty(),false);}finally{Element.prototype.classList=previous;}
+});

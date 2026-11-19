@@ -1042,7 +1042,7 @@ class Service(ArtworkSettings, LocalArtwork, ArtworkArchives, MageBudgets, Artwo
         version=(asset['id'],asset['item'].get('thumb'),asset['item'].get('updatedAt'))
         with self.lock:cached=self.thumbnail_cache.get(version)
         if cached and time.monotonic()-cached[0]<30:return cached[1]
-        image=self.checked_client(self.library(asset['library'])).image(asset['rating_key'],'cover')
+        image=self.artwork_target_image(key,'cover')
         with self.lock:
             while self.thumbnail_cache and (len(self.thumbnail_cache)>=64 or sum(len(row[1]) for row in self.thumbnail_cache.values())+len(image)>32*1024*1024):
                 self.thumbnail_cache.pop(next(iter(self.thumbnail_cache)))

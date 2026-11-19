@@ -15,6 +15,52 @@ class ArtworkPlans(unittest.TestCase):
     setUp=test_curator.Workflows.setUp
     tearDown=test_curator.Workflows.tearDown
 
+    def rematched_artwork_fixture(self):
+        from curator.plex import PlexError
+        old=copy.deepcopy(self.asset);old['rename_pending_plex']={'destination':old['plex_path'],'previous_paths':['/plex/previous-name.mkv']}
+        with self.store.transaction():self.store.put('assets',old['id'],old)
+        current=copy.deepcopy(old['item']);current.update(ratingKey='20',title='Family Trip',thumb='/new-cover',art='/new-background')
+        current['Media']=[{'Part':[{'file':old['plex_path']}]}]
+        self.plex.items=lambda library:iter([current])
+        def image(key,kind):
+            if key=='10':raise PlexError('Plex returned HTTP 404')
+            self.assertEqual(key,'20');return ('fresh-'+kind).encode()
+        self.plex.image=image
+        return old,current
+
+    def test_artwork_preview_follows_only_the_verified_renamed_file_and_keeps_task_identity(self):
+        old,current=self.rematched_artwork_fixture();tasks=copy.deepcopy(self.store.all('tasks'))
+        self.service.thumbnail_cache[(old['id'],'old',1)]=(0,b'stale')
+        self.assertEqual(self.service.artwork_target_image(old['id'],'cover'),b'fresh-cover')
+        self.assertEqual(self.service.artwork_target_image(old['id'],'background'),b'fresh-background')
+        saved=self.store.get('assets',old['id']);self.assertEqual(saved['rating_key'],'20');self.assertEqual(saved['item'],current);self.assertNotIn('rename_pending_plex',saved)
+        self.assertEqual(self.service.thumbnail_cache,{});self.assertEqual(self.store.all('tasks'),tasks);self.assertEqual(self.plex.writes,[])
+        self.assertEqual(self.service.asset_thumbnail(old['id']),b'fresh-cover')
+
+    def test_artwork_preview_refuses_ambiguous_rematches_or_changed_files(self):
+        old,current=self.rematched_artwork_fixture();self.plex.items=lambda library:iter([current,dict(current,ratingKey='21')])
+        with self.assertRaisesRegex(ValueError,'ambiguous'):self.service.artwork_target_image(old['id'],'cover')
+        self.assertEqual(self.store.get('assets',old['id'])['rating_key'],'10')
+        self.plex.items=lambda library:iter([current]);self.file.write_bytes(b'different media')
+        with self.assertRaisesRegex(ValueError,'Source or mapping changed'):self.service.artwork_target_image(old['id'],'cover')
+        self.assertEqual(self.store.get('assets',old['id'])['rating_key'],'10')
+
+    def test_artwork_preview_rechecks_source_after_plex_lookup(self):
+        old,current=self.rematched_artwork_fixture()
+        def changed_during_lookup(library):
+            yield current
+            self.file.write_bytes(b'changed during catalog lookup')
+        self.plex.items=changed_during_lookup
+        with self.assertRaisesRegex(ValueError,'Source or mapping changed'):self.service.artwork_target_image(old['id'],'cover')
+        self.assertEqual(self.store.get('assets',old['id'])['rating_key'],'10')
+
+    def test_artwork_preview_does_not_guess_identity_for_an_untracked_rename(self):
+        from curator.plex import PlexError
+        from unittest.mock import Mock
+        self.plex.image=Mock(side_effect=PlexError('Plex returned HTTP 404'));self.plex.items=Mock()
+        with self.assertRaises(PlexError):self.service.artwork_target_image(self.asset['id'],'cover')
+        self.plex.items.assert_not_called()
+
     def test_new_local_person_can_be_created_without_a_plex_credit(self):
         before=self.store.all('assets')
         result=self.service.create_cast_profile('  New Person  ',ENCODED)
