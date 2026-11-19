@@ -206,3 +206,5 @@
 @media(max-width:650px){.style-guide-layout,.portrait-editor-layout,.logo-editor-layout,.folder-artwork-layout{grid-template-columns:minmax(0,1fr)}.style-guide-list{flex-direction:row;flex-wrap:wrap}.person-portrait{max-height:300px}}
 
 .manager-reference-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:12px 0}.manager-reference-actions button{padding:2px 0;white-space:nowrap}.manager-reference-actions span{color:var(--muted)}
+
+#task-buttons .generate-action{flex:0 0 140px;width:140px;min-width:140px;max-width:140px;white-space:nowrap}
