@@ -1,7 +1,17 @@
 'use strict';
 // Keep the approved board stable; file preparation and other work never replace it.
 const queueFileSelection=new Set();
+const expandedWaitingQueues=new Set();
 const QUEUE_FILE_KINDS=new Set(['join','rename','group']);
+function foldWaitingQueue(lane,kind){
+ const waiting=[...lane.children].filter(card=>card.dataset.queueWaiting==='true');
+ if(waiting.length<=5)return;
+ const remaining=waiting.slice(5),hidden=new Set(remaining),expanded=expandedWaitingQueues.has(kind),container=node('div',undefined,'queue-waiting-more');
+ container.id='queue-more-'+kind;container.hidden=!expanded;container.append(...remaining);
+ const toggle=button(expanded?'Show fewer':'Show '+remaining.length+' more',()=>{expandedWaitingQueues.has(kind)?expandedWaitingQueues.delete(kind):expandedWaitingQueues.add(kind);render();$('queue-toggle-'+kind)?.focus?.();},'text-button queue-waiting-toggle');
+ toggle.id='queue-toggle-'+kind;toggle.setAttribute('aria-expanded',String(expanded));toggle.setAttribute('aria-controls',container.id);
+ lane.replaceChildren(...[...lane.children].filter(card=>!hidden.has(card)),toggle,container);
+}
 function queueActiveFiles(){return (state.file_jobs||[]).filter(j=>['waiting','running'].includes(j.phase));}
 function queueBoardTasks(){const owned=new Set(queueActiveFiles().map(j=>j.payload?.task).filter(Boolean));return state.tasks.filter(t=>!owned.has(t.id)&&['queued','running','publishing','awaiting_review','failed','blocked'].includes(t.status));}
 function queueBoardAvailable(){return true;}
@@ -41,7 +51,7 @@ function queueLaneSelection(kind){
  for(const id of selection)if(!available.has(id))selection.delete(id);
  const chosen=new Set(visible.filter(id=>selection.has(id))),controls=node('div',undefined,'queue-lane-actions');
  if(!visible.length||!['all','queued'].includes(queueStatus))return controls;
- const select=button(chosen.size===visible.length?'Clear selection':'Select all',()=>{for(const id of visible)chosen.size===visible.length?selection.delete(id):selection.add(id);render();},'text-button');select.disabled=queueChangeBusy;controls.append(select);
+ const select=button(chosen.size===visible.length?'Clear selection':'Select all '+visible.length,()=>{for(const id of visible)chosen.size===visible.length?selection.delete(id):selection.add(id);render();},'text-button');select.disabled=queueChangeBusy;controls.append(select);
  if(!chosen.size)return controls;
  controls.append(node('span',chosen.size+' selected','muted'));
  for(const edge of ['top','bottom']){const move=button('Move to '+edge,()=>{const snapshot=(file?state.file_queue:waitingSnapshot()).map(r=>({...r})),order=mergeQueueOrder(snapshot.map(r=>r.id),visible,moveWaitingOrder(visible,chosen,edge));return file?changeFileOrder(order,snapshot):changeWaitingQueue({order},snapshot);},'text-button');move.disabled=queueChangeBusy;controls.append(move);}
@@ -54,7 +64,7 @@ function queueLaneControl(kind){
  const control=button(active?'Ⅱ':'▶',async()=>{await api(active?'queue/pause':'run',{scope:'all',kind});await refresh();},'icon-button subtle');control.setAttribute('aria-label',(active?'Pause after current: ':'Start queue: ')+(files?'File operations':kind==='upscale'?'Upscaling':kind==='mage_generation'?'Artwork generation':kind==='metadata'?'Metadata':'Encoding')+' across all libraries');control.title=control.getAttribute('aria-label');control.disabled=!active&&!waiting;box.append(control);if(paused)box.append(node('span',running?'Pausing…':'Paused','muted'));return box;
 }
 function queueFileCard(job,head){
- const card=node('article',undefined,'processing-card queue-file-card '+(head?'queue-head':'queue-compact')),text=node('div',undefined,'processing-card-text');card.dataset.taskId=job.id;
+ const card=node('article',undefined,'processing-card queue-file-card '+(head?'queue-head':'queue-compact')),text=node('div',undefined,'processing-card-text');card.dataset.taskId=job.id;card.dataset.queueWaiting=String(job.phase==='waiting');
  const owner=state.tasks.find(t=>t.id===job.payload?.task),asset=catalogIndex().byId.get(owner?.asset);
  if(head&&asset)card.append(thumbnail(asset));
  if(job.phase==='waiting'&&Array.isArray(state.file_queue)){const check=node('input');check.type='checkbox';check.setAttribute('aria-label','Select waiting file operation '+job.title);check.checked=queueFileSelection.has(job.id);check.onchange=()=>{check.checked?queueFileSelection.add(job.id):queueFileSelection.delete(job.id);render();};check.disabled=queueChangeBusy;const drag=button('↕',()=>{},'subtle');drag.setAttribute('aria-label','Drag waiting file operation '+job.title);drag.disabled=queueChangeBusy;drag.style.touchAction='none';queueDrag(card,drag,job,true);card.append(check,drag);}
@@ -95,7 +105,7 @@ function renderProcessing(){
   const lane=node('section',undefined,'queue-lane'),header=node('div',undefined,'queue-lane-heading');lane.setAttribute('aria-label',title);header.append(node('h2',title),queueLaneControl(kind));lane.append(header);if(kind==='metadata')for(const subtype of ['home','folder_metadata'])if(tasks.some(t=>t.kind===subtype))lane.append(node('h3',TASK_LABELS[subtype]||subtype),taskQueueControls(subtype),queueLaneSelection(subtype));
   const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>t.kind===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider)).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
   const running=rows.filter(r=>files?r.phase==='running':['running','publishing'].includes(r.status)),waiting=rows.filter(r=>files?r.phase==='waiting':r.status==='queued'),attention=files?[]:rows.filter(r=>['failed','blocked'].includes(r.status));
-  const head=running[0]||waiting[0],make=(row,head)=>{if(files)return queueFileCard(row,head);const card=processingTaskCard(row);card.classList.add(head?'queue-head':'queue-compact');return card;};
+  const head=running[0]||waiting[0],make=(row,head)=>{if(files)return queueFileCard(row,head);const card=processingTaskCard(row);card.dataset.queueWaiting=String(row.status==='queued');card.classList.add(head?'queue-head':'queue-compact');return card;};
   if(head)lane.append(make(head,true));else if(!files||!tasks.some(t=>QUEUE_FILE_KINDS.has(t.kind)))lane.append(node('p',rows.length?'No active jobs':'No jobs','queue-lane-empty muted'));
   for(const row of running.slice(1))lane.append(make(row,false));
   lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'),queueLaneSelection(kind));for(const row of waiting)if(row!==head)lane.append(make(row,false));
@@ -106,13 +116,13 @@ function renderProcessing(){
    for(const kind of [...new Set(preparation.map(t=>t.kind))]){
     lane.append(node('h3',(TASK_LABELS[kind]||kind)+' · preparation'),taskQueueControls(kind),queueLaneSelection(kind));
     for(const task of preparation.filter(t=>t.kind===kind)){
-     const card=processingTaskCard(task);card.classList.add(hasHead?'queue-compact':'queue-head');lane.append(card);hasHead=true;
+     const card=processingTaskCard(task);card.dataset.queueWaiting=String(task.status==='queued');card.classList.add(hasHead?'queue-compact':'queue-head');lane.append(card);hasHead=true;
     }
    }
    const orphanIds=new Set(queueOrphanCleanups().filter(r=>queueVisible({...r,title:'Clean up originals'})&&queueStatusMatches(r.phase==='queued'?'queued':r.phase==='deleting'?'publishing':'blocked')).map(r=>r.id));
    for(const card of cleanupJobCards(false))if(orphanIds.has(card.dataset.cleanupId))lane.append(card);
   }
-  board.append(lane);
+  foldWaitingQueue(lane,kind);board.append(lane);
  }
  const other=tasks.filter(t=>!['upscale','optimize','mage_generation','metadata','folder_metadata','home'].includes(t.kind)&&!(t.kind==='artwork'&&t.provider)&&!QUEUE_FILE_KINDS.has(t.kind)),extra=[];
  for(const kind of [...new Set(other.map(t=>t.kind))]){

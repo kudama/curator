@@ -17,7 +17,7 @@ function setup(){
   document:{elementFromPoint:()=>({closest:()=>({dataset:{waitingId:target}})})}});
  for(const file of ['workbench','queue-board'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/'+file+'.js'),'utf8'),context);
  context.taskQueueControls=()=>new Element('div');context.bulkTaskControls=()=>new Element('div');context.cleanupJobCards=()=>state.cleanup_jobs?.filter(j=>j.phase!=='complete').map(j=>{const e=new Element('article');e.dataset.cleanupId=j.id;return e;})||[];
- context.processingTaskCard=t=>{cards.push(t.id);return new Element('article');};context.renderLegacyProcessing=()=>['legacy'];
+ context.processingTaskCard=t=>{cards.push(t.id);const card=new Element('article');card.dataset.taskId=t.id;return card;};context.renderLegacyProcessing=()=>['legacy'];
  const add=(id,kind,status='queued',library='one')=>{const t={id,title:id,kind,status,library,version:1};state.tasks.push(t);if(status==='queued')state.global_queue.push({id,version:1});return t;};
  return {context,state,calls,cards,elements,add,target:id=>{target=id;},run:code=>vm.runInContext(code,context)};
 }
@@ -103,4 +103,33 @@ test('saved groups route to review or history and preparation retry uses current
  h.run("renderBulkReview({id:'pending',phase:'ready',items:[{id:'video',version:1,status:'failed'}]})");
  const retry=h.elements.get('task-buttons').children.find(e=>e.textContent==='Retry preparation (1)');assert.ok(retry);await retry.onclick();
  assert.equal(h.calls[0].endpoint,'review-batch/prepare');assert.equal(h.calls[0].data.tasks[0].version,7);assert.equal(h.calls[0].data.library,'one');assert.equal(h.calls.some(c=>c.endpoint?.includes('publish')),false);
+});
+function visibleAll(element){return element.hidden?[]:[element,...element.children.flatMap(visibleAll)];}
+test('waiting queues show five including the head and keep the full selection scope',()=>{
+ const h=setup();for(let i=0;i<74;i++)h.add('up'+i,'upscale');
+ const board=h.run('renderProcessing()')[0],lane=board.children[0];
+ assert.equal(visibleAll(lane).filter(e=>e.dataset.queueWaiting==='true').length,5);
+ assert.equal(all(lane).filter(e=>e.dataset.queueWaiting==='true').length,74);
+ const toggle=all(lane).find(e=>e.textContent==='Show 69 more');assert.ok(toggle);assert.equal(toggle.attrs['aria-expanded'],'false');
+ assert.ok(all(lane).some(e=>e.textContent==='Select all 74'));
+ toggle.onclick();const expanded=h.run('renderProcessing()')[0].children[0];assert.equal(visibleAll(expanded).filter(e=>e.dataset.queueWaiting==='true').length,74);
+ all(expanded).find(e=>e.textContent==='Show fewer').onclick();assert.equal(visibleAll(h.run('renderProcessing()')[0]).filter(e=>e.dataset.queueWaiting==='true').length,5);
+});
+test('active and attention jobs stay visible while waiting columns expand independently',()=>{
+ const h=setup();for(let i=0;i<7;i++){h.add('u'+i,'upscale');h.add('e'+i,'optimize');}
+ h.add('active1','upscale','running');h.add('active2','upscale','running');h.add('blocked','upscale','blocked');h.context.queueStatus='all';
+ let board=h.run('renderProcessing()')[0];assert.ok(['active1','active2','blocked'].every(id=>visibleAll(board.children[0]).some(e=>e.dataset.taskId===id)));
+ all(board.children[0]).find(e=>e.textContent==='Show 2 more').onclick();board=h.run('renderProcessing()')[0];
+ assert.equal(visibleAll(board.children[0]).filter(e=>e.dataset.queueWaiting==='true').length,7);assert.equal(visibleAll(board.children[1]).filter(e=>e.dataset.queueWaiting==='true').length,5);
+ assert.equal(visibleAll(board.children[0]).filter(e=>e.className.includes('queue-head')).length,1);
+ const fresh=h.run('renderProcessing()')[0];assert.equal(visibleAll(fresh.children[0]).filter(e=>e.dataset.queueWaiting==='true').length,7);
+});
+test('five waiting jobs need no disclosure and a shrinking queue drops the control',()=>{
+ const h=setup();for(let i=0;i<5;i++)h.add('u'+i,'upscale');assert.equal(all(h.run('renderProcessing()')[0]).some(e=>e.className.includes('queue-waiting-toggle')),false);
+ h.add('sixth','upscale');let board=h.run('renderProcessing()')[0];assert.ok(all(board).some(e=>e.textContent==='Show 1 more'));
+ h.state.tasks.pop();h.state.global_queue.pop();board=h.run('renderProcessing()')[0];assert.equal(all(board).some(e=>e.className.includes('queue-waiting-toggle')),false);
+});
+test('file preparation and copy jobs share one five-item waiting disclosure',()=>{
+ const h=setup();for(let i=0;i<4;i++)h.add('join'+i,'join');h.state.file_jobs=Array.from({length:4},(_,i)=>({id:'f'+i,phase:'waiting',operation:'copy',title:'Copy '+i,library:'one'}));h.state.file_queue=h.state.file_jobs.map(j=>({id:j.id}));
+ const lane=h.run('renderProcessing()')[0].children[0];assert.equal(visibleAll(lane).filter(e=>e.dataset.queueWaiting==='true').length,5);assert.ok(all(lane).some(e=>e.textContent==='Show 3 more'));
 });
