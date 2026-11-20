@@ -4,9 +4,9 @@ Feature specification · 2026-11-19 (America/Los_Angeles)
 
 ## Purpose and confirmed starting point
 
-Generate durable, portable NFO sidecars from the metadata the operator has already curated, for one item, selected items, a folder or an entire library. Avoid repeating manual work when Plex rescans or a library is rebuilt.
+Provide a **one-time, operator-run backfill** that generates durable, portable NFO sidecars from the metadata the operator has already curated, for one item, selected items, a folder or an entire library. Avoid repeating manual work when Plex rescans or a library is rebuilt.
 
-The operator confirmed that current cast names and portraits work. After selecting the Plex NFO agent, the supplied web screenshot also shows portrait artwork, year/categories, cast and related collection content. Preserve that working metadata and cast pipeline. This feature adds an export path; it does not require regenerating cast, replacing portraits or changing how existing Plex writes work. Actual NFO export/import fidelity remains to be demonstrated separately from the observed presentation improvement.
+The operator confirmed that current cast names and portraits work. After selecting Plex Video Files scanner with the Plex NFO agent, the supplied web screenshot also shows portrait artwork, year/categories, cast and related collection content. Preserve that working metadata and cast pipeline. This feature adds an export path; it does not require regenerating cast, replacing portraits or changing how existing Plex writes work. Actual NFO export/import fidelity remains to be demonstrated separately from the observed presentation improvement.
 
 ## Feature list
 
@@ -17,11 +17,12 @@ The operator confirmed that current cast names and portraits work. After selecti
 | NFO-03 | Preview changes | Show which files will be created, unchanged, updated, skipped or blocked, with readable field differences and missing/unsupported fields. Planning performs no filesystem or Plex writes. |
 | NFO-04 | Safe writes | Default to creating missing NFOs. Require explicit reviewed updates for existing files; retain previous contents, verify versions/hashes and commit completed files atomically. Never silently overwrite another tool's NFO. |
 | NFO-05 | Durable batch jobs | Use the existing bounded file-operation queue, safe pause and recovery model. Show progress and per-item outcomes; retry only failed, revalidated targets. |
-| NFO-06 | Configuration and history | Define export policy per library, show effective settings, and record who exported what and the verified result. Automatic updating is a separate opt-in policy. |
+| NFO-06 | Required local images | Save every available supported selected artwork image beside the media using Plex naming conventions. Report missing images and partial packages. |
+| NFO-07 | History | Record who exported what and the verified metadata/image result. This tool is manual, resumable and safe to rerun; no scheduled synchronization. |
 
 ## Entry points and flow
 
-In Library Manager, offer **Generate NFO files** for the selected scope. In the separately designed Configuration area, expose NFO defaults within library metadata/export settings. Do not add another top-level tab or health page.
+In Library Manager, offer **Generate NFO files** for the selected scope. Use the current configuration and queue infrastructure for library export defaults. Do not add another top-level tab or health page.
 
 1. Select the scope and export policy. Default: **Create missing files**; existing files are preserved.
 2. Read current item identity, metadata, mapping and existing sidecars. Preserve known operator edits; unresolved Plex-versus-Curator differences require review rather than arbitrary source precedence.
@@ -51,7 +52,26 @@ Plex documents actor portrait references as image URLs. Export an existing worki
 
 If a reference cannot be safely represented, identify that limitation in the plan and preserve the existing Plex/Curator portrait. Do not clear or replace it. The operator can export supported text fields with an explicit omission, or defer that item; resolving image-reference portability is separate from redesigning cast handling.
 
-Reference existing approved artwork. If exporting artwork files is selected, show those additional destinations and retain originals. Distinguish exporting NFO text from copying artwork bytes. Do not assume a Curator-local path is accessible to Plex, expose private image hosting, embed credentials, create public links or trigger paid generation.
+### Required media-adjacent artwork
+
+Artwork packaging is required in the first usable backfill, not an optional later phase. Export existing approved/selected artwork from Curator retention or the current Plex selection. Copy the actual files beside the mapped video; the existing archive and source originals remain intact.
+
+For an unambiguous single-title folder use Plex's documented names:
+
+| Image | Filename | Shape |
+| --- | --- | --- |
+| Poster | `poster.jpg` | 2:3 for every library and collection |
+| Background | `background.jpg` | 16:9 |
+| Square artwork | `square.jpg` | 1:1 |
+| Logo | `logo.png` (also supported: `clearlogo.png`) | Transparent; original proportions |
+
+Use a supported extension matching the actual bytes (for example poster.png for PNG), or an explicit reviewed conversion. Never disguise PNG as JPEG. Shared folders require documented video-basename-prefixed artwork names and exact association; block ambiguous layouts rather than using generic filenames for unrelated videos. Multi-edition association needs separate validation.
+
+Preview the image source, hash, destination, format and conflicts with the NFO plan. Copy every available supported selected image; missing kinds are visible omissions, not a reason to generate new ones. Existing landscape posters are retained and flagged for review, never automatically stretched, cropped or regenerated. All future poster generation is 2:3.
+
+Apply the same atomic staging, no-overwrite defaults, version checks, pause/recovery and verified history to image files. A partial NFO/image package must show its actual outcomes and cannot be called a complete backup. Reuse the sidecar writer for future approved artwork saves to enabled NFO libraries; scans do not write files.
+
+Cast remains the working pipeline described above. Plex documents actor thumbs as URLs; local `.actors` support is not assumed. Preserve retained portrait bytes privately and report reference portability separately. Do not assume a Curator-local path is accessible to Plex, expose private image hosting, embed credentials, create public links or trigger paid generation.
 
 ## Identity, preservation and compatibility
 
@@ -63,11 +83,11 @@ Reference existing approved artwork. If exporting artwork files is selected, sho
 - Agent changes must not silently alter the intended standards. The current V2 standards model recognizes Other Videos through the legacy/none agent; an NFO-agent change needs a classification compatibility check and preservation of the selected profile/overrides. Record this as integration work, not an instruction to change the already working cast or library settings.
 - Verify agent/scanner/server/client capabilities through actual configuration before standardizing recommendations. The operator's successful presentation change is evidence for that library, not universal import certification.
 
-## Configuration and automation
+## One-time scope
 
-Proposed settings: enable export for this library, create-missing versus reviewed-update policy, naming/layout preference, included supported fields, optional approved artwork export, retained-version limits and an optional later “update NFO after approved metadata changes” rule. Align any schema changes with the existing versioned standards model; do not silently add an enabled health requirement to every library.
+First release is an explicit selected/folder/library backfill, with create-missing as the default and separately reviewed updates. It is resumable and safe to rerun; it is not a scheduler or recurring synchronization feature. Include required image packaging and verified per-file outcomes. Reuse existing configuration, file queues and histories; do not add a top-level tab, a new task engine or an enabled health requirement to every library.
 
-A configuration preference is not permission to overwrite files or refresh Plex. First release is explicit selected/library export. Automatic maintenance requires separately enabled scope and the same conflict/recovery rules. Never purge old sidecars or backup versions merely because the export succeeds.
+A configuration preference is not permission to overwrite files or refresh Plex. Never purge sidecars or retained versions merely because an export succeeds. TV support and recurring maintenance require separately scoped work.
 
 ## Acceptance and delivery
 
@@ -79,6 +99,6 @@ A configuration preference is not permission to overwrite files or refresh Plex.
 6. Confirm no credentials/private tokens appear in NFOs or logs, and unsafe XML cannot read files or contact external services.
 7. Show actionable progress and per-item outcomes across themes/narrow layouts; histories identify initiator and verified disposition.
 
-Delivery order: **movie/personal-media create-missing export → reviewed updates/recovery → optional artwork-reference packaging → validated TV support → opt-in maintenance**. This specification records planned functionality; no NFO generation, live-library export, agent migration or provider operation has been implemented by this document.
+Delivery order: **movie/personal-media NFO export (#90) and required image sidecars (#91) → reviewed updates/recovery and disposable-library round-trip validation**. Track NFO-agent standards compatibility in #92. TV and recurring maintenance are outside this one-time tool. This specification records planned functionality; no NFO generation, live-library export, agent migration or provider operation has been implemented by this document.
 
 References: [Plex NFO format and limitations](https://support.plex.tv/articles/using-nfo-metadata-files-with-plex/), [local movie artwork](https://support.plex.tv/articles/200220677-local-media-assets-movies/), [V2 standards](curator-v2-standards.md), [V2 history](curator-v2-history.md), [preservation issue #70](https://github.com/kudama/curator/issues/70).
