@@ -24,7 +24,7 @@ Curator started as a tool for my own Plex library and home-movie workflow, so it
 
 ## Appearance
 
-Use the **Theme** selector in the upper-right corner to choose **Classic** or **Cyberpunk**. The choice applies immediately and is remembered in that browser for the current Curator address. It does not change library data or pending edits.
+Use the **Theme** selector in the upper-right corner to choose **Classic**, **Cyberpunk**, or **Plex / Tautulli**. The Plex / Tautulli theme uses charcoal surfaces, warm amber accents, and a neutral media-workspace style. The choice applies immediately and is remembered in that browser for the current Curator address. It does not change library data or pending edits.
 
 ## Get started
 

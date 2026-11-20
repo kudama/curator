@@ -100,7 +100,7 @@ function chooseLibrary(id){if(id!==libraryId&&!prepareInspector())return false;i
 function setScreen(value,libraryScoped=false){if(screen!==value){if(!prepareInspector())return false;closeInspector(true);searchText='';$('file-search').value='';}if(libraryScoped&&value==='processing'){queueLibrary=libraryId;waitingSelection.clear();}screen=value;filter=value==='processing'?'queued':value==='history'?'history':libraryView==='completed'?'completed':'all';selected.clear();render();return true;}
 function initThemeSelector(){
  const selector=document.getElementById('theme-selector');if(!selector)return;
- const apply=value=>{const theme=value==='cyberpunk'?'cyberpunk':'classic';document.documentElement.dataset.theme=theme;selector.value=theme;return theme;};
+ const apply=value=>{const theme=['classic','cyberpunk','plex'].includes(value)?value:'classic';document.documentElement.dataset.theme=theme;selector.value=theme;return theme;};
  let stored='classic';try{stored=localStorage.getItem('curator.theme')||stored;}catch(error){}
  apply(stored);
  selector.onchange=()=>{const theme=apply(selector.value);try{localStorage.setItem('curator.theme',theme);}catch(error){}};
