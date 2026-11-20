@@ -661,6 +661,34 @@ class Workflows(unittest.TestCase):
         self.assertEqual(self.file.read_bytes(), b'processed-video')
         self.assertEqual(self.service.get_task(task['id'])['status'], 'applied')
 
+    def test_publish_preserves_original_through_verified_copy_when_share_cannot_rename(self):
+        import errno
+        from curator.file_workflows import install_exclusive
+
+        task, output, backup = self.publication_task()
+        original_open = Path.open
+
+        def share_open(path, mode='r', *args, **kwargs):
+            if path == backup and mode == 'xb':
+                original_open(path, 'wb').close()
+                raise IsADirectoryError('Share rejected pathlib reservation')
+            return original_open(path, mode, *args, **kwargs)
+
+        def share_move(source, destination):
+            if Path(destination) == backup:
+                raise OSError(errno.ENOTSUP, 'No exclusive rename on this share')
+            return install_exclusive(source, destination)
+
+        with (
+            patch.object(Path, 'open', share_open),
+            patch('curator.file_workflows.install_exclusive', side_effect=share_move),
+        ):
+            self.service.review(task['id'], task['version'], 'manual')
+        self.assertEqual(backup.read_bytes(), b'original-video')
+        self.assertEqual(self.file.read_bytes(), b'processed-video')
+        self.assertEqual(output.read_bytes(), b'processed-video')
+        self.assertEqual(self.service.get_task(task['id'])['status'], 'applied')
+
     def test_failed_original_preservation_leaves_source_and_output_without_placeholder(self):
         from curator.file_workflows import install_exclusive
 
