@@ -40,7 +40,8 @@ from .mage_budget import MageBudgets, gems
 from .artwork_archive import ArtworkArchives, archive_root
 from .logs import log, register_secret
 from .errors import UserError
-from .rules import ACTIVE, RESERVING, reserves_source, stable_id
+from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
+from .standards import LibraryStandards
 
 
 identifier = stable_id
@@ -65,6 +66,7 @@ class Service(
     RunReadiness,
     RecoveryWorkflows,
     RunSummaries,
+    LibraryStandards,
 ):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
@@ -215,8 +217,13 @@ class Service(
         with self.store.transaction():
             for library in rows:
                 old = self.store.get('libraries', library['id'], {})
+                kind = library_kind(library)
                 library.update(
-                    profile=old.get('profile', 'commercial'),
+                    {k: old[k] for k in ('standard_overrides', 'standard_revision') if k in old},
+                    kind=kind,
+                    # A newly connected Other Videos library starts as home media; an
+                    # existing library keeps the profile the operator chose.
+                    profile=old.get('profile', 'home' if kind == 'other_videos' else 'commercial'),
                     mappings=old.get('mappings', []),
                     themes=old.get('themes', []),
                 )
@@ -239,6 +246,7 @@ class Service(
             for field in ('locations', 'title', 'type', 'agent'):
                 if field in fresh:
                     latest[field] = fresh[field]
+            latest['kind'] = library_kind(latest)
             self.store.put('libraries', key, latest)
         return latest
 

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from .errors import UserError
+from .migrations import migrate
 
 
 def now():
@@ -47,6 +48,12 @@ class Store:
         self.db.execute('CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at TEXT, task TEXT, data TEXT)')
         self.db.commit()
         self.json_queries = self._create_indexes()
+        try:
+            self.migration_backup = migrate(self)
+        except Exception:
+            self.db.close()
+            self.instance_lock.close()
+            raise
         # Unknown external outcomes are reviewed, never automatically replayed.
         with self.transaction():
             for task in self.all('tasks'):

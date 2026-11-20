@@ -19,3 +19,18 @@ def stable_id(*values, length=24):
 def reserves_source(pending, asset_id):
     """True when pending is a file operation that still holds asset_id."""
     return pending['kind'] in FILE_KINDS and pending['status'] in RESERVING and asset_id in pending['plan']['assets']
+
+
+# Plex library types Curator manages, named as Plex names them. Plex stores an
+# "Other Videos" library as a movie section whose agent is "none" (Personal Media).
+LIBRARY_KINDS = {'movie': 'Movies', 'show': 'TV Shows', 'other_videos': 'Other Videos'}
+OTHER_VIDEO_AGENTS = frozenset({'tv.plex.agents.none', 'com.plexapp.agents.none'})
+
+
+def library_kind(library):
+    """The Plex library type of a library record: movie, show or other_videos."""
+    if library.get('type') == 'show':
+        return 'show'
+    if library.get('agent') in OTHER_VIDEO_AGENTS:
+        return 'other_videos'
+    return 'movie'
