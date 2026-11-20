@@ -230,7 +230,7 @@ class ArtworkPlans(unittest.TestCase):
             branding.DEFAULT_PRESETS[0], model='mango-v3s', resolution='3K', ratio='9:16', negative_prompt='No frame'
         )
         for profile, kind, ratio in [
-            ('home', 'cover', '16:9'),
+            ('home', 'cover', '2:3'),
             ('commercial', 'cover', '2:3'),
             ('commercial', 'background', '16:9'),
             ('home', 'square', '1:1'),
@@ -240,12 +240,34 @@ class ArtworkPlans(unittest.TestCase):
             self.assertEqual(result['settings']['resolution'], '3K')
             self.assertEqual(result['settings']['negative_prompt'], 'No frame')
         result = resolve_style(
-            preset, {'title': 'Another title'}, 'home', 'cover', {'ratio': '4:5', 'resolution': '1K'}
+            preset, {'title': 'Another title'}, 'home', 'cover', {'ratio': '2:3', 'resolution': '1K'}
         )
-        self.assertEqual(result['settings']['ratio'], '4:5')
+        self.assertEqual(result['settings']['ratio'], '2:3')
         self.assertIn('Another title', result['settings']['prompt'])
         with self.assertRaises(ValueError):
             resolve_style(preset, {}, 'home', 'folder', {})
+
+    def test_nonportrait_posters_are_refused_before_planning_or_spending(self):
+        from unittest.mock import patch
+
+        before = self.store.all('tasks')
+        for ratio in ('16:9', '4:5', '1:1'):
+            with self.subTest(ratio=ratio), self.assertRaisesRegex(ValueError, 'Posters use 2:3'):
+                self.service.artwork_plan([self.asset['id']], 'cover', 'gritty', {'ratio': ratio})
+        self.assertEqual(self.store.all('tasks'), before)
+        task = self.service.artwork_plan([self.asset['id']], 'cover', 'gritty')['tasks'][0]
+        task['plan']['settings']['ratio'] = '16:9'  # An immutable pre-upgrade plan.
+        with self.store.transaction():
+            self.store.put('tasks', task['id'], task)
+        with patch('curator.mage.Mage') as cls:
+            with self.assertRaisesRegex(ValueError, 'fresh portrait'):
+                self.service.mage_quote([{'id': task['id'], 'version': 1}])
+            cls.return_value.quote.assert_not_called()
+            task['provider'] = {'credential': 'fixture-key'}
+            cls.return_value.credential_identity.return_value = 'fixture-key'
+            with self.assertRaisesRegex(ValueError, 'fresh portrait'):
+                self.service.execute_mage(task, cls.return_value)
+            cls.return_value.submit.assert_not_called()
 
     def test_per_title_batch_freezes_distinct_context_and_selected_targets(self):
         second = copy.deepcopy(self.asset)

@@ -109,7 +109,7 @@ test('generation metadata checks flag missing descriptions and raw episode/file 
 test('selecting a family reference uses the exact style template and removing it restores text-only wording',async()=>{
  const h=setup();h.context.asset.title='Family picnic';h.context.asset.item.summary='Our dog at the park';
  h.context.fileBase64=async()=> 'aGVsbG8=';h.context.artworkBlobURL=()=> 'blob:family-reference';h.context.URL={revokeObjectURL(){}};
- h.run("openManagerGenerate(asset,{},'cover','16:9')");
+ h.run("openManagerGenerate(asset,{},'cover','2:3')");
  const prompt=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Resolved generation prompt'),image=all(h.ids['task-detail']).find(e=>e.className==='manager-reference'),upload=all(h.ids['task-detail']).find(e=>e.attrs['aria-label']==='Upload reference image');image.src='';
  assert.ok(prompt.value.startsWith('Create cover artwork for Family picnic'));
  upload.files=[{name:'family-dog.png'}];await upload.onchange();assert.equal(prompt.value,'re-imagine this image in style guidance Cinematic');
@@ -130,4 +130,15 @@ test('an over-budget cost check keeps the estimate visible and generation disabl
 test('reopened artwork cards use fresh preview URLs without creating drafts',()=>{
  const h=setup();h.context.state.libraries=[];const previous=Element.prototype.classList;Element.prototype.classList={add(){},toggle(){}};Element.prototype.style={};
  try{const first=h.run("managerArtworkCard(asset,{},'cover',()=>{})"),second=h.run("managerArtworkCard(asset,{},'cover',()=>{})");assert.notEqual(first.current.src,second.current.src);assert.ok(first.current.src.includes('asset=a&kind=cover&v='));assert.equal(first.dirty(),false);assert.equal(second.dirty(),false);}finally{Element.prototype.classList=previous;}
+});
+
+test('personal media poster editor only offers portrait, backgrounds stay landscape',()=>{
+ const h=setup();h.context.state.libraries=[{id:'home',profile:'home'}];h.context.asset.library='home';
+ Element.prototype.style={};Element.prototype.classList={add(){},toggle(){}};
+ h.context.ARTWORK_LABELS.background='Background';
+ const poster=h.run("managerArtworkCard(asset,{},'cover',()=>{})");
+ const format=all(poster.section).find(e=>e.tag==='select'&&e.attrs['aria-label']==='Cover format for Title');
+ assert.deepEqual(format.children.map(e=>e.value),['2:3']);assert.equal(format.value,'2:3');
+ const background=h.run("managerArtworkCard(asset,{},'background',()=>{})");
+ assert.ok(all(background.section).some(e=>e.textContent.startsWith('16:9')));
 });

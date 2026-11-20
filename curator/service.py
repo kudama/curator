@@ -1496,12 +1496,10 @@ class Service(
 
     def cover_prompt(self, key, title):
         task = self.get_task(key)
-        asset = self.asset(task, check=False)
-        landscape = self.library(asset['library'])['profile'] == 'home'
+        self.asset(task, check=False)
         return (
-            'Create an exact '
-            + ('16:9 landscape cover at 1920 × 1080' if landscape else '2:3 portrait cover at 1000 × 1500')
-            + ' using the supplied frame. Preserve proportions; never stretch. '
+            'Create an exact 2:3 portrait cover at 1000 × 1500'
+            ' using the supplied frame. Preserve proportions; never stretch. '
             'Blend the upper image smoothly into the background. Title: '
             + title.strip()
             + '. Keep typography readable at Plex thumbnail size.'

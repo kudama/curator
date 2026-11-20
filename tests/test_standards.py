@@ -1,3 +1,4 @@
+import copy
 import sqlite3
 import tempfile
 import unittest
@@ -68,6 +69,42 @@ class Migrations(unittest.TestCase):
         self.assertIsNone(store.migration_backup)
         store.close()
 
+    def test_portrait_upgrade_preserves_other_preferences_and_job_receipts(self):
+        store = Store(self.root)
+        values = copy.deepcopy(DEFAULTS['other_videos'])
+        values['artwork']['poster_ratio'] = '16:9'
+        values['cast']['enabled'] = False
+        record = dict(id='standard:other_videos', record_type='library_standard',
+                      kind='other_videos', values=values, revision=2)
+        library = dict(section('1', 'movie', 'tv.plex.agents.none'), profile='home',
+                       standard_overrides={'artwork': {'poster_ratio': '16:9', 'enabled': False}},
+                       standard_revision=5)
+        receipt = dict(id='old', kind='mage_generation', status='recommendation',
+                       plan={'kind': 'cover', 'settings': {'ratio': '16:9'}})
+        with store.transaction():
+            store.put('settings', record['id'], record)
+            store.put('libraries', library['id'], library)
+            store.put('tasks', receipt['id'], receipt)
+            store.db.execute('DELETE FROM schema_version WHERE version > 3')
+        store.close()
+        store = Store(self.root)
+        saved = store.get('settings', record['id'])
+        self.assertEqual(saved['values']['artwork']['poster_ratio'], '2:3')
+        self.assertFalse(saved['values']['cast']['enabled'])
+        self.assertEqual(saved['revision'], 3)
+        saved_library = store.get('libraries', library['id'])
+        self.assertEqual(saved_library['standard_overrides']['artwork'],
+                         {'poster_ratio': '2:3', 'enabled': False})
+        self.assertEqual(saved_library['standard_revision'], 6)
+        self.assertEqual(saved_library['profile'], 'home')
+        self.assertEqual(store.get('tasks', 'old'), receipt)
+        self.assertIsNotNone(store.migration_backup)
+        store.close()
+        store = Store(self.root)
+        self.assertIsNone(store.migration_backup)
+        self.assertEqual(store.get('settings', record['id'])['revision'], 3)
+        store.close()
+
     def test_refuses_state_from_a_newer_curator(self):
         store = Store(self.root)
         store.db.execute('INSERT INTO schema_version VALUES(?, ?)', (migrations.LATEST + 1, 'later'))
@@ -133,6 +170,7 @@ class Standards(unittest.TestCase):
         standards = self.service.standards()
         self.assertEqual(set(standards['types']), {'movie', 'show', 'other_videos'})
         for kind, row in standards['types'].items():
+            self.assertEqual(row['values']['artwork']['poster_ratio'], '2:3')
             self.assertEqual(row['revision'], 0)
             self.assertFalse(row['customized'])
             self.assertEqual(tuple(row['values']), DIMENSIONS)
@@ -177,6 +215,7 @@ class Standards(unittest.TestCase):
         good = self.service.standards()['types']['movie']['values']
         bad = [
             {**good, 'extra': {}},
+            {**good, 'artwork': {**good['artwork'], 'poster_ratio': '16:9'}},
             {k: v for k, v in good.items() if k != 'cast'},
             {**good, 'cast': {'enabled': True, 'mode': 'everyone'}},
             {**good, 'metadata': {**good['metadata'], 'required': ['summary', 'rating_key']}},

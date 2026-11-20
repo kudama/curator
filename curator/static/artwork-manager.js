@@ -27,8 +27,8 @@ function artworkBlobURL(encoded,type){return URL.createObjectURL(new Blob([Uint8
 function managerArtworkCard(asset,task,kind,onChange){
  const collection=asset.artwork_target==='collection',profile=state.libraries.find(l=>l.id===asset.library)?.profile||'commercial',section=node('section',undefined,'manager-art-card');
  const heading=node('div',undefined,'manager-art-heading'),badge=node('span','Draft change','draft-badge');badge.hidden=true;heading.append(node('h3',collection&&kind==='cover'?'Poster':ARTWORK_LABELS[kind]),badge);section.append(heading);
- const format=node('select');format.setAttribute('aria-label',ARTWORK_LABELS[kind]+' format for '+asset.title);const ratios=kind==='cover'?(collection?['2:3']:['2:3','16:9']):kind==='background'?['16:9']:['1:1'];
- for(const ratio of ratios){const option=node('option',ratio);option.value=ratio;format.append(option);}format.value=kind==='cover'&&profile==='home'&&!collection?'16:9':ratios[0];
+ const format=node('select');format.setAttribute('aria-label',ARTWORK_LABELS[kind]+' format for '+asset.title);const ratios=kind==='cover'?['2:3']:kind==='background'?['16:9']:['1:1'];
+ for(const ratio of ratios){const option=node('option',ratio);option.value=ratio;format.append(option);}format.value=ratios[0];
  if(kind==='cover')section.append(node('label','Format'),format);else section.append(node('p',kind==='logo'?'Transparent PNG · original proportions':ratios[0]+' · '+(kind==='square'?'Mobile':collection?'This collection':'This media item'),'muted'));
  const current=node('img');current.alt='Current '+ARTWORK_LABELS[kind]+' for '+asset.title;current.className='manager-art-image';current.style.aspectRatio=kind==='logo'?'auto':format.value.replace(':',' / ');if(kind==='logo')current.classList.add('logo-preview');current.src='/api/artwork/target-image?'+new URLSearchParams({asset:asset.id,kind,v:clientId()});
  const empty=node('p','No current '+ARTWORK_LABELS[kind].toLowerCase(),'muted');empty.hidden=true;current.onerror=()=>{current.hidden=true;empty.hidden=dirty;};section.append(current,empty);
