@@ -5,7 +5,9 @@ class Element{
  append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}
  setAttribute(k,v){this.attrs[k]=v;}getAttribute(k){return this.attrs[k];}
  setPointerCapture(){}
- get classList(){return {add:cls=>{this.className+=' '+cls;},toggle:(cls,on)=>{if(on)this.className+=' '+cls;}};}
+ focus(){}
+ querySelector(){return null;}
+ get classList(){return {add:cls=>{this.className+=' '+cls;},remove:cls=>{this.className=this.className.split(' ').filter(c=>c!==cls).join(' ');},toggle:(cls,on)=>{if(on)this.className+=' '+cls;}};}
 }
 function setup(){
  const elements=new Map(),calls=[],cards=[];let target=null;
@@ -14,7 +16,7 @@ function setup(){
   $:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);},node:(...args)=>new Element(...args),
   button:(text,fn,cls)=>{const e=new Element('button',text,cls);e.onclick=fn;return e;},catalogIndex:()=>({byId:new Map()}),TASK_LABELS:{upscale:'Upscaling',optimize:'Encoding'},
   featureAvailable:()=>true,render(){},refresh:async()=>{},toast(){},api:async(endpoint,data)=>calls.push({endpoint,data}),run:fn=>fn(),
-  document:{elementFromPoint:()=>({closest:()=>({dataset:{waitingId:target}})})}});
+  document:{querySelectorAll:()=>[],elementFromPoint:()=>({closest:()=>({dataset:{waitingId:target}})})}});
  for(const file of ['workbench','queue-board'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/'+file+'.js'),'utf8'),context);
  context.taskQueueControls=()=>new Element('div');context.bulkTaskControls=()=>new Element('div');context.cleanupJobCards=()=>state.cleanup_jobs?.filter(j=>j.phase!=='complete').map(j=>{const e=new Element('article');e.dataset.cleanupId=j.id;return e;})||[];
  context.processingTaskCard=t=>{cards.push(t.id);const card=new Element('article');card.dataset.taskId=t.id;return card;};context.renderLegacyProcessing=()=>['legacy'];
@@ -153,4 +155,38 @@ test('blocked jobs have an attention heading, no empty waiting header or oversiz
  assert.ok(elements.some(e=>e.textContent==='No processing jobs match this view.'));
  assert.equal(elements.some(e=>e.className.includes('queue-lane-empty')),false);
  assert.ok(elements.some(e=>e.textContent.includes('1 running total')));
+});
+
+test('keyboard reorder moves one position, preserves hidden slots and reports the result',async()=>{
+ const h=setup();h.add('a','optimize');h.add('hidden','optimize','queued','two');h.add('up','upscale');h.add('b','optimize');h.run("queueLibrary='one'");
+ h.context.card=new Element('article');h.context.handle=new Element('button');h.run('queueDrag(card,handle,state.tasks[3])');let prevented=false;
+ await h.context.handle.onkeydown({key:'ArrowUp',preventDefault(){prevented=true;}});
+ assert.equal(prevented,true);assert.equal(h.calls[0].data.order.join(','),'b,hidden,up,a');assert.equal(h.calls[0].data.expected[3].version,1);
+ assert.match(h.elements.get('queue-reorder-status').textContent,/b moved to position 1 of 2/);
+ assert.equal(h.run("expandedWaitingQueues.has('optimize')"),true);
+});
+test('keyboard file reorder uses its snapshot and ignores edges, modifiers and busy state',async()=>{
+ const h=setup();h.state.file_jobs=['f1','f2','f3'].map(id=>({id,title:id,phase:'waiting',library:'one'}));h.state.file_queue=h.state.file_jobs.map(j=>({id:j.id,updated:'captured'}));
+ h.context.card=new Element('article');h.context.handle=new Element('button');h.run('queueDrag(card,handle,state.file_jobs[0],true)');
+ const key=(key,extra={})=>h.context.handle.onkeydown({key,preventDefault(){},...extra});
+ await key('ArrowUp');await key('End',{ctrlKey:true});h.run('queueChangeBusy=true');await key('End');assert.equal(h.calls.length,0);h.run('queueChangeBusy=false');
+ await key('End');assert.equal(h.calls[0].endpoint,'file-queue/order');assert.equal(h.calls[0].data.order.join(','),'f2,f3,f1');assert.equal(h.calls[0].data.expected[0].updated,'captured');
+});
+test('drag cancellation, capture loss and unrelated pointer release never submit a move',()=>{
+ const h=setup();h.add('a','optimize');h.add('b','optimize');h.context.card=new Element('article');h.context.handle=new Element('button');h.run('queueDrag(card,handle,state.tasks[0])');const handle=h.context.handle;
+ const down=extra=>handle.onpointerdown({clientX:0,clientY:0,pointerId:1,preventDefault(){},...extra});
+ down({button:2});assert.equal(h.run('queueDragging'),false);down({});assert.equal(h.run('queueDragging'),true);
+ h.target('b');handle.onpointerup({clientX:20,clientY:20,pointerId:2});assert.equal(h.run('queueDragging'),true);
+ handle.onlostpointercapture();assert.equal(h.run('queueDragging'),false);assert.equal(h.calls.length,0);
+ down({});handle.onkeydown({key:'Escape',preventDefault(){},stopPropagation(){}});assert.equal(h.run('queueDragging'),false);handle.onpointerup({clientX:20,clientY:20,pointerId:1});assert.equal(h.calls.length,0);
+ down({});handle.onpointercancel();assert.equal(h.run('queueDragging'),false);
+});
+test('inspector restoration finds the same queue control after polling replaces its card',()=>{
+ const h=setup();let focused=null;
+ const button={dataset:{},tagName:'BUTTON',textContent:'Details',getAttribute:()=>null,classList:{contains:()=>false},focus:()=>{focused='details';}};
+ const card={dataset:{taskId:'job'},querySelectorAll:()=>[button]};
+ h.context.document.querySelectorAll=()=>[card];h.context.origin={...button,closest:()=>card};
+ const identity=h.run('queueFocusIdentity(origin)');h.context.identity=identity;
+ assert.equal(h.run('restoreQueueFocus(identity)'),true);assert.equal(focused,'details');
+ h.context.document.querySelectorAll=()=>[];assert.equal(h.run('restoreQueueFocus(identity)'),false);
 });
