@@ -626,6 +626,79 @@ class Workflows(unittest.TestCase):
                 self.assertEqual(self.plex.writes, [])
                 backup.unlink()
 
+    def publication_task(self):
+        from curator.tools import digest
+
+        output = self.root / 'result.mkv'
+        output.write_bytes(b'processed-video')
+        task = dict(
+            self.task,
+            kind='optimize',
+            status='awaiting_review',
+            output=str(output),
+            validation=[],
+            source_hash=digest(self.file),
+            output_hash=digest(output),
+            comparison_loaded=True,
+        )
+        with self.store.transaction():
+            self.store.put('tasks', task['id'], task)
+        return task, output, self.file.with_name(self.file.stem + '-old' + self.file.suffix).resolve()
+
+    def test_publish_avoids_share_failure_that_leaves_empty_backup_reservations(self):
+        task, output, backup = self.publication_task()
+        original_open = Path.open
+
+        def share_open(path, mode='r', *args, **kwargs):
+            if path == backup and mode == 'xb':
+                original_open(path, 'wb').close()
+                raise IsADirectoryError('Share rejected empty backup reservation after creating it')
+            return original_open(path, mode, *args, **kwargs)
+
+        with patch.object(Path, 'open', share_open):
+            self.service.review(task['id'], task['version'], 'manual')
+        self.assertEqual(backup.read_bytes(), b'original-video')
+        self.assertEqual(self.file.read_bytes(), b'processed-video')
+        self.assertEqual(self.service.get_task(task['id'])['status'], 'applied')
+
+    def test_failed_original_preservation_leaves_source_and_output_without_placeholder(self):
+        from curator.file_workflows import install_exclusive
+
+        task, output, backup = self.publication_task()
+
+        def refuse_backup(source, destination):
+            if Path(destination) == backup:
+                raise PermissionError('Cannot preserve original')
+            return install_exclusive(source, destination)
+
+        with (
+            patch('curator.file_workflows.install_exclusive', side_effect=refuse_backup),
+            self.assertRaises(ValueError),
+        ):
+            self.service.review(task['id'], task['version'], 'manual')
+        self.assertEqual(self.file.read_bytes(), b'original-video')
+        self.assertEqual(output.read_bytes(), b'processed-video')
+        self.assertFalse(backup.exists())
+        self.assertEqual(self.service.get_task(task['id'])['status'], 'blocked')
+
+    def test_backup_created_during_staging_is_never_replaced_or_removed(self):
+        task, output, backup = self.publication_task()
+        copy = self.service._copy_with_progress
+
+        def concurrent_backup(*args, **kwargs):
+            result = copy(*args, **kwargs)
+            backup.write_bytes(b'another retained original')
+            return result
+
+        with (
+            patch.object(self.service, '_copy_with_progress', side_effect=concurrent_backup),
+            self.assertRaises(ValueError),
+        ):
+            self.service.review(task['id'], task['version'], 'manual')
+        self.assertEqual(backup.read_bytes(), b'another retained original')
+        self.assertEqual(self.file.read_bytes(), b'original-video')
+        self.assertEqual(output.read_bytes(), b'processed-video')
+
     def test_failed_swap_restores_original_name(self):
         from curator.tools import digest
 

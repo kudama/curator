@@ -60,7 +60,7 @@ function queueLaneSelection(kind){
 }
 function queueLaneControl(kind){
  const files=kind==='file_operations',info=(state.task_queues||[]).find(q=>q.kind===kind),running=files?queueActiveFiles().filter(j=>j.phase==='running').length:info?.running||0,waiting=queueLaneIds(kind).length,paused=files?state.file_queue_paused:Boolean(info?.paused);
- const active=files?running&&!paused:info?.active&&!paused,box=node('div',undefined,'queue-lane-control');box.append(node('span',(files?'Copy/delete: ':'')+running+' running · limit '+(state.queue_limits?.[kind]||(files?4:1)),'muted'));
+ const active=files?running&&!paused:info?.active&&!paused,box=node('div',undefined,'queue-lane-control');box.append(node('span',(files?'Copy/delete: ':'')+running+' running total · limit '+(state.queue_limits?.[kind]||(files?4:1)),'muted'));
  const control=button(active?'Ⅱ':'▶',async()=>{await api(active?'queue/pause':'run',{scope:'all',kind});await refresh();},'icon-button subtle');control.setAttribute('aria-label',(active?'Pause after current: ':'Start queue: ')+(files?'File operations':kind==='upscale'?'Upscaling':kind==='mage_generation'?'Artwork generation':kind==='metadata'?'Metadata':'Encoding')+' across all libraries');control.title=control.getAttribute('aria-label');control.disabled=!active&&!waiting;box.append(control);if(paused)box.append(node('span',running?'Pausing…':'Paused','muted'));return box;
 }
 function queueFileCard(job,head){
@@ -107,10 +107,10 @@ function renderProcessing(){
   const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>t.kind===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider)).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
   const running=rows.filter(r=>files?r.phase==='running':['running','publishing'].includes(r.status)),waiting=rows.filter(r=>files?r.phase==='waiting':r.status==='queued'),attention=files?[]:rows.filter(r=>['failed','blocked'].includes(r.status));
   const head=running[0]||waiting[0],make=(row,head)=>{if(files)return queueFileCard(row,head);const card=processingTaskCard(row);card.dataset.queueWaiting=String(row.status==='queued');card.classList.add(head?'queue-head':'queue-compact');return card;};
-  if(head)lane.append(make(head,true));else if(!files||!tasks.some(t=>QUEUE_FILE_KINDS.has(t.kind)))lane.append(node('p',rows.length?'No active jobs':'No jobs','queue-lane-empty muted'));
+  if(head)lane.append(make(head,true));else if(!files||!tasks.some(t=>QUEUE_FILE_KINDS.has(t.kind)))lane.append(node('p',rows.length?'No processing jobs match this view.':'No jobs','queue-lane-idle muted'));
   for(const row of running.slice(1))lane.append(make(row,false));
-  lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'));for(const row of waiting)if(row!==head)lane.append(make(row,false));
-  for(const row of attention)lane.append(make(row,false));
+  if(waiting.length)lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'));for(const row of waiting)if(row!==head)lane.append(make(row,false));
+  if(attention.length)lane.append(node('h3','Needs attention ('+attention.length+')'));for(const row of attention)lane.append(make(row,false));
   const review=files?[]:rows.filter(r=>r.status==='awaiting_review');if(review.length&&!['mage_generation','metadata'].includes(kind))lane.append(bulkTaskControls(review));for(const row of review)lane.append(make(row,false));
   if(files){
    const preparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)).sort((a,b)=>['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));let hasHead=Boolean(head);

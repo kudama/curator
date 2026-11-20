@@ -1698,14 +1698,10 @@ class Service(
             if tools.digest(source) != task['source_hash']:
                 raise UserError('Source changed during staging')
             self._save(task, progress={'phase': 'Preserving original as -old'})
-            # Reserve the backup name exclusively so an existing backup is never replaced.
-            with saved.open('xb'):
-                pass
-            try:
-                os.replace(source, saved)
-            except Exception:
-                saved.unlink(missing_ok=True)  # Only the empty reservation created above.
-                raise
+            # Reuse the no-overwrite move used by file operations. Creating an empty
+            # reservation first can fail after creation on a mounted share and leave
+            # a misleading backup collision. Existing originals still block publication.
+            self.move_with_fallback(task, source, saved, 'Preserving original as -old')
             self._save(
                 task, archive=str(saved), original_renamed=True, progress={'phase': 'Publishing processed video'}
             )

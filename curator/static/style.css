@@ -221,3 +221,5 @@
 #libraries .library-subnav button{font-size:12px;padding:8px 10px;margin:2px 0}
 #libraries .library-subnav button.active{background:var(--surface,#26312b);color:var(--accent);border-color:var(--accent)}
 @media(max-width:800px){#libraries .library-group{flex:0 0 auto;max-width:240px}#libraries .library-subnav button{width:100%;white-space:normal}}
+
+.queue-lane-idle{padding:12px 0;margin:0;font-size:12px}
