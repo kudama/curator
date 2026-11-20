@@ -100,8 +100,9 @@ class CastWorkflow(unittest.TestCase):
         self.save([])
         self.canonical_portrait_adapter()
         result = self.save([dict(name='Returning person')])
-        self.assertEqual(result['cast'], [dict(name='Returning person', role='',
-                         thumb='/library/metadata/20/known-person.jpg')])
+        self.assertEqual(
+            result['cast'], [dict(name='Returning person', role='', thumb='/library/metadata/20/known-person.jpg')]
+        )
         self.assertEqual(self.service.get_task(self.task['id'])['status'], 'applied')
         self.assertIn('/library/metadata/20/known-person.jpg', self.images)
 

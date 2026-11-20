@@ -1118,8 +1118,12 @@ class Service(
             expected['cast'] = []
             for index, row in enumerate(changes['cast']):
                 comparison = dict(row)
-                if (not row.get('thumb') and row['name'].casefold() not in previous_names
-                        and row['name'].casefold() not in clear_names and index < len(actual)):
+                if (
+                    not row.get('thumb')
+                    and row['name'].casefold() not in previous_names
+                    and row['name'].casefold() not in clear_names
+                    and index < len(actual)
+                ):
                     comparison['thumb'] = actual[index]['thumb']
                 expected['cast'].append(comparison)
         differing = [field for field, value in expected.items() if not self._same_metadata(observed, {field: value})]
@@ -1259,7 +1263,10 @@ class Service(
                 task['plan'] = {**task['plan'], 'changes': {'cast': changes}}
                 self._save(task)
                 observed = self._write_metadata(
-                    client, asset, {'cast': changes}, before,
+                    client,
+                    asset,
+                    {'cast': changes},
+                    before,
                     clear_cast_photos=[row['name'] for row, _, _ in prepared if row.get('clear_photo')],
                 )
                 with self.store.transaction():
