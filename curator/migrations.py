@@ -52,10 +52,33 @@ def _structured_events(store):
     db.execute('CREATE INDEX IF NOT EXISTS events_category ON events(category, id)')
 
 
+def _portrait_posters(store):
+    """Normalize future poster preferences, preserving artwork and immutable jobs."""
+    from .standards import DEFAULTS
+
+    for kind in DEFAULTS:
+        record = store.get('settings', 'standard:' + kind)
+        if not record or record.get('record_type') != 'library_standard':
+            continue
+        artwork = record.get('values', {}).get('artwork', {})
+        if artwork.get('poster_ratio') not in (None, '2:3'):
+            artwork['poster_ratio'] = '2:3'
+            record['revision'] = record.get('revision', 0) + 1
+            record['customized'] = record['values'] != DEFAULTS[record['kind']]
+            store.put('settings', record['id'], record)
+    for library in store.all('libraries'):
+        artwork = library.get('standard_overrides', {}).get('artwork', {})
+        if artwork.get('poster_ratio') not in (None, '2:3'):
+            artwork['poster_ratio'] = '2:3'
+            library['standard_revision'] = library.get('standard_revision', 0) + 1
+            store.put('libraries', library['id'], library)
+
+
 MIGRATIONS = (
     (1, _baseline),
     (2, _library_kinds),
     (3, _structured_events),
+    (4, _portrait_posters),
 )
 LATEST = MIGRATIONS[-1][0]
 

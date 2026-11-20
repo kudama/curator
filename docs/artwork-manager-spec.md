@@ -23,14 +23,14 @@ The current Curator snapshot already supports manual artwork editing/import, cas
 
 | Target | Default ratio | Notes |
 | --- | --- | --- |
-| Personal/home media primary cover | **16:9** | Plex home-video landscape presentation; allow override |
+| Personal/home media primary cover | **2:3** | Portrait; same poster format for every library (2026-11-19 decision) |
 | Movie/TV traditional poster | **2:3** | Portrait |
 | Background/fanart | **16:9** | Landscape |
 | Square/folder/logo artwork | **1:1** | Only when supported by the target |
-| Collection primary poster | **2:3** | Allow override for target display |
+| Collection primary poster | **2:3** | Portrait |
 | Cast/person portrait | **Portrait** | Exact required dimensions/ratio depend on tested Plex transport |
 
-Do not distort generated images: request a target-supported ratio, or preview an explicit crop/pad transformation. Preserve source originals and store local derivatives independently. Library profile and target type select defaults; user overrides persist in a saved generation task.
+Do not distort generated images: request a target-supported ratio, or preview an explicit crop/pad transformation. Preserve source originals and store local derivatives independently. Target type selects the format; posters always use 2:3. Other generation settings persist in a saved task. Existing images and job receipts remain intact.
 
 ## 3. Scope and folder operations
 
@@ -93,7 +93,7 @@ Keep Processing, Review and Publishing as distinct durable task states as alread
 
 **A. Workspace split:** Artwork and Metadata actions are independent with persistent selection, existing editing/import and folder previews intact. Verify no regression against current automated suite.
 
-**B. Target ratios and folder art:** Home-video 16:9 primary artwork defaults, portrait 2:3 commercial/collection posters, 16:9 backgrounds, 1:1 square; correct explicit override, unique/shared/per-title batch behavior, no-op handling and unsupported-folder behavior.
+**B. Target ratios and folder art:** Portrait 2:3 posters for every library and collection, 16:9 backgrounds, 1:1 square; correct explicit override, unique/shared/per-title batch behavior, no-op handling and unsupported-folder behavior.
 
 **C. Style presets:** Existing styles reused, editable/creatable/duplicable, current prompt saved as preset, folder-wide style applied to unique per-title results, old receipts stable.
 

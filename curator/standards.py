@@ -16,7 +16,7 @@ DIMENSIONS = ('metadata', 'cast', 'artwork', 'upscaling', 'encoding')
 METADATA_FIELDS = ('summary', 'year', 'originally_available_at', 'genres', 'studio', 'content_rating', 'collections')
 ARTWORK_KINDS = ('poster', 'background', 'logo')
 CAST_MODES = ('credits', 'known_people')
-POSTER_RATIOS = ('2:3', '16:9')
+POSTER_RATIOS = ('2:3',)
 UPSCALE_TARGETS = ('1080', '2160')
 
 _CATALOG = {
@@ -35,7 +35,7 @@ DEFAULTS = {
     'other_videos': {
         'metadata': dict(enabled=True, required=['summary', 'originally_available_at'], local_ai_suggestions=True),
         'cast': dict(enabled=True, mode='known_people'),
-        'artwork': dict(enabled=True, required=['poster'], poster_ratio='16:9'),
+        'artwork': dict(enabled=True, required=['poster'], poster_ratio='2:3'),
         'upscaling': dict(enabled=True, target='1080', suggest_when_met=True),
         'encoding': dict(enabled=True, max_mbps_1080=None, max_mbps_4k=None, preserve_originals=True),
     },

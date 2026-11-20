@@ -92,7 +92,7 @@ class ArtworkTargets:
             or kind == 'square'
             and ratio != '1:1'
             or kind == 'cover'
-            and ratio not in {'2:3', '16:9'}
+            and ratio != '2:3'
             or kind == 'logo'
             and ratio is not None
         ):

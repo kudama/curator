@@ -22,7 +22,7 @@ Curator does not list Music or Photos libraries, so they have no standard.
 | --- | --- | --- | --- |
 | Metadata | `required` fields; `local_ai_suggestions` | summary, year, genres; off | summary, originally available date; on |
 | Cast | `mode`: `credits` or `known_people` | **off** (credits if turned on) | known people |
-| Artwork | `required` (poster, background, logo); `poster_ratio` (2:3 or 16:9) | **off** (poster, 2:3 if turned on) | poster; 16:9 |
+| Artwork | `required` (poster, background, logo); `poster_ratio` (2:3) | **off** (poster, 2:3 if turned on) | poster; 2:3 |
 | Upscaling | `target` (1080 or 2160); `suggest_when_met` | 1080; on | 1080; on |
 | Re-encoding | `max_mbps_1080`, `max_mbps_4k` (empty = global threshold); `preserve_originals` | global; off | global; on |
 
@@ -30,11 +30,11 @@ Every dimension also has `enabled`. A library is complete when it meets the stan
 
 Cast and artwork are off for Movies and TV Shows. Plex's online agents supply credits, cast photos and artwork for those libraries, and Plex shows dynamic backgrounds, so Curator does not count them as unfinished. A library can turn either on through an override. Other Videos have no online source, so cast and artwork stay on for them.
 
-Otherwise, the defaults record what is done today. Encoding thresholds default to the existing global settings. Optional upscale suggestions stay on. The home-media choices (16:9 posters and local AI suggestions) are the Other Videos defaults.
+Otherwise, the defaults record what is done today. Encoding thresholds default to the existing global settings. Optional upscale suggestions stay on. All posters use 2:3, including personal media and collections (operator decision, 2026-11-19). Backgrounds stay 16:9; square art stays 1:1; logos retain their proportions. Local AI suggestions remain an Other Videos default.
 
 ## Relationship to the existing home/commercial profile
 
-Each library still has its `profile`, and today that profile drives artwork shape and home-media suggestions. This change does not alter it, with one exception: a newly connected Other Videos library now starts as `home`. Existing libraries keep the profile the operator chose. When the scan starts reading standards, `profile` will be replaced by the type standard plus overrides. A library whose profile disagrees with its type (for example a Movies library marked `home`) keeps its current behaviour: a migration will write a library override that matches its old profile (confirmed by the operator).
+Each library still has its `profile`, and today that profile drives home-media suggestions. This change does not alter it, with one exception: a newly connected Other Videos library now starts as `home`. Existing libraries keep the profile the operator chose. When the scan starts reading standards, `profile` will be replaced by the type standard plus overrides. A library whose profile disagrees with its type (for example a Movies library marked `home`) keeps its current behaviour: a migration will write a library override that matches its old profile (confirmed by the operator).
 
 ## Rules and permissions
 
@@ -57,6 +57,8 @@ Before the first pending migration touches existing state, the database is copie
 
 - Version 1 marks the pre-v2 layout.
 - Version 2 records each library's `kind`.
+- Version 3 structures history events.
+- Version 4 changes saved poster standards/overrides to 2:3 and advances affected revisions. Existing images, styles and immutable job receipts are retained. Unsubmitted legacy landscape poster generation needs a fresh portrait plan; already submitted work can still be recovered.
 
 The per-start repairs in `Service.__init__` are unchanged. They can move into numbered migrations as they are next touched.
 
