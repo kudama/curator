@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../curator/static/workbench.js'),'utf8');
-function setup(){const c=vm.createContext({});vm.runInContext(source,c);return code=>vm.runInContext(code,c);}
+function setup(){const c=vm.createContext({URLSearchParams});vm.runInContext(source,c);return code=>vm.runInContext(code,c);}
 test('history includes failures and excludes waiting/active/recommendations',()=>{
  const run=setup();for(const status of ['applied','resolved','rejected','cancelled','blocked','failed'])assert.equal(run(`historyStatusMatches({status:'${status}'})`),true);
  for(const status of ['recommendation','queued','running','publishing','awaiting_review'])assert.equal(run(`historyStatusMatches({status:'${status}'})`),false);
@@ -44,9 +44,9 @@ test('older pages append and a response for old filters is dropped',async()=>{
  c.api=async path=>{calls.push(path);return calls.length===1?{events:[{id:9}],next:9}:{events:[{id:3}],next:null};};
  run("libraryId='one';historyScope='all'");
  await run('loadCuratorHistory()');await run('loadCuratorHistory(true)');
- assert.deepEqual(run('curatorHistory.events.map(e=>e.id)'),[9,3]);assert.match(calls[1],/before=9/);assert.equal(renders,2);
+ assert.equal(run('curatorHistory.events.map(e=>e.id).join()'),'9,3');assert.match(calls[1],/before=9/);assert.equal(renders,2);
  let release;c.api=()=>new Promise(resolve=>{release=resolve;});
  const stale=run('loadCuratorHistory()');run("historyLevel='error'");c.api=async()=>({events:[{id:1}],next:null});
  await run('loadCuratorHistory()');release({events:[{id:99}],next:null});await stale;
- assert.deepEqual(run('curatorHistory.events.map(e=>e.id)'),[1]);
+ assert.equal(run('curatorHistory.events.map(e=>e.id).join()'),'1');
 });
