@@ -31,9 +31,31 @@ def _library_kinds(store):
             store.put('libraries', library['id'], library)
 
 
+def _structured_events(store):
+    """Give events a category, library, initiator and level so history can be filtered.
+
+    Every existing event is a job event; its library comes from its task, when the task
+    still exists. Initiators of past events are unknown and stay empty.
+    """
+    db = store.db
+    columns = {row[1] for row in db.execute('PRAGMA table_info(events)')}
+    for column in ('category', 'library', 'initiator', 'level'):
+        if column not in columns:
+            db.execute(f'ALTER TABLE events ADD COLUMN {column} TEXT')
+    db.execute("UPDATE events SET category = 'job' WHERE category IS NULL")
+    libraries = {task['id']: task.get('library') for task in store.all('tasks')}
+    rows = db.execute('SELECT DISTINCT task FROM events WHERE library IS NULL AND task IS NOT NULL').fetchall()
+    for (task,) in rows:
+        if libraries.get(task):
+            db.execute('UPDATE events SET library = ? WHERE task = ? AND library IS NULL', (libraries[task], task))
+    db.execute('CREATE INDEX IF NOT EXISTS events_task ON events(task, id)')
+    db.execute('CREATE INDEX IF NOT EXISTS events_category ON events(category, id)')
+
+
 MIGRATIONS = (
     (1, _baseline),
     (2, _library_kinds),
+    (3, _structured_events),
 )
 LATEST = MIGRATIONS[-1][0]
 
@@ -67,7 +89,8 @@ def migrate(store):
     db.execute(f'CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (version INTEGER PRIMARY KEY, applied TEXT NOT NULL)')
     db.commit()
     version = current_version(db)
-    if version > LATEST:
+    latest = MIGRATIONS[-1][0]
+    if version > latest:
         raise UserError(
             f'This state was written by a newer Curator (schema {version}); update Curator before opening it'
         )
