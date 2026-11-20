@@ -21,8 +21,10 @@ UPSCALE_TARGETS = ('1080', '2160')
 
 _CATALOG = {
     'metadata': dict(enabled=True, required=['summary', 'year', 'genres'], local_ai_suggestions=False),
-    'cast': dict(enabled=True, mode='credits'),
-    'artwork': dict(enabled=True, required=['poster', 'background'], poster_ratio='2:3'),
+    # Plex's online agents supply cast photos and artwork, and Plex shows dynamic
+    # backgrounds, so neither is part of done unless a library opts in.
+    'cast': dict(enabled=False, mode='credits'),
+    'artwork': dict(enabled=False, required=['poster'], poster_ratio='2:3'),
     'upscaling': dict(enabled=True, target='1080', suggest_when_met=True),
     # None thresholds follow the global encoding thresholds in Configuration.
     'encoding': dict(enabled=True, max_mbps_1080=None, max_mbps_4k=None, preserve_originals=False),

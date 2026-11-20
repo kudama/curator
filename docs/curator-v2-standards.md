@@ -21,18 +21,20 @@ Curator does not list Music or Photos libraries, so they have no standard.
 | Dimension | Fields | Movies / TV Shows default | Other Videos default |
 | --- | --- | --- | --- |
 | Metadata | `required` fields; `local_ai_suggestions` | summary, year, genres; off | summary, originally available date; on |
-| Cast | `mode`: `credits` or `known_people` | credits | known people |
-| Artwork | `required` (poster, background, logo); `poster_ratio` (2:3 or 16:9) | poster and background; 2:3 | poster; 16:9 |
+| Cast | `mode`: `credits` or `known_people` | **off** (credits if turned on) | known people |
+| Artwork | `required` (poster, background, logo); `poster_ratio` (2:3 or 16:9) | **off** (poster, 2:3 if turned on) | poster; 16:9 |
 | Upscaling | `target` (1080 or 2160); `suggest_when_met` | 1080; on | 1080; on |
 | Re-encoding | `max_mbps_1080`, `max_mbps_4k` (empty = global threshold); `preserve_originals` | global; off | global; on |
 
 Every dimension also has `enabled`. A library is complete when it meets the standard for each enabled dimension. Completion does not require every possible transformation.
 
-The defaults record what is done today. Encoding thresholds default to the existing global settings. Optional upscale suggestions stay on. The home-media choices (16:9 posters and local AI suggestions) are the Other Videos defaults.
+Cast and artwork are off for Movies and TV Shows. Plex's online agents supply credits, cast photos and artwork for those libraries, and Plex shows dynamic backgrounds, so Curator does not count them as unfinished. A library can turn either on through an override. Other Videos have no online source, so cast and artwork stay on for them.
+
+Otherwise, the defaults record what is done today. Encoding thresholds default to the existing global settings. Optional upscale suggestions stay on. The home-media choices (16:9 posters and local AI suggestions) are the Other Videos defaults.
 
 ## Relationship to the existing home/commercial profile
 
-Each library still has its `profile`, and today that profile drives artwork shape and home-media suggestions. This change does not alter it, with one exception: a newly connected Other Videos library now starts as `home`. Existing libraries keep the profile the operator chose. When the scan starts reading standards, `profile` will be replaced by the type standard plus overrides. A library whose profile disagrees with its type (for example a Movies library marked `home`) will then keep its current behaviour through a library override written by a migration.
+Each library still has its `profile`, and today that profile drives artwork shape and home-media suggestions. This change does not alter it, with one exception: a newly connected Other Videos library now starts as `home`. Existing libraries keep the profile the operator chose. When the scan starts reading standards, `profile` will be replaced by the type standard plus overrides. A library whose profile disagrees with its type (for example a Movies library marked `home`) keeps its current behaviour: a migration will write a library override that matches its old profile (confirmed by the operator).
 
 ## Rules and permissions
 

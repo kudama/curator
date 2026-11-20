@@ -124,10 +124,10 @@ class Standards(unittest.TestCase):
 
     def test_reconnect_keeps_operator_profile_and_overrides(self):
         self.service.save_library('srv:3', dict(profile='commercial', mappings=[], themes=[]))
-        self.service.save_library_overrides('srv:1', 0, {'artwork': {'required': ['poster']}})
+        self.service.save_library_overrides('srv:1', 0, {'artwork': {'enabled': True}})
         self.service.connect()
         self.assertEqual(self.service.library('srv:3')['profile'], 'commercial')
-        self.assertEqual(self.service.library_standard('srv:1')['overrides'], {'artwork': {'required': ['poster']}})
+        self.assertEqual(self.service.library_standard('srv:1')['overrides'], {'artwork': {'enabled': True}})
 
     def test_every_type_has_a_complete_valid_default(self):
         standards = self.service.standards()
@@ -136,6 +136,11 @@ class Standards(unittest.TestCase):
             self.assertEqual(row['revision'], 0)
             self.assertFalse(row['customized'])
             self.assertEqual(tuple(row['values']), DIMENSIONS)
+        for kind in ('movie', 'show'):
+            self.assertFalse(standards['types'][kind]['values']['cast']['enabled'])
+            self.assertFalse(standards['types'][kind]['values']['artwork']['enabled'])
+        self.assertTrue(standards['types']['other_videos']['values']['cast']['enabled'])
+        self.assertTrue(standards['types']['other_videos']['values']['artwork']['enabled'])
         self.assertEqual(standards['types']['other_videos']['label'], 'Other Videos')
         self.assertEqual(standards['libraries']['srv:3']['values'], DEFAULTS['other_videos'])
 
@@ -153,17 +158,17 @@ class Standards(unittest.TestCase):
         result = self.service.save_library_overrides(
             'srv:2',
             0,
-            {'artwork': {'required': ['background', 'poster'], 'poster_ratio': '2:3'}, 'cast': {'enabled': False}},
+            {'artwork': {'required': ['poster'], 'poster_ratio': '2:3'}, 'cast': {'enabled': True}},
         )
         # The artwork values equal the type standard, so only the cast change is kept.
-        self.assertEqual(result['overrides'], {'cast': {'enabled': False}})
-        self.assertFalse(result['values']['cast']['enabled'])
+        self.assertEqual(result['overrides'], {'cast': {'enabled': True}})
+        self.assertTrue(result['values']['cast']['enabled'])
         # A later type change still reaches fields the library did not override.
         values = self.service.standards()['types']['show']['values']
         values['cast']['mode'] = 'known_people'
         self.service.save_type_standard('show', 0, values)
         self.assertEqual(
-            self.service.library_standard('srv:2')['values']['cast'], {'enabled': False, 'mode': 'known_people'}
+            self.service.library_standard('srv:2')['values']['cast'], {'enabled': True, 'mode': 'known_people'}
         )
         with self.assertRaises(UserError):
             self.service.save_library_overrides('srv:2', 0, {})
