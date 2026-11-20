@@ -64,4 +64,4 @@ The per-start repairs in `Service.__init__` are unchanged. They can move into nu
 
 1. Configuration screen for type standards and library overrides (prototype first).
 2. Scan evaluates the effective standard: findings and thresholds come from it. Add per-library completion and a migration that turns `profile` into overrides.
-3. History: extend the existing per-library History screen into Job history and Curator history (see the v2 brief).
+3. History: see [Curator v2 — history](curator-v2-history.md).

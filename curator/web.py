@@ -21,6 +21,9 @@ from .tools import image_bytes
 from .tools import handbrake_presets
 from .runtime import ServiceRuntime, RestartBlocked, Restarting, RESTART_EXIT_CODE
 from .logs import configure as configure_logging, log
+from .history import HistoryHandler, acting
+from .migrations import LATEST as SCHEMA_VERSION
+from .plex import PlexError
 from .errors import UserError
 
 
@@ -143,6 +146,8 @@ class Handler(BaseHTTPRequestHandler):
         path, method = urlsplit(self.path).path, getattr(self, 'command', 'request')
         if isinstance(error, RestartBlocked):
             return self.reply({'error': str(error)}, 409)
+        if isinstance(error, PlexError):
+            self.server.service.connection_failed(str(error))
         if isinstance(error, UserError):
             return self.reply({'error': str(error)}, 400)
         if isinstance(error, (ValueError, KeyError, TypeError)):
@@ -237,6 +242,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(self.server.service.file_operation(query['id'][0]))
             if path == '/api/standards':
                 return self.reply(self.server.service.standards())
+            if path == '/api/history':
+                query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                return self.reply(self.server.service.history(**query))
+            if path == '/api/history/task':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply({'events': self.server.service.store.task_history(query['id'][0])})
             if path == '/api/cast/profiles':
                 return self.reply({'profiles': self.server.service.cast_profiles()})
             if path == '/api/cast/image':
@@ -347,7 +358,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.error_reply(error, resource=True)
 
     def do_POST(self):
-        return self.dispatch(self.post_response, mutate=True)
+        with acting('operator'):
+            return self.dispatch(self.post_response, mutate=True)
 
     def post_response(self):
         if not self.allowed(mutate=True):
@@ -365,6 +377,10 @@ class Handler(BaseHTTPRequestHandler):
                 if data:
                     raise UserError('Restart accepts no parameters')
                 result = self.server.runtime.request_restart()
+                try:
+                    service.store.record('restart', 'Restart requested')
+                except Exception:
+                    log.warning('Could not record the restart request in history', exc_info=True)
                 try:
                     self.reply(result, 202)
                 finally:
@@ -624,6 +640,19 @@ def main():
         server.server_port,
     )
     print('Diagnostic log: ' + str(log_path), flush=True)
+    log.addHandler(HistoryHandler(store))
+    with acting('curator'):
+        if store.migration_backup:
+            store.record(
+                'upgraded',
+                f'Local state upgraded to schema {SCHEMA_VERSION}; the previous state was backed up',
+                details={'backup': store.migration_backup.name},
+            )
+        store.record(
+            'started',
+            'Curator ' + RUNNING_BUILD['version'] + ' started',
+            details={'build': RUNNING_BUILD['revision'], 'modified_checkout': bool(RUNNING_BUILD['dirty'])},
+        )
     if args.open:
         import webbrowser
 
@@ -642,6 +671,8 @@ def main():
         pass
     finally:
         server.server_close()
+        with acting('curator'):
+            store.record('stopped', 'Curator restarting' if restart else 'Curator stopped')
         store.close()
     if restart:
         raise SystemExit(RESTART_EXIT_CODE)

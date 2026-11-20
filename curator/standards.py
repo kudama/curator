@@ -184,6 +184,9 @@ class LibraryStandards:
                 updated=now(),
             )
             self.store.put('settings', record['id'], record)
+            self.store.record(
+                'standard', f'{LIBRARY_KINDS[kind]} standard changed', details={'revision': record['revision']}
+            )
         return self.standards()['types'][kind]
 
     def save_library_overrides(self, key, revision, overrides):
@@ -202,4 +205,10 @@ class LibraryStandards:
                     kept[dimension] = changed
             library.update(standard_overrides=kept, standard_revision=library.get('standard_revision', 0) + 1)
             self.store.put('libraries', key, library)
+            self.store.record(
+                'standard',
+                f'{library.get("title", key)} standard overrides changed',
+                library=key,
+                details={'revision': library['standard_revision']},
+            )
         return self.library_standard(library)

@@ -42,6 +42,8 @@ from .logs import log, register_secret
 from .errors import UserError
 from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
+from .history import acting, current_initiator
+from .plex import PlexError
 
 
 identifier = stable_id
@@ -82,6 +84,7 @@ class Service(
         self.presence_status = {}
         self.task_locks = {}
         self.thumbnail_cache = {}
+        self.plex_failure = None
         register_secret(self.config().get('plex_token'))
         Mage(self.store.root).register_key_secret()
         self.recover_file_jobs()
@@ -159,6 +162,8 @@ class Service(
         if not data.get('plex_token'):
             data.pop('plex_token', None)
         register_secret(data.get('plex_token'))
+        # History names the changed settings, never their values.
+        changed = sorted(key for key, value in data.items() if cfg.get(key) != value)
         cfg.update(data)
         if any(key in data for key in ('topaz_rate_control', 'topaz_quality', 'topaz_bitrate_mbps')):
             tools.topaz_encoding(cfg)
@@ -166,6 +171,10 @@ class Service(
             self.plex_factory(cfg['plex_url'], cfg['plex_token'])
         with self.store.transaction():
             self.store.put('settings', 'config', cfg)
+            if changed:
+                self.store.record(
+                    'configuration', 'Configuration changed: ' + ', '.join(changed), details={'fields': len(changed)}
+                )
 
     def state(self):
         tasks = self.store.all('tasks')
@@ -212,8 +221,49 @@ class Service(
             active = tuple(self.active)
         return any(not str(key).startswith(('backup-cleanup:', 'review-batch:')) for key in active)
 
+    def connection_failed(self, reason):
+        """Record the first failure of a run of Plex failures, not every retry."""
+        with self.lock:
+            first, self.plex_failure = self.plex_failure is None, reason
+        if first:
+            self.store.record_soon('connection', 'Plex connection failed: ' + reason, level='warning')
+
+    def connection_ok(self):
+        with self.lock:
+            failed, self.plex_failure = self.plex_failure, None
+        if failed is not None:
+            self.store.record_soon('connection', 'Plex connection restored')
+
+    def history(self, view='curator', library=None, level=None, since=None, until=None, before=None, limit='100'):
+        """Curator history, newest first; job history is built from tasks in the browser."""
+        if view != 'curator':
+            raise UserError('Choose a history view')
+        if level not in {None, 'info', 'warning', 'error'}:
+            raise UserError('Choose a valid history level')
+        for value in (since, until):
+            if value is not None and not re.fullmatch(r'\d{4}-\d{2}-\d{2}(T[\d:.+-]+)?', value):
+                raise UserError('Choose a valid history date')
+        if not str(limit).isdigit() or not 1 <= int(limit) <= 500:
+            raise UserError('History pages hold 1 to 500 events')
+        if before is not None and not str(before).isdigit():
+            raise UserError('Invalid history page')
+        events = self.store.curator_history(
+            library=library,
+            level=level,
+            since=since,
+            until=until,
+            before=int(before) if before is not None else None,
+            limit=int(limit),
+        )
+        return {'events': events, 'next': events[-1]['id'] if len(events) == int(limit) else None}
+
     def connect(self):
-        rows = self.client().libraries()
+        try:
+            rows = self.client().libraries()
+        except PlexError as error:
+            self.connection_failed(str(error))
+            raise
+        self.connection_ok()
         with self.store.transaction():
             for library in rows:
                 old = self.store.get('libraries', library['id'], {})
@@ -228,6 +278,9 @@ class Service(
                     themes=old.get('themes', []),
                 )
                 self.store.put('libraries', library['id'], library)
+            self.store.record(
+                'libraries', f'Libraries refreshed from Plex: {len(rows)} available', details={'count': len(rows)}
+            )
         return rows
 
     def library_metadata_choices(self, key, field):
@@ -269,9 +322,18 @@ class Service(
         if not isinstance(themes, list) or not all(isinstance(x, str) for x in themes):
             raise UserError('Themes must be a list of names')
         row = self.library(key)
+        changed = sorted(
+            field
+            for field, value in (('profile', data['profile']), ('mappings', mappings), ('themes', themes))
+            if row.get(field) != value
+        )
         row.update(profile=data['profile'], mappings=mappings, themes=themes)
         with self.store.transaction():
             self.store.put('libraries', key, row)
+            if changed:
+                self.store.record(
+                    'library settings', f'{row["title"]} settings changed: ' + ', '.join(changed), library=key
+                )
 
     def task(self, asset, finding):
         key = identifier(asset['id'], finding['kind'])
@@ -380,7 +442,14 @@ class Service(
             if self.scan_status.get(key, {}).get('running'):
                 raise UserError('This library is already scanning')
             self.scan_status[key] = dict(running=True, count=0, error=None)
-        thread = threading.Thread(target=self._scan, args=(library,), daemon=True)
+        initiator = current_initiator()
+
+        def run():
+            with acting(initiator):
+                self._scan(library)
+
+        self.store.record('scan', f'Scan started: {library["title"]}', library=key)
+        thread = threading.Thread(target=run, daemon=True)
         thread.start()
 
     def _scan(self, library):
@@ -512,9 +581,19 @@ class Service(
                             )
                         self.store.put('assets', asset['id'], asset)
             state['finished'] = now()
-        except Exception:
+            self.connection_ok()
+            self.store.record(
+                'scan',
+                f'Scan finished: {library["title"]}, {state["count"]} files',
+                library=library['id'],
+                details={'files': state['count'], 'skipped_reserved': state.get('skipped_reserved', 0)},
+            )
+        except Exception as error:
+            if isinstance(error, PlexError):
+                self.connection_failed(str(error))
             log.exception('Library scan failed')
             state['error'] = 'Scan failed; check Plex configuration and permissions'
+            self.store.record_soon('scan', f'Scan failed: {library["title"]}', library=library['id'], level='error')
         finally:
             state['running'] = False
 

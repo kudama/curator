@@ -78,7 +78,7 @@ class Migrations(unittest.TestCase):
 
     def test_failed_migration_keeps_the_previous_version(self):
         store = Store(self.root)
-        store.db.execute('DELETE FROM schema_version WHERE version = 2')
+        store.db.execute('DELETE FROM schema_version WHERE version > 1')
         store.db.commit()
         store.close()
 
@@ -87,7 +87,7 @@ class Migrations(unittest.TestCase):
             raise RuntimeError('boom')
 
         original = migrations.MIGRATIONS
-        migrations.MIGRATIONS = ((1, migrations._baseline), (2, broken))
+        migrations.MIGRATIONS = (original[0], (2, broken))
         try:
             with self.assertRaises(RuntimeError):
                 Store(self.root)
@@ -95,7 +95,7 @@ class Migrations(unittest.TestCase):
             migrations.MIGRATIONS = original
         store = Store(self.root)
         self.assertIsNone(store.get('settings', 'partial'))
-        self.assertEqual(migrations.current_version(store.db), 2)
+        self.assertEqual(migrations.current_version(store.db), migrations.LATEST)
         store.close()
 
 
