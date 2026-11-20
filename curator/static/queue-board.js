@@ -37,14 +37,59 @@ async function changeFileOrder(order,expected=(state.file_queue||[]).map(r=>({..
  try{await api('file-queue/order',{expected,order});queueFileSelection.clear();}
  finally{queueChangeBusy=false;await refresh();}
 }
+function queueHandleFocus(id){
+ const card=[...document.querySelectorAll('[data-waiting-id]')].find(el=>el.dataset.waitingId===id);
+ card?.querySelector('[data-queue-handle]')?.focus({preventScroll:true});
+ card?.scrollIntoView?.({block:'nearest',inline:'nearest'});
+}
+async function moveQueueRow(row,file,visible,order,snapshot){
+ const kind=file?'file_operations':row.kind;
+ expandedWaitingQueues.add(['join','rename','group'].includes(kind)?'file_operations':['home','folder_metadata'].includes(kind)?'metadata':kind);
+ try{
+  const full=mergeQueueOrder(snapshot.map(r=>r.id),visible,order);
+  await (file?changeFileOrder(full,snapshot):changeWaitingQueue({order:full},snapshot));
+  $('queue-reorder-status').textContent=(row.title||'Waiting job')+' moved to position '+(order.indexOf(row.id)+1)+' of '+order.length+' in this view.';
+ }finally{const active=document.activeElement;if(!active||active===document.body||active.closest?.('[data-waiting-id]')?.dataset.waitingId===row.id)queueHandleFocus(row.id);}
+}
 function queueDrag(card,handle,row,file=false){
- card.dataset.waitingId=row.id;let origin=null,snapshot,visible;
- handle.onpointerdown=e=>{if(queueChangeBusy)return;e.preventDefault();origin=[e.clientX,e.clientY];snapshot=(file?state.file_queue:waitingSnapshot()).map(r=>({...r}));visible=queueVisibleIds(file?'file_operations':row.kind);queueDragging=true;handle.setPointerCapture(e.pointerId);};
- handle.onpointerup=e=>{if(!origin)return;const moved=Math.hypot(e.clientX-origin[0],e.clientY-origin[1])>5;origin=null;queueDragging=false;const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-waiting-id]')?.dataset.waitingId;
-  const order=moved?dropWaitingOrder(visible,row.id,target):null;
-  if(order){const full=mergeQueueOrder(snapshot.map(r=>r.id),visible,order);run(()=>file?changeFileOrder(full,snapshot):changeWaitingQueue({order:full},snapshot));}else render();
+ const kind=file?'file_operations':row.kind;
+ card.dataset.waitingId=row.id;handle.dataset.queueHandle='true';
+ handle.setAttribute('aria-describedby','queue-reorder-help');
+ handle.setAttribute('aria-keyshortcuts','ArrowUp ArrowDown Home End');
+ handle.title='Drag to reorder, or use Up/Down, Home/End while focused.';
+ let origin=null,snapshot,visible,pointerId=null,targetCard=null;
+ const clearTarget=()=>{targetCard?.classList.remove('queue-drop-target');targetCard=null;};
+ const finish=()=>{const captured=pointerId;origin=null;pointerId=null;queueDragging=false;clearTarget();card.classList.remove('queue-dragging');if(handle.hasPointerCapture?.(captured))handle.releasePointerCapture(captured);};
+ const dropTarget=e=>document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-waiting-id]');
+ handle.onpointerdown=e=>{
+  if(queueChangeBusy||origin||e.isPrimary===false||(e.button!==undefined&&e.button!==0))return;
+  e.preventDefault();origin=[e.clientX,e.clientY];pointerId=e.pointerId;snapshot=(file?state.file_queue:waitingSnapshot()).map(r=>({...r}));visible=queueVisibleIds(kind);queueDragging=true;handle.focus?.({preventScroll:true});handle.setPointerCapture(e.pointerId);
  };
- handle.onpointercancel=()=>{origin=null;queueDragging=false;render();};
+ handle.onpointermove=e=>{
+  if(!origin||e.pointerId!==pointerId)return;clearTarget();
+  if(Math.hypot(e.clientX-origin[0],e.clientY-origin[1])<=5)return;
+  card.classList.add('queue-dragging');const target=dropTarget(e);
+  if(target&&target.dataset.waitingId!==row.id&&visible.includes(target.dataset.waitingId)){targetCard=target;targetCard.classList.add('queue-drop-target');}
+ };
+ handle.onpointerup=e=>{
+  if(!origin||(e.pointerId!==undefined&&e.pointerId!==pointerId))return;
+  const moved=Math.hypot(e.clientX-origin[0],e.clientY-origin[1])>5,target=dropTarget(e)?.dataset.waitingId;
+  const order=moved?dropWaitingOrder(visible,row.id,target):null;finish();
+  if(order)return run(()=>moveQueueRow(row,file,visible,order,snapshot));
+  render();queueHandleFocus(row.id);
+ };
+ const cancel=()=>{if(!origin)return;finish();render();queueHandleFocus(row.id);};
+ handle.onpointercancel=cancel;handle.onlostpointercapture=cancel;
+ handle.onkeydown=e=>{
+  if(e.key==='Escape'&&origin){e.preventDefault();e.stopPropagation();cancel();return;}
+  if(!['ArrowUp','ArrowDown','Home','End'].includes(e.key)||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey)return;
+  e.preventDefault();if(queueChangeBusy||origin)return;
+  const ids=queueVisibleIds(kind),index=ids.indexOf(row.id);if(index<0)return;
+  const to=e.key==='Home'?0:e.key==='End'?ids.length-1:index+(e.key==='ArrowUp'?-1:1);
+  if(to<0||to>=ids.length||to===index)return;
+  const order=ids.filter(id=>id!==row.id);order.splice(to,0,row.id);
+  return run(()=>moveQueueRow(row,file,ids,order,(file?state.file_queue:waitingSnapshot()).map(r=>({...r}))));
+ };
 }
 function queueLaneSelection(kind){
  const file=kind==='file_operations',selection=file?queueFileSelection:waitingSelection,visible=queueVisibleIds(kind),available=new Set(file?(state.file_queue||[]).map(r=>r.id):waitingSnapshot().map(r=>r.id));

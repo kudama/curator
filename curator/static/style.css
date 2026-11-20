@@ -223,3 +223,26 @@
 @media(max-width:800px){#libraries .library-group{flex:0 0 auto;max-width:240px}#libraries .library-subnav button{width:100%;white-space:normal}}
 
 .queue-lane-idle{padding:12px 0;margin:0;font-size:12px}
+
+/* Adapt to the available queue pane, including when Details is open. */
+.queue-workspace>.file-pane{container-type:inline-size}
+@container (max-width:620px){.queue-board{grid-template-columns:minmax(0,1fr)}}
+.queue-lane .processing-card-text,.queue-lane .processing-card-text p{overflow-wrap:anywhere}
+.queue-file-card{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.queue-file-card>.processing-card-text{min-width:0;flex:1 1 130px}
+.queue-lane [data-queue-handle]{cursor:grab;min-width:32px;min-height:32px}
+.queue-lane .queue-dragging{opacity:.65}
+.queue-lane .queue-drop-target{outline:2px dashed var(--accent);outline-offset:2px}
+.queue-lane [data-queue-handle]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.inspector .dialog-head>div:first-child{min-width:0}
+.inspector .dialog-head h2{overflow-wrap:anywhere}
+.inspector-header-actions{flex-shrink:0}
+@media(max-width:500px){
+ header{height:auto;min-height:76px;padding-top:10px;padding-bottom:10px;gap:10px;flex-wrap:wrap}
+ .brand{min-width:0}.brand .mark{flex-shrink:0}
+ .queue-board{grid-template-columns:minmax(0,1fr)}
+ .queue-page .heading-tools,.queue-page .view-options{min-width:0;max-width:100%}
+ .queue-page .view-options>label,.queue-page .view-options select{max-width:100%;min-width:0}
+ .queue-workspace #task-dialog>.dialog-head,.queue-workspace #task-dialog>.dialog-actions,.queue-workspace #task-dialog .task-scroll{padding:12px}
+ .queue-workspace #task-dialog>.dialog-actions{flex-shrink:0}
+}

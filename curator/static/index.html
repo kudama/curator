@@ -12,8 +12,10 @@
 <div id="scan-status" role="status"></div>
 <p id="connection-status" role="status" aria-live="polite" hidden></p>
 <div id="workspace-feedback" class="inline-feedback" hidden></div>
+<p id="queue-reorder-help" class="sr-only">Reorder waiting jobs with Up and Down, or Home and End. Escape cancels dragging.</p>
+<p id="queue-reorder-status" class="sr-only" role="status" aria-atomic="true"></p>
 <div class="workbench"><section class="file-pane" aria-label="Files and work"><div id="tasks"></div><section id="run-summaries" class="processing-group" hidden></section><div id="empty" class="empty"><div class="empty-icon">◈</div><h2>No files need attention.</h2><p>Choose All files to browse your library.</p></div></section>
-<section id="task-dialog" class="inspector" aria-label="Review panel" hidden><div class="dialog-head"><div><div class="eyebrow" id="task-kind">REVIEW SUGGESTIONS</div><h2 id="task-title"></h2></div><div class="inspector-header-actions"><button id="inspector-expand" aria-label="Expand review panel" title="Expand review panel">↔</button><button data-close aria-label="Close review panel">×</button></div></div><div class="task-scroll"><div id="task-feedback" class="inline-feedback" hidden></div><p id="task-reason" hidden></p><div id="task-detail"></div></div><div id="task-buttons" class="dialog-actions"></div></section>
+<section id="task-dialog" class="inspector" role="region" aria-labelledby="task-title" hidden><div class="dialog-head"><div><div class="eyebrow" id="task-kind">REVIEW SUGGESTIONS</div><h2 id="task-title"></h2></div><div class="inspector-header-actions"><button id="inspector-expand" aria-label="Expand review panel" title="Expand review panel">↔</button><button data-close aria-label="Close review panel">×</button></div></div><div class="task-scroll"><div id="task-feedback" class="inline-feedback" hidden></div><p id="task-reason" hidden></p><div id="task-detail"></div></div><div id="task-buttons" class="dialog-actions"></div></section>
 <div id="inspector-empty" class="inspector-empty"><span>◈</span><h2>A clearer next step.</h2><p>Select a file to review its suggestions, edit metadata, or work with its video.</p></div></div>
 <div id="processing-strip" role="status"></div><div hidden><span id="finding-count"></span><span id="queue-count"></span><span id="review-count"></span></div>
 </main></div>
