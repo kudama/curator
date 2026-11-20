@@ -37,17 +37,22 @@ class TaskQueues:
             or any(type(v) is not int or not 1 <= v <= (4 if k == 'file_operations' else 8) for k, v in limits.items())
         ):
             raise UserError('Choose 1–8 processing jobs per type, or 1–4 file operations')
+        threads = []
         with self.lock:
             with self.store.transaction():
                 saved = self.queue_limits()
                 saved.update(limits)
                 self.store.put('settings', 'queue-limits', saved)
-            # Reductions drain naturally; Run/Resume fills additional slots.
-            for workers in self.queue_workers.values():
+            # Only already active, unpaused queues gain workers. Never start a
+            # stopped queue merely because its configured capacity changed.
+            for kind, workers in list(self.queue_workers.items()):
                 for worker in workers.values():
                     worker['wake'].set()
+                if workers and not self.store.get('settings', self.pause_key(None, kind), False):
+                    threads.extend(self._fill_queue_workers(kind, next(iter(workers.values()))['library']))
             for wake in self.file_workers:
                 wake.set()
+        self._launch_queue_workers(threads)
         return self.queue_limits()
 
     def task_queues(self, tasks, libraries):
@@ -110,20 +115,30 @@ class TaskQueues:
                     self.store.put('settings', self.pause_key(None, task_kind), False)
                     for worker in workers.values():
                         worker['wake'].set()
-                    for _ in range(max(0, self.queue_limit(task_kind) - len(workers))):
-                        wake = threading.Event()
-                        workers[wake] = dict(library=library, wake=wake)
-                        threads.append((library, task_kind, wake))
+                    threads.extend(self._fill_queue_workers(task_kind, library))
                     self.active.add('queue:' + task_kind)
                     started.append(task_kind)
         if started or files:
             self.create_run_receipt(library, kind)
-        for scope, task_kind, wake in threads:
-            threading.Thread(target=self._run, args=(scope, task_kind, wake), daemon=True).start()
+        self._launch_queue_workers(threads)
         if files:
             self.start_file_queue(resume=True)
             started.append('file_operations')
         return dict(started=started, busy=busy)
+
+    def _fill_queue_workers(self, kind, library):
+        """Called under self.lock; register slots before threads can claim work."""
+        workers = self.queue_workers.setdefault(kind, {})
+        threads = []
+        for _ in range(max(0, self.queue_limit(kind) - len(workers))):
+            wake = threading.Event()
+            workers[wake] = dict(library=library, wake=wake)
+            threads.append((library, kind, wake))
+        return threads
+
+    def _launch_queue_workers(self, threads):
+        for library, kind, wake in threads:
+            threading.Thread(target=self._run, args=(library, kind, wake), daemon=True).start()
 
     def pause_queues(self, library=None, kind=None):
         if library is not None:
@@ -173,7 +188,9 @@ class TaskQueues:
                             self._release_queue_worker(library, kind, wake)
                             return
                     waiting = self.waiting_tasks(library, kind=kind)
-                    if not waiting:
+                    if not waiting and not (
+                        kind is not None and any(w.get('executing') for w in workers.values())
+                    ):
                         self._release_queue_worker(library, kind, wake)
                         return
                     task = self.next_waiting(library, kind) if kind is not None else waiting[0]
@@ -181,16 +198,24 @@ class TaskQueues:
                         worker['waiting_for_retry'] = task is None and any(
                             (t.get('retry_at') or 0) > time.time() for t in waiting
                         )
-                        worker['waiting_for_source'] = task is None and not worker['waiting_for_retry']
+                        worker['waiting_for_source'] = bool(waiting) and task is None and not worker['waiting_for_retry']
+                        worker['executing'] = task is not None
                 if task is None:
                     wake.wait(0.2)
                     wake.clear()
                     continue
-                result = self._execute(
-                    task['id'],
-                    queue_head=True,
-                    **({'queue_kind': kind, 'queue_library': library, 'queue_wake': wake} if kind is not None else {}),
-                )
+                try:
+                    result = self._execute(
+                        task['id'],
+                        queue_head=True,
+                        **({'queue_kind': kind, 'queue_library': library, 'queue_wake': wake} if kind is not None else {}),
+                    )
+                finally:
+                    if kind is not None:
+                        with self.lock:
+                            worker['executing'] = False
+                            for slot in self.queue_workers.get(kind, {}).values():
+                                slot['wake'].set()
                 if result == 'capacity_busy':
                     wake.wait(0.2)
                     wake.clear()
