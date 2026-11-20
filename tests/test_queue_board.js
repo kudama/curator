@@ -143,3 +143,14 @@ test('selection and preparation controls precede active cards in every queue',()
  assert.ok(files.children.findIndex(e=>e.textContent==='Preparation controls')<cardIndex(files));
  assert.ok(files.children.findIndex(e=>all(e).some(c=>c.textContent==='Select all 1'))<cardIndex(files));
 });
+
+test('blocked jobs have an attention heading, no empty waiting header or oversized active placeholder',()=>{
+ const h=setup();h.add('blocked','upscale','blocked');
+ h.state.task_queues=[{kind:'upscale',running:1,active:true,paused:false}];
+ const lane=h.run('renderProcessing()')[0].children[0],elements=all(lane);
+ assert.ok(elements.some(e=>e.tag==='h3'&&e.textContent==='Needs attention (1)'));
+ assert.equal(elements.some(e=>e.textContent==='Waiting (0)'),false);
+ assert.ok(elements.some(e=>e.textContent==='No processing jobs match this view.'));
+ assert.equal(elements.some(e=>e.className.includes('queue-lane-empty')),false);
+ assert.ok(elements.some(e=>e.textContent.includes('1 running total')));
+});

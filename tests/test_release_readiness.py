@@ -92,15 +92,15 @@ class PublicationSafety(unittest.TestCase):
         )
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
-        replace = __import__('os').replace
+        from curator.file_workflows import install_exclusive
 
         def concurrent_writer(source, destination):
-            result = replace(source, destination)
+            result = install_exclusive(source, destination)
             if Path(source).resolve() == self.file.resolve():
                 self.file.write_bytes(b'new-external-file')
             return result
 
-        with patch('curator.service.os.replace', side_effect=concurrent_writer):
+        with patch('curator.file_workflows.install_exclusive', side_effect=concurrent_writer):
             with self.assertRaises(ValueError):
                 self.service.review(task['id'], 1, 'manual')
         self.assertEqual(self.file.read_bytes(), b'new-external-file')

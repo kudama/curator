@@ -30,7 +30,7 @@ If downloads fail, inspect the actual Topaz download result and outbound VPN/fil
 
 Wait for active work to finish before stopping or updating Curator. Interrupted jobs become blocked on restart. Inspect the task's phase, error, publication log, and retained paths before retrying. Do not manually edit the runtime database.
 
-An unpublished validated output can return to review where the app offers that action. Refresh a stale metadata preview when requested. Existing backup names, changed files, or uncertain prior publication require inspection rather than another encode or blind retry.
+An unpublished validated output can return to review where the app offers that action. Publication preserves originals with an exclusive no-overwrite move rather than an empty backup reservation. If an earlier release left an empty `-old` file after a failed reservation, verify the failure receipt and unchanged source/output before moving only that placeholder into retained recovery storage. Do not treat an arbitrary empty file as safe to delete. Refresh a stale metadata preview when requested. Existing backup names, changed files, or uncertain prior publication require inspection rather than another encode or blind retry.
 
 For a replacement of `film.mkv`, the original is retained as `film-old.mkv`. A failed installation may already have restored it to `film.mkv`; check both paths and the task receipt. Retained originals can appear as additional videos in Plex depending on the scanner. Curator does not clean them up automatically. Joined outputs keep their original source parts.
 
