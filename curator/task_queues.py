@@ -188,9 +188,7 @@ class TaskQueues:
                             self._release_queue_worker(library, kind, wake)
                             return
                     waiting = self.waiting_tasks(library, kind=kind)
-                    if not waiting and not (
-                        kind is not None and any(w.get('executing') for w in workers.values())
-                    ):
+                    if not waiting and not (kind is not None and any(w.get('executing') for w in workers.values())):
                         self._release_queue_worker(library, kind, wake)
                         return
                     task = self.next_waiting(library, kind) if kind is not None else waiting[0]
@@ -198,7 +196,9 @@ class TaskQueues:
                         worker['waiting_for_retry'] = task is None and any(
                             (t.get('retry_at') or 0) > time.time() for t in waiting
                         )
-                        worker['waiting_for_source'] = bool(waiting) and task is None and not worker['waiting_for_retry']
+                        worker['waiting_for_source'] = (
+                            bool(waiting) and task is None and not worker['waiting_for_retry']
+                        )
                         worker['executing'] = task is not None
                 if task is None:
                     wake.wait(0.2)
@@ -208,7 +208,11 @@ class TaskQueues:
                     result = self._execute(
                         task['id'],
                         queue_head=True,
-                        **({'queue_kind': kind, 'queue_library': library, 'queue_wake': wake} if kind is not None else {}),
+                        **(
+                            {'queue_kind': kind, 'queue_library': library, 'queue_wake': wake}
+                            if kind is not None
+                            else {}
+                        ),
                     )
                 finally:
                     if kind is not None:
