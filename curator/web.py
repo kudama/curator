@@ -235,6 +235,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/file-operation':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.file_operation(query['id'][0]))
+            if path == '/api/standards':
+                return self.reply(self.server.service.standards())
             if path == '/api/cast/profiles':
                 return self.reply({'profiles': self.server.service.cast_profiles()})
             if path == '/api/cast/image':
@@ -392,6 +394,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/library':
                 service.save_library(data['id'], data['settings'])
                 result = {'saved': True}
+            elif path == '/api/standards':
+                result = service.save_type_standard(data['kind'], data['revision'], data['values'])
+            elif path == '/api/library/standard':
+                result = service.save_library_overrides(data['library'], data['revision'], data['overrides'])
             elif path == '/api/scan':
                 service.scan(data['library'])
                 result = {'started': True}

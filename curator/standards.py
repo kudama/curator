@@ -1,0 +1,203 @@
+"""Library standards: what "done" means for each Plex library type.
+
+A standard belongs to a Plex library type (Movies, TV Shows, Other Videos), not to an
+individual library. A library may override parts of its type's standard where it needs
+to differ. Standards describe the desired result; they never authorize Curator to change
+media on their own.
+"""
+
+import copy
+
+from .errors import UserError
+from .rules import LIBRARY_KINDS, library_kind
+from .store import now
+
+DIMENSIONS = ('metadata', 'cast', 'artwork', 'upscaling', 'encoding')
+METADATA_FIELDS = ('summary', 'year', 'originally_available_at', 'genres', 'studio', 'content_rating', 'collections')
+ARTWORK_KINDS = ('poster', 'background', 'logo')
+CAST_MODES = ('credits', 'known_people')
+POSTER_RATIOS = ('2:3', '16:9')
+UPSCALE_TARGETS = ('1080', '2160')
+
+_CATALOG = {
+    'metadata': dict(enabled=True, required=['summary', 'year', 'genres'], local_ai_suggestions=False),
+    'cast': dict(enabled=True, mode='credits'),
+    'artwork': dict(enabled=True, required=['poster', 'background'], poster_ratio='2:3'),
+    'upscaling': dict(enabled=True, target='1080', suggest_when_met=True),
+    # None thresholds follow the global encoding thresholds in Configuration.
+    'encoding': dict(enabled=True, max_mbps_1080=None, max_mbps_4k=None, preserve_originals=False),
+}
+DEFAULTS = {
+    'movie': _CATALOG,
+    'show': _CATALOG,
+    'other_videos': {
+        'metadata': dict(enabled=True, required=['summary', 'originally_available_at'], local_ai_suggestions=True),
+        'cast': dict(enabled=True, mode='known_people'),
+        'artwork': dict(enabled=True, required=['poster'], poster_ratio='16:9'),
+        'upscaling': dict(enabled=True, target='1080', suggest_when_met=True),
+        'encoding': dict(enabled=True, max_mbps_1080=None, max_mbps_4k=None, preserve_originals=True),
+    },
+}
+
+
+def _choice(value, allowed, label):
+    if value not in allowed:
+        raise UserError(f'Choose a valid {label}')
+    return value
+
+
+def _flag(value, label):
+    if not isinstance(value, bool):
+        raise UserError(f'{label} must be on or off')
+    return value
+
+
+def _subset(value, allowed, label):
+    if not isinstance(value, list) or any(item not in allowed for item in value):
+        raise UserError(f'Choose valid {label}')
+    return [item for item in allowed if item in value]
+
+
+def _mbps(value, label):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 400:
+        raise UserError(f'{label} must be between 1 and 400 Mbps, or empty to use the global threshold')
+    return value
+
+
+_FIELDS = {
+    'metadata': {
+        'enabled': lambda v: _flag(v, 'Metadata'),
+        'required': lambda v: _subset(v, METADATA_FIELDS, 'required metadata fields'),
+        'local_ai_suggestions': lambda v: _flag(v, 'Local AI suggestions'),
+    },
+    'cast': {
+        'enabled': lambda v: _flag(v, 'Cast'),
+        'mode': lambda v: _choice(v, CAST_MODES, 'cast standard'),
+    },
+    'artwork': {
+        'enabled': lambda v: _flag(v, 'Artwork'),
+        'required': lambda v: _subset(v, ARTWORK_KINDS, 'required artwork'),
+        'poster_ratio': lambda v: _choice(v, POSTER_RATIOS, 'poster shape'),
+    },
+    'upscaling': {
+        'enabled': lambda v: _flag(v, 'Upscaling'),
+        'target': lambda v: _choice(v, UPSCALE_TARGETS, 'upscaling target'),
+        'suggest_when_met': lambda v: _flag(v, 'Optional upscale suggestions'),
+    },
+    'encoding': {
+        'enabled': lambda v: _flag(v, 'Re-encoding'),
+        'max_mbps_1080': lambda v: _mbps(v, 'The 1080p bitrate threshold'),
+        'max_mbps_4k': lambda v: _mbps(v, 'The 4K bitrate threshold'),
+        'preserve_originals': lambda v: _flag(v, 'Preserve originals'),
+    },
+}
+
+
+def validate(values, partial=False):
+    """A cleaned copy of a standard; with partial=True, any subset of dimensions and fields."""
+    if not isinstance(values, dict) or set(values) - set(DIMENSIONS):
+        raise UserError('Invalid library standard')
+    if not partial and set(values) != set(DIMENSIONS):
+        raise UserError('A library standard must cover every dimension')
+    cleaned = {}
+    for dimension, fields in values.items():
+        rules = _FIELDS[dimension]
+        if not isinstance(fields, dict) or set(fields) - set(rules) or (not partial and set(fields) != set(rules)):
+            raise UserError(f'Invalid {dimension} standard')
+        cleaned[dimension] = {field: rules[field](value) for field, value in fields.items()}
+    return {dimension: cleaned[dimension] for dimension in DIMENSIONS if dimension in cleaned}
+
+
+def _revision(value):
+    if type(value) is not int:
+        raise UserError('Reload before saving this standard')
+
+
+def merged(base, overrides):
+    result = copy.deepcopy(base)
+    for dimension, fields in (overrides or {}).items():
+        result[dimension].update(copy.deepcopy(fields))
+    return result
+
+
+class LibraryStandards:
+    def type_standard(self, kind):
+        _choice(kind, LIBRARY_KINDS, 'library type')
+        record = self.store.get('settings', 'standard:' + kind)
+        if record:
+            return record
+        return dict(
+            id='standard:' + kind,
+            record_type='library_standard',
+            kind=kind,
+            revision=0,
+            values=copy.deepcopy(DEFAULTS[kind]),
+            customized=False,
+        )
+
+    def library_standard(self, library):
+        """The standard a library is held to: its type's standard plus its own overrides."""
+        if isinstance(library, str):
+            library = self.library(library)
+        kind = library.get('kind') or library_kind(library)
+        overrides = library.get('standard_overrides') or {}
+        return dict(
+            kind=kind,
+            overrides=overrides,
+            revision=library.get('standard_revision', 0),
+            values=merged(self.type_standard(kind)['values'], overrides),
+        )
+
+    def standards(self):
+        types = {}
+        for kind, label in LIBRARY_KINDS.items():
+            record = self.type_standard(kind)
+            types[kind] = dict(
+                label=label,
+                revision=record['revision'],
+                customized=record.get('customized', True),
+                values=record['values'],
+                defaults=copy.deepcopy(DEFAULTS[kind]),
+            )
+        return dict(
+            types=types, libraries={row['id']: self.library_standard(row) for row in self.store.all('libraries')}
+        )
+
+    def save_type_standard(self, kind, revision, values):
+        _revision(revision)
+        values = validate(values)
+        with self.store.transaction():
+            current = self.type_standard(kind)
+            if revision != current['revision']:
+                raise UserError('This standard changed in another window; reload before saving')
+            record = dict(
+                id=current['id'],
+                record_type='library_standard',
+                kind=kind,
+                revision=current['revision'] + 1,
+                values=values,
+                customized=values != DEFAULTS[kind],
+                updated=now(),
+            )
+            self.store.put('settings', record['id'], record)
+        return self.standards()['types'][kind]
+
+    def save_library_overrides(self, key, revision, overrides):
+        _revision(revision)
+        overrides = validate(overrides or {}, partial=True)
+        with self.store.transaction():
+            library = self.library(key)
+            if revision != library.get('standard_revision', 0):
+                raise UserError('This library changed in another window; reload before saving')
+            base = self.type_standard(library.get('kind') or library_kind(library))['values']
+            # Keep only real differences, so later changes to the type standard still apply.
+            kept = {}
+            for dimension, fields in overrides.items():
+                changed = {f: v for f, v in fields.items() if base[dimension][f] != v}
+                if changed:
+                    kept[dimension] = changed
+            library.update(standard_overrides=kept, standard_revision=library.get('standard_revision', 0) + 1)
+            self.store.put('libraries', key, library)
+        return self.library_standard(library)
