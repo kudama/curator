@@ -1099,7 +1099,7 @@ class Service(
             comparable(field, observed.get(field)) == comparable(field, value) for field, value in expected.items()
         )
 
-    def _write_metadata(self, client, asset, changes, before):
+    def _write_metadata(self, client, asset, changes, before, clear_cast_photos=()):
         Plex.validate_changes(changes)
         current = client.item(asset['rating_key'])
         if not self._same_metadata(self.metadata_fields(current), before):
@@ -1107,14 +1107,29 @@ class Service(
         result = client.edit(self.library(asset['library']), current, changes)
         self._cache_metadata(asset, result)
         observed = self.metadata_fields(result)
-        differing = [field for field, value in changes.items() if not self._same_metadata(observed, {field: value})]
+        expected = dict(changes)
+        if 'cast' in changes:
+            # Adding an existing Plex person can restore its canonical portrait even
+            # when no portrait was requested. Only that new-credit case is optional;
+            # names, roles, ordering, explicit photos and explicit clears stay exact.
+            previous_names = {row['name'].casefold() for row in cast.fields(current)}
+            clear_names = {name.casefold() for name in clear_cast_photos}
+            actual = observed['cast']
+            expected['cast'] = []
+            for index, row in enumerate(changes['cast']):
+                comparison = dict(row)
+                if (not row.get('thumb') and row['name'].casefold() not in previous_names
+                        and row['name'].casefold() not in clear_names and index < len(actual)):
+                    comparison['thumb'] = actual[index]['thumb']
+                expected['cast'].append(comparison)
+        differing = [field for field, value in expected.items() if not self._same_metadata(observed, {field: value})]
         if differing:
             labels = {'summary': 'Description', 'genre': 'Categories', 'label': 'Labels', 'collection': 'Collections'}
             names = ', '.join(labels.get(field, field.title()) for field in differing)
             raise UserError('Plex readback differs (' + names + '); inspect before retrying')
         if 'cast' in changes:
             previous_pictures = {row['thumb'] for row in (before or {}).get('cast', [])}
-            for row in changes['cast']:
+            for row in observed['cast']:
                 if row.get('thumb') and row['thumb'] not in previous_pictures:
                     client.cast_image(row['thumb'])
         return result
@@ -1243,13 +1258,16 @@ class Service(
                         )
                 task['plan'] = {**task['plan'], 'changes': {'cast': changes}}
                 self._save(task)
-                self._write_metadata(client, asset, {'cast': changes}, before)
+                observed = self._write_metadata(
+                    client, asset, {'cast': changes}, before,
+                    clear_cast_photos=[row['name'] for row, _, _ in prepared if row.get('clear_photo')],
+                )
                 with self.store.transaction():
                     for profile_id, profile in remembered:
                         profiles[profile_id] = profile
                     self.store.put('settings', 'cast_profiles', profiles)
                 self._save(task, status='applied', result={**(task.get('result') or {}), 'cast_verified': True})
-                return dict(version=task['version'], cast=changes, profiles=self.cast_profiles())
+                return dict(version=task['version'], cast=cast.fields(observed), profiles=self.cast_profiles())
             except Exception as error:
                 log.exception('Cast save failed for task %s', task['id'])
                 message = (

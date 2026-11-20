@@ -82,6 +82,59 @@ class CastWorkflow(unittest.TestCase):
         self.assertEqual(self.uploads, [])
         self.assertEqual(self.plex.writes, [])
 
+    def canonical_portrait_adapter(self, **mutations):
+        edit = self.plex.edit
+
+        def restore(library, item, changes):
+            result = edit(library, item, changes)
+            for row in self.plex.rows[0]['Role']:
+                if row['tag'] == 'Returning person':
+                    row.update(thumb='/library/metadata/20/known-person.jpg', **mutations)
+            return self.plex.item('10')
+
+        self.plex.edit = restore
+
+    def test_remove_then_readd_preserves_plex_canonical_portrait(self):
+        self.plex.rows[0]['Role'] = [{'tag': 'Returning person', 'thumb': '/library/metadata/20/known-person.jpg'}]
+        self.service.read_metadata(self.task['id'])
+        self.save([])
+        self.canonical_portrait_adapter()
+        result = self.save([dict(name='Returning person')])
+        self.assertEqual(result['cast'], [dict(name='Returning person', role='',
+                         thumb='/library/metadata/20/known-person.jpg')])
+        self.assertEqual(self.service.get_task(self.task['id'])['status'], 'applied')
+        self.assertIn('/library/metadata/20/known-person.jpg', self.images)
+
+    def test_reviewed_metadata_queue_accepts_inherited_photo_for_new_credit(self):
+        self.canonical_portrait_adapter()
+        preview = self.service.metadata_preview(
+            [{'id': self.task['id'], 'version': self.task['version']}],
+            {'cast': [dict(name='Returning person')]},
+        )
+        queued = self.service.approve_metadata_preview(preview['id'])
+        self.service._execute(queued['tasks'][0], queue_head=True)
+        saved = self.service.get_task(queued['tasks'][0])
+        self.assertEqual(saved['status'], 'applied')
+        self.assertTrue(saved['result']['verified'])
+        self.assertEqual(len(self.plex.writes), 1)
+
+    def test_new_canonical_portrait_does_not_hide_cast_or_clear_mismatch(self):
+        self.canonical_portrait_adapter(role='Wrong role')
+        with self.assertRaisesRegex(ValueError, 'readback differs'):
+            self.save([dict(name='Returning person')])
+        self.service.read_metadata(self.task['id'])
+        self.plex.rows[0]['Role'] = []
+        self.service.read_metadata(self.task['id'])
+        with self.assertRaisesRegex(ValueError, 'readback differs'):
+            self.save([dict(name='Returning person', clear_photo=True)])
+
+    def test_inherited_portrait_must_be_retrievable(self):
+        self.canonical_portrait_adapter()
+        self.plex.cast_image = lambda thumb: (_ for _ in ()).throw(PlexError('Portrait unavailable'))
+        with self.assertRaisesRegex(ValueError, 'Portrait unavailable'):
+            self.save([dict(name='Returning person')])
+        self.assertEqual(self.service.get_task(self.task['id'])['status'], 'blocked')
+
     def test_mismatch_keeps_task_blocked_and_does_not_save_profile(self):
         self.plex.edit = lambda *args: self.plex.item('10')
         with self.assertRaisesRegex(ValueError, 'readback differs'):
