@@ -74,13 +74,21 @@ class Migrations(unittest.TestCase):
         values = copy.deepcopy(DEFAULTS['other_videos'])
         values['artwork']['poster_ratio'] = '16:9'
         values['cast']['enabled'] = False
-        record = dict(id='standard:other_videos', record_type='library_standard',
-                      kind='other_videos', values=values, revision=2)
-        library = dict(section('1', 'movie', 'tv.plex.agents.none'), profile='home',
-                       standard_overrides={'artwork': {'poster_ratio': '16:9', 'enabled': False}},
-                       standard_revision=5)
-        receipt = dict(id='old', kind='mage_generation', status='recommendation',
-                       plan={'kind': 'cover', 'settings': {'ratio': '16:9'}})
+        record = dict(
+            id='standard:other_videos', record_type='library_standard', kind='other_videos', values=values, revision=2
+        )
+        library = dict(
+            section('1', 'movie', 'tv.plex.agents.none'),
+            profile='home',
+            standard_overrides={'artwork': {'poster_ratio': '16:9', 'enabled': False}},
+            standard_revision=5,
+        )
+        receipt = dict(
+            id='old',
+            kind='mage_generation',
+            status='recommendation',
+            plan={'kind': 'cover', 'settings': {'ratio': '16:9'}},
+        )
         with store.transaction():
             store.put('settings', record['id'], record)
             store.put('libraries', library['id'], library)
@@ -93,8 +101,7 @@ class Migrations(unittest.TestCase):
         self.assertFalse(saved['values']['cast']['enabled'])
         self.assertEqual(saved['revision'], 3)
         saved_library = store.get('libraries', library['id'])
-        self.assertEqual(saved_library['standard_overrides']['artwork'],
-                         {'poster_ratio': '2:3', 'enabled': False})
+        self.assertEqual(saved_library['standard_overrides']['artwork'], {'poster_ratio': '2:3', 'enabled': False})
         self.assertEqual(saved_library['standard_revision'], 6)
         self.assertEqual(saved_library['profile'], 'home')
         self.assertEqual(store.get('tasks', 'old'), receipt)
