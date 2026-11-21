@@ -160,6 +160,17 @@ class UpscaleRecovery(unittest.TestCase):
         with self.assertRaisesRegex(UserError, 'preview changed'):
             self.recover('prepare_4x', preview)
 
+    def test_preview_resolves_encoding_defaults_and_disables_invalid_encoder_plan(self):
+        self.make(tool_settings={'topaz_filter': FILTER})
+        preview = self.service.upscale_recovery_preview(self.row['id'], self.row['version'])
+        self.assertEqual(preview['redo']['encoding']['topaz_rate_control'], 'quality')
+        self.assertEqual(preview['redo']['encoding']['topaz_quality'], 65)
+        self.make(tool_settings={'topaz_filter': FILTER, 'topaz_rate_control': 'bitrate'})
+        preview = self.service.upscale_recovery_preview(self.row['id'], self.row['version'])
+        self.assertFalse(preview['redo']['allowed'])
+        with self.assertRaises(UserError):
+            self.recover('prepare_4x', preview)
+
     def test_geometry_floor_ceiling_unknown_and_rotation(self):
         settings = {'topaz_filter': FILTER, 'topaz_quality': 65}
         original = copy.deepcopy(settings)

@@ -65,11 +65,15 @@ class UpscaleRecovery:
             **self.processing_defaults().get(task['library'], {}).get('upscale', {}),
         }
         settings = {k: v for k, v in settings.items() if k in PROCESSING_KEYS}
+        settings['topaz_rate_control'] = settings.get('topaz_rate_control') or 'quality'
+        settings.setdefault('topaz_quality', 65)
         source = asset.get('technical') or {}
         redo, error = None, None
         try:
             redo = tools.upscale_4x_settings(source, settings)
+            tools.topaz_encoding(redo)
         except UserError as failure:
+            redo = None
             error = str(failure)
         identity = {
             k: task.get(k)
