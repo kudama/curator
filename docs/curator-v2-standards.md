@@ -49,6 +49,30 @@ Repeated cleanup choices may later be offered as explicit changes to a standard.
 - `POST /api/library/standard {library, revision, overrides}` replaces a library's overrides and requires the current revision.
 - Validation is strict. Unknown dimensions or fields, out-of-range thresholds, non-boolean switches and stale revisions are all refused with a message written for the user.
 
+## Configuration screen (proposed, #105)
+
+The proposed design is in [docs/designs/v2-standards-20261120](designs/v2-standards-20261120/README.md). It awaits operator approval, and #109 implements it. The UI uses the existing API without changes:
+
+| UI element | API field / behaviour |
+| --- | --- |
+| Type page header: revision, Customized / Curator defaults | `GET /api/standards` → `types[kind].revision`, `.customized` |
+| Type page: libraries using it, overrides per field | `libraries[id].kind`, `libraries[id].overrides` |
+| Dimension switch "Counts toward completion" | `values[dimension].enabled` |
+| Metadata required fields / local AI suggestions | `metadata.required` (subset of `METADATA_FIELDS`) / `metadata.local_ai_suggestions` |
+| Cast "done when" | `cast.mode`: `credits` / `known_people` |
+| Artwork required / poster shape (fixed 2:3) | `artwork.required` (poster, background, logo) / `artwork.poster_ratio` |
+| Upscaling resolution target / still suggest when met | `upscaling.target` (`1080`, `2160`) / `upscaling.suggest_when_met` |
+| Re-encoding thresholds (empty = global) / preserve originals | `encoding.max_mbps_1080`, `encoding.max_mbps_4k` (`null` = global config value) / `encoding.preserve_originals` |
+| Reset form to Curator defaults | `types[kind].defaults`; form only, saved through review |
+| Save type standard | `POST /api/standards {kind, revision, values}` (full standard) |
+| Library page effective value | `libraries[id].values` (type values merged with overrides) |
+| Inherited / Override tag; Use <Type> value | the field is absent from / present in `libraries[id].overrides[dimension]`; reset removes it |
+| Save library overrides | `POST /api/library/standard {library, revision, overrides}` (full override set) |
+| Overrides revision | `libraries[id].revision` (`standard_revision`) |
+| No-op | the review finds no difference; no request is sent |
+| Stale revision warning | API error "This standard changed in another window; reload before saving" (or the library variant) |
+| Inline field errors | API validation messages, also checked in the browser before review |
+
 ## Schema versioning
 
 State now carries a `schema_version` table. `curator/migrations.py` lists numbered migrations. Each one runs once, inside a transaction together with its version bump, so a failed migration leaves the previous version in place.
@@ -64,6 +88,6 @@ The per-start repairs in `Service.__init__` are unchanged. They can move into nu
 
 ## Next
 
-1. Configuration screen for type standards and library overrides (prototype first).
+1. Configuration screen for type standards and library overrides: proposed design in #105, implementation #109.
 2. Scan evaluates the effective standard: findings and thresholds come from it. Add per-library completion and a migration that turns `profile` into overrides.
 3. History: see [Curator v2 — history](curator-v2-history.md).
