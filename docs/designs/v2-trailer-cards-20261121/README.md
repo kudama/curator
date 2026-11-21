@@ -1,6 +1,6 @@
 # Trailer cards and preview workflow
 
-Design for #138 / parent #137. **Proposed; awaiting operator render approval and independent final-head review.** Baseline: v2 `d0782b2c46d5c3dd790ef1cb83ac8ce184517833`.
+Design for #138 / parent #137. **Operator approved the displayed direction and the clip-selection interaction on 2026-11-21; independent final-head review and the remaining proposed defaults are pending.** Baseline: v2 `d0782b2c46d5c3dd790ef1cb83ac8ce184517833`.
 
 This package is a standalone HTML prototype with synthetic names, illustrations and cards. It calls no API, processes no footage, reads no private library and spends no credits. Its playback buttons illustrate controls; they are not a rendered-video demo. It is not served by Curator. The finished card artwork will be supplied by the operator (#139); the typography/illustrations here are placeholders, not proposed finished artwork.
 
@@ -12,6 +12,7 @@ This package is a standalone HTML prototype with synthetic names, illustrations 
 - Fade from black to intro, crossfade into the clip, crossfade to the outro, fade to black; source audio fades in/out.
 - FFmpeg composition is local; never generate images as part of rendering a preview.
 - Explicit Curator selection and separate Plex-publication approval; preserve originals and previous candidates/trailers.
+- A draggable start-position slider with a 30-second default excerpt, quick picks at 0:00 / 0:30 / 1:00 and an exact timestamp field. Duration is editable under Advanced. Near the end, show the available shorter range without silently moving the chosen start.
 
 The exact durations/output profile below remain **proposed defaults**. No operator approval of these defaults is inferred from approval of the basic feature.
 
@@ -19,7 +20,7 @@ The exact durations/output profile below remain **proposed defaults**. No operat
 
 Open `prototype.html`; query `?s=setup`, `?s=cards`, `?s=queued&paused=1`, `?s=running`, `?s=review` or `?s=failed` selects a scenario. `theme=classic|cyberpunk|plex` selects appearance. The visibly separate Prototype controls switch scenarios. No route is a deployed Curator route.
 
-- Setup: one source/player and interval; two independently optional card selectors; duration and overlap calculation. Fades/output are collapsed to keep the main screen simple.
+- Setup: one source/player, draggable start slider, quick picks and exact timestamp; two independently optional card selectors; duration and overlap calculation. Duration/fades/output are collapsed to keep the main screen simple. A near-end message shows the shortened clip explicitly; invalid fade overlap still blocks Generate.
 - Cards/defaults: preview saved versions and edit default timing. Saving updates this prototype's in-memory defaults only; existing draft/job values are retained. Library import/version behavior is specified in the contract and implemented by #140.
 - Generate closes setup and shows one Encoding job. A paused queue explicitly shows Waiting. There is no second Generate action floating over an already submitted job.
 - Review: candidate playback/sound controls, adjust/discard, explicit Use in Curator and a separate Publish to Plex confirmation.
@@ -32,7 +33,7 @@ The synthetic player and simulated publication receipt are illustrative only. Ac
 
 | Setting | Proposal | Rule |
 | --- | --- | --- |
-| Suggested interval | 1:00–1:30, where valid | Short/unknown sources require an explicit valid interval; never silently choose ending footage |
+| Clip selection | Start slider + quick picks + exact timestamp; 30-second default | Approved interaction. Initial suggested start remains proposed; near the end preserve start and display the shorter available range |
 | Cards | Optional intro and outro; 3 seconds each | Select exact saved versions; either or both may be disabled |
 | Crossfades | 0.5 seconds at enabled card/clip boundaries | Overlap shortens total duration; the whole source interval remains present, with blended edge frames |
 | Black fades | 0.35 seconds at the first/last visual segment | Change opacity, not total duration |

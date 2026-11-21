@@ -14,7 +14,7 @@ Use original footage and original sound. Preserve the film's identity, compositi
 
 | ID | Feature | Required behavior |
 | --- | --- | --- |
-| PRE-01 | Choose an excerpt | Select an exact movie/edition/file and start time; preview the proposed source interval. Provide a configurable initial suggestion and manual adjustment. |
+| PRE-01 | Choose an excerpt | Select an exact movie/edition/file, drag a start-position slider or use 0:00 / 0:30 / 1:00 quick picks and an exact timestamp. Default length is 30 seconds; duration is editable under Advanced. Preview the resulting source interval. |
 | PRE-02 | Natural boundaries | Offer a bounded scene-boundary adjustment near the selected interval. Show the actual resulting time range. Manual time selection remains usable when no suitable boundary is found. |
 | PRE-03 | Polish | Fade from black onto the intro, crossfade to the excerpt, crossfade to the outro and fade to black; fade source audio in/out. Cards are independently optional. Preserve footage geometry and selected original audio; no generative restyling. |
 | PRE-04 | Generate and review | Render locally as a background task, play the result, adjust settings, or select another moment. Keep the previous candidate until its replacement is ready. |
@@ -45,7 +45,7 @@ Show the **total** output duration, including crossfade overlap. For example, 3-
 ## 3. User flow
 
 1. From the movie's existing work area, choose **Create preview**. Identify the library, edition/file and whether a preview/trailer already exists.
-2. Show a source frame/player with start time and duration controls. Provide **Use this moment**, an optional natural-boundary adjustment, and a way to move to another moment. Never imply this analyzes or summarizes the whole movie.
+2. Show a source frame/player with draggable start slider, quick picks and exact timestamp input. Use 30 seconds from that point by default; Advanced exposes duration. Show the resulting interval and let the operator play it before Generate. If less footage remains, display the shortened interval without moving the selected start; invalid overlaps still require correction. Optional natural-boundary adjustment remains explicit and bounded. Never imply this analyzes or summarizes the whole movie.
 3. Select reusable intro/outro cards or turn either off. Show their versions, duration, fit, effective fades, chosen audio track/output settings and overlap-aware total length. Settings → trailer cards/defaults manages the reusable set; no paid generation is involved.
 4. Choose **Generate**. Submission closes the setup view and exposes the durable job in the existing Encoding lane, without a sixth top-level queue. A paused queue clearly reports Waiting and is not implicitly resumed. The operator can keep working and return without losing draft/playback context.
 5. Play the result and choose **Use in Curator**, **Adjust**, **Try another moment**, or **Discard**. Adjustments create a new candidate and do not replace the approved preview automatically.

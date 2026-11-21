@@ -31,6 +31,8 @@ A source draft shows defaults plus only its explicit overrides. A defaults chang
 
 All UI/API durations use integer milliseconds. The server validates and normalizes them to the frozen output frame/audio profile, then returns the effective values/duration for review. Do not send raw FFmpeg filter strings or trust client-supplied paths/hashes.
 
+Approved clip-selection interaction: drag the start slider, choose a quick pick (0:00 / 0:30 / 1:00) or enter an exact `M:SS[.sss]` / `H:MM:SS[.sss]` timestamp. Default requested length is 30 seconds; Advanced can change it. Effective end is `min(start + requested length, verified source duration)`. Display the full effective range and a clear shortening message before Generate when less footage remains. Never move the start backward to keep a 30-second length. Unknown duration, no remaining footage or invalid fade overlap still prevents planning.
+
 Proposed request fields:
 
 ```json
@@ -38,6 +40,7 @@ Proposed request fields:
   "asset": "synthetic-asset",
   "asset_version": "server-snapshot-token",
   "range": {"start_ms": 60000, "end_ms": 90000},
+  "requested_duration_ms": 30000,
   "intro": {"card": "synthetic-intro", "version": 1, "duration_ms": 3000},
   "outro": {"card": "synthetic-outro", "version": 1, "duration_ms": 3000},
   "transitions": {"crossfade_ms": 500, "black_fade_ms": 350, "audio_fade_ms": 500},
@@ -58,6 +61,7 @@ Outer black fades do not shorten the output. Audio fades are within the chosen c
 Validation before Generate:
 
 - Finite, nonnegative integer values; source interval must be within a verified source duration and `C > 0`.
+- Requested duration must be positive. Reject a client range inconsistent with the start/requested-duration/source-length calculation. Return explicit `shortened` and effective interval/length fields; the plan token binds both requested and effective values.
 - Proposed UI limits: enabled card duration greater than zero and at most 10 seconds; each transition/fade 0–2 seconds. These bounds are proposed until approved.
 - Let the source's first transition be `X1` when intro exists, otherwise the black fade; let its last transition be `X2` when outro exists, otherwise the black fade. Their sum must not exceed `C`.
 - For an intro, `black fade + X1 <= I`; for an outro, `X2 + black fade <= O`.
