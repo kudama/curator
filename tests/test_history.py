@@ -234,3 +234,104 @@ class ServiceHistory(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HistoryRecovery(Base):
+    """Server rules History recovery relies on, with synthetic media and temporary state."""
+
+    def setUp(self):
+        super().setUp()
+        from curator import tools
+
+        self.media = Path(self.tmp.name) / 'media'
+        self.media.mkdir()
+        self.source = self.media / 'film.mkv'
+        self.source.write_bytes(b'synthetic source')
+        self.output = self.media / 'film.out.mkv'
+        self.output.write_bytes(b'synthetic output')
+        self.service = Service(self.store, lambda *args: Plex())
+        library = dict(LIBRARY, mappings=[dict(plex_root='/plex', local_root=str(self.media))], profile='commercial')
+        asset = dict(
+            id='a1',
+            library='srv:1',
+            rating_key='1',
+            title='Film',
+            item={'title': 'Film'},
+            plex_path='/plex/film.mkv',
+            local_path=str(self.source.resolve()),
+            fingerprint=tools.fingerprint(self.source.resolve()),
+            present=True,
+        )
+        with self.store.transaction():
+            self.store.put('libraries', 'srv:1', library)
+            self.store.put('assets', 'a1', asset)
+
+    def put(self, **task):
+        row = dict(
+            id='t1',
+            asset='a1',
+            library='srv:1',
+            title='Film',
+            kind='upscale',
+            status='blocked',
+            version=3,
+            plan={},
+            reason='r',
+            evidence={},
+        )
+        row.update(task)
+        with self.store.transaction():
+            self.store.put('tasks', row['id'], row)
+        return row
+
+    def retry(self, version=3):
+        with acting('operator'):
+            return self.service.retry_failed_results([{'id': 't1', 'version': version}])['items'][0]
+
+    def test_retained_validated_output_returns_to_review_without_reprocessing(self):
+        self.put(output=str(self.output), source_hash='s', output_hash='o')
+        with acting('operator'):
+            self.service.action('t1', 'resume_review', 3)
+        task = self.store.get('tasks', 't1')
+        self.assertEqual((task['status'], task['output']), ('awaiting_review', str(self.output)))
+        self.assertFalse(task.get('published'))
+        # Retry would re-encode, so it is never offered for a retained output.
+        self.put(output=str(self.output), source_hash='s', output_hash='o')
+        self.assertEqual(self.retry()['status'], 'failed')
+
+    def test_missing_output_is_refused(self):
+        self.put(output=str(self.media / 'gone.mkv'), source_hash='s', output_hash='o')
+        with self.assertRaises(UserError):
+            self.service.action('t1', 'resume_review', 3)
+        self.assertEqual(self.store.get('tasks', 't1')['status'], 'blocked')
+
+    def test_stale_snapshot_is_refused(self):
+        self.put(kind='metadata', status='failed', plan={'changes': {'summary': 'x'}})
+        self.assertEqual(self.retry(version=2)['status'], 'failed')
+        self.put(output=str(self.output), source_hash='s', output_hash='o')
+        with self.assertRaises(UserError):
+            self.service.action('t1', 'resume_review', 2)
+        self.assertEqual(self.store.get('tasks', 't1')['status'], 'blocked')
+
+    def test_uncertain_publication_is_never_retried_or_resumed(self):
+        self.put(published=True, output=str(self.output), source_hash='s', output_hash='o')
+        self.assertEqual(self.retry()['status'], 'failed')
+        with self.assertRaises(UserError):
+            self.service.action('t1', 'resume_review', 3)
+        self.assertEqual(self.store.get('tasks', 't1')['status'], 'blocked')
+
+    def test_cancelled_work_is_not_retried_from_history(self):
+        self.put(kind='metadata', status='cancelled', plan={'changes': {'summary': 'x'}})
+        self.assertEqual(self.retry()['status'], 'failed')
+        self.assertEqual(self.store.get('tasks', 't1')['status'], 'cancelled')
+
+    def test_safe_retry_rechecks_the_source_queues_and_is_attributed(self):
+        self.put(kind='metadata', status='failed', plan={'changes': {'summary': 'x'}}, error='Plex timed out')
+        self.assertEqual(self.retry()['status'], 'queued')
+        task = self.store.get('tasks', 't1')
+        self.assertEqual((task['status'], task['queued_by']), ('queued', 'operator'))
+        self.assertFalse(self.service.queue_running())
+        # A changed source is refused even though the job itself is unchanged.
+        self.put(kind='metadata', status='failed', plan={'changes': {'summary': 'x'}})
+        self.source.write_bytes(b'changed source')
+        self.assertEqual(self.retry()['status'], 'failed')
