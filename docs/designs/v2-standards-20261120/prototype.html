@@ -70,7 +70,7 @@ const DIMS={
  cast:{title:'Cast',explain:'Credits: Plex credits are present. Known people: credits are matched to people saved in Curator, with portraits.',fields:{mode:{label:'Cast is done when',type:'choice',options:{credits:'Credits are present',known_people:'Credits match saved people'}}}},
  artwork:{title:'Artwork',explain:'Artwork Curator should find or create. Posters are 2:3 for every library type; backgrounds stay 16:9.',fields:{required:{label:'Required artwork',type:'multi',options:ART},poster_ratio:{label:'Poster shape',type:'choice',options:{'2:3':'2:3 portrait'},fixed:true}}},
  upscaling:{title:'Upscaling',explain:'The target is a resolution a finished file should reach. It is not a scale: how much the Topaz filter enlarges the source (1×, 2× or 4×, relative to the source) is a processing default for each library, and the 4096 × 2160 output ceiling still applies.',fields:{target:{label:'Resolution target',type:'choice',options:{'1080':'1080p (1920 long edge)','2160':'2160p (3840 long edge)'}},suggest_when_met:{label:'Still suggest optional upscales for files that already meet the target',type:'bool'}}},
- encoding:{title:'Re-encoding',explain:'A file is suggested for re-encoding when its bitrate is above the threshold. Empty uses the global threshold in Connections & tools.',fields:{max_mbps_1080:{label:'Threshold up to 1080p (Mbps)',type:'mbps',global:'max_mbps_1080'},max_mbps_4k:{label:'Threshold for 4K (Mbps)',type:'mbps',global:'max_mbps_4k'},preserve_originals:{label:'Preserve originals: do not suggest re-encoding to save space',type:'bool'}}},
+ encoding:{title:'Re-encoding',explain:'A file is suggested for re-encoding when its bitrate is above the threshold. Empty uses the global threshold in Connections & tools.',fields:{max_mbps_1080:{label:'Threshold up to 1080p (Mbps)',type:'mbps',global:'max_mbps_1080'},max_mbps_4k:{label:'Threshold for 4K (Mbps)',type:'mbps',global:'max_mbps_4k'},preserve_originals:{label:'Skip space-saving re-encoding suggestions',type:'bool',help:'Only stops Curator suggesting re-encodes to save space. When any re-encoded or upscaled file is published, the original is still kept, whether this is on or off.'}}},
 };
 // ---- Prototype state ----
 let view={page:'type',kind:'movie'},draft=null,base=null,phase='edit',message=null,errors={},pendingNav=null;
@@ -120,6 +120,7 @@ function typePage(main){
   for(const [f,spec] of Object.entries(dim.fields)){
    const overriders=libs.filter(l=>l.overrides[d]&&f in l.overrides[d]);
    body.append(h('div',{class:'field'},spec.type==='bool'?null:h('label',{},spec.label),h('div',{class:'row'},control(d,f,spec,draft[d][f],v=>{draft[d][f]=v;validate();render();},phase!=='edit'),changed(f)?h('span',{class:'tag changed'},'Changed'):null),
+    spec.help?h('div',{class:'effective'},spec.help):null,
     overriders.length?h('div',{class:'effective'},'Overridden by ',h('b',{},overriders.map(l=>l.title).join(', ')),'; changes here do not reach them for this field.'):null));
   }
   card.append(body);grid.append(card);
@@ -144,6 +145,7 @@ function libPage(main){
   if(own('enabled'))body.append(h('div',{class:'effective'},LABELS[kind]+' value: '+(typeVals[d].enabled?'counts toward completion':'not part of done')+' · ',h('button',{class:'link',disabled:phase!=='edit',onclick:()=>reset('enabled')},'Use '+LABELS[kind]+' value')));
   for(const [f,spec] of Object.entries(dim.fields)){
    body.append(h('div',{class:'field'},spec.type==='bool'?null:h('label',{},spec.label),h('div',{class:'row'},control(d,f,spec,eff[d][f],v=>setOwn(f,v),phase!=='edit'),tag(f)),
+    spec.help?h('div',{class:'effective'},spec.help):null,
     own(f)?h('div',{class:'effective'},LABELS[kind]+' value: ',h('b',{},show(typeVals[d][f],spec)),' · ',h('button',{class:'link',disabled:phase!=='edit',onclick:()=>reset(f)},'Use '+LABELS[kind]+' value')):h('div',{class:'effective'},'Effective: ',h('b',{},show(eff[d][f],spec)),' from '+LABELS[kind])));
   }
   card.append(body);grid.append(card);
@@ -154,7 +156,7 @@ function libPage(main){
 function banners(main){
  if(message)main.append(message());
  if(phase==='review'){const rows=changes(),lib=view.page==='lib'?currentLib():null,reach=view.page==='type'?libsOf(view.kind):[];
-  main.append(h('section',{class:'panel'},h('h2',{},'Review changes before saving'),h('p',{class:'sub'},view.page==='type'?'Saving creates revision '+(server.types[view.kind].revision+1)+'. It applies to '+reach.length+' librar'+(reach.length===1?'y':'ies')+' except where a library overrides that field. Nothing is processed or published by saving.':'Saving creates override revision '+(lib.revision+1)+' for '+lib.title+' only. Nothing is processed or published by saving.'),
+  main.append(h('section',{class:'panel'},h('h2',{},'Review changes before saving'),h('p',{class:'sub'},view.page==='type'?'Saving creates revision '+(server.types[view.kind].revision+1)+'. It applies to '+reach.length+' librar'+(reach.length===1?'y':'ies')+' except where a library overrides that field. Nothing is processed or published by saving.':'Saving creates override revision '+(lib.revision+1)+' for '+lib.title+' only, reviewed against the '+LABELS[lib.kind]+' standard at revision '+server.types[lib.kind].revision+'. If that standard changes before you save, nothing is saved and you review again. Nothing is processed or published by saving.'),
    h('table',{},h('thead',{},h('tr',{},h('th',{},'Field'),h('th',{},'Before'),h('th',{},'After'),view.page==='type'?h('th',{},'Libraries affected'):h('th',{},'Source'))),h('tbody',{},...rows.map(r=>h('tr',{},h('td',{},label(r.d,r.f)),h('td',{class:'old'},show(r.before,specOf(r.d,r.f))),h('td',{class:'new'},show(r.after,specOf(r.d,r.f))),
     view.page==='type'?h('td',{},(()=>{const hit=reach.filter(l=>!(l.overrides[r.d]&&r.f in l.overrides[r.d]));const skip=reach.length-hit.length;return (hit.map(l=>l.title).join(', ')||'None')+(skip?' · '+skip+' keep their override':'');})()):h('td',{},r.inherit?'Inherited from '+LABELS[lib.kind]:'Override')))))));}
 }
@@ -164,10 +166,11 @@ function actions(main,extra){
  main.append(h('div',{class:'actions'},h('span',{class:'status'},status),extra,
   phase==='review'?h('button',{onclick:()=>{phase='edit';render();}},'Back to editing'):h('button',{class:'subtle',disabled:!d,onclick:()=>{draft=clone(base);errors={};message=null;render();}},'Discard changes'),
   phase==='review'?h('button',{class:'primary',onclick:save},'Save '+(view.page==='type'?LABELS[view.kind]+' standard':'overrides')):h('button',{class:'primary',disabled:!valid,onclick:review},'Review changes')));
- main.append(h('p',{class:'note'},'Prototype for issue #105 with synthetic libraries and values. Saving maps to POST /api/standards or POST /api/library/standard with the current revision. Scans, completion and processing do not read standards yet; that is #107.'));
+ main.append(h('p',{class:'note'},'Prototype for issue #105 with synthetic libraries and values. Saving maps to POST /api/standards with the current revision, or POST /api/library/standard with the override revision and the reviewed type revision and digest. Scans, completion and processing do not read standards yet; that is #107.'));
 }
 function review(){if(!validate()){render();return;}if(!changes().length){message=()=>h('div',{class:'banner info'},h('p',{},'Nothing changed, so there is nothing to save. The standard stays at revision '+(view.page==='type'?server.types[view.kind].revision:currentLib().revision)+'.'));render();return;}phase='review';message=null;render();}
 function save(){
+ if(scenario==='libconflict'){const lib=currentLib(),k=lib.kind,next=server.types[k].revision+1;message=()=>h('div',{class:'banner warn'},h('p',{},h('b',{},'The '+LABELS[k]+' standard changed while you were reviewing.'),' Revision '+next+' was saved after you reviewed against revision '+server.types[k].revision+', so the inherited values you checked may be different now. Nothing was saved and your overrides are still here. Reload to see the new inherited values, then review again.'),h('button',{onclick:()=>{server.types[k]={revision:next,values:(()=>{const v=clone(server.types[k].values);v.metadata.required=[...v.metadata.required,'studio'];return v;})()};message=null;phase='review';render();}},'Reload '+LABELS[k]+' revision '+next));phase='edit';render();return;}
  if(scenario==='conflict'){message=()=>h('div',{class:'banner warn'},h('p',{},h('b',{},'This standard changed in another window.'),' Revision 4 was saved after you opened revision 3. Your edits are still here and nothing was saved. Reload revision 4 to see what changed, then reapply your edits and review again.'),h('button',{onclick:()=>{message=null;phase='edit';render();}},'Reload revision 4'));phase='edit';render();return;}
  if(view.page==='type'){server.types[view.kind]={revision:server.types[view.kind].revision+1,values:clone(draft)};}else{const lib=currentLib();lib.overrides=clone(draft);lib.revision++;}
  load();message=()=>h('div',{class:'banner ok'},h('p',{},'Saved. '+(view.page==='type'?LABELS[view.kind]+' standard is now revision '+server.types[view.kind].revision+'.':currentLib().title+' overrides are now revision '+currentLib().revision+'.')+' No processing was started.'));render();
@@ -182,6 +185,7 @@ const S={
  libreview:()=>{view={page:'lib',lib:'lib-films'};load();delete draft.artwork;draft.metadata={required:['summary','year','genres','content_rating']};phase='review';},
  noop:()=>{view={page:'type',kind:'show'};load();review();},
  error:()=>{view={page:'lib',lib:'lib-family'};load();draft.encoding.max_mbps_1080=0;validate();},
+ libconflict:()=>{view={page:'lib',lib:'lib-films'};load();delete draft.artwork;phase='review';save();},
  conflict:()=>{view={page:'type',kind:'movie'};load();draft.metadata.required=['summary','year','genres','studio'];phase='review';save();},
  leave:()=>{view={page:'type',kind:'movie'};load();draft.cast.enabled=true;},
 };
