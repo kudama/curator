@@ -15,6 +15,7 @@ from .errors import UserError
 
 
 TOPAZ = '/Applications/Topaz Video.app/Contents/MacOS/'
+RESOLUTION_FLOOR = 'Output is below 1080-class target'
 
 
 def fingerprint(path):
@@ -254,6 +255,48 @@ def validate_upscale_target(source, settings):
             f'This upscale would produce {width:g} × {height:g}, above the 4K ceiling. '
             'Change the upscale settings before retrying.'
         )
+    if geometry and (max(geometry) < 1920 or min(geometry) < 720):
+        width, height = geometry
+        raise UserError(
+            f'This upscale would produce {width:g} × {height:g}, below the 1080-class target. '
+            'Review a 4× plan or change the settings; an existing retained output can be reviewed separately.'
+        )
+
+
+def upscale_4x_settings(source, settings):
+    # Replace the source-relative filter field, never multiply an existing scale.
+    if upscale_output_geometry(source, settings) is None:
+        raise UserError('4× recovery requires a single dynamic Topaz filter with known geometry')
+    fields = settings['topaz_filter'].removeprefix('tvai_up=').split(':')
+    vf = 'tvai_up=' + ':'.join('scale=4' if part.startswith('scale=') else part for part in fields)
+    result = {**settings, 'topaz_filter': vf}
+    validate_upscale_target(source, result)
+    return result
+
+
+def output_decodes(output, settings):
+    result = subprocess.run(
+        [
+            executable(settings, 'ffmpeg'),
+            '-nostdin',
+            '-v',
+            'error',
+            '-xerror',
+            '-i',
+            str(output),
+            '-map',
+            '0:v:0',
+            '-map',
+            '0:a?',
+            '-f',
+            'null',
+            '-',
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=3600,
+    )
+    return result.returncode == 0
 
 
 def validate(source, output):
@@ -266,7 +309,7 @@ def validate(source, output):
     if abs(source_width / source_height - output_width / output_height) > 0.025:
         issues.append('Aspect ratio changed')
     if max(output_width, output_height) < 1920 or min(output_width, output_height) < 720:
-        issues.append('Output is below 1080-class target')
+        issues.append(RESOLUTION_FLOOR)
     if max(output_width, output_height) > 4096 or min(output_width, output_height) > 2160:
         issues.append('Output exceeds the 4K target ceiling')
     formats = set(output.get('container', '').split(','))
