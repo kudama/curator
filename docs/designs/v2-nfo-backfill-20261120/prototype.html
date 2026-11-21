@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Curator v2 — NFO and artwork backfill prototype</title>
+<!-- Design prototype for issue #106 (spec: PR #89, docs/nfo-generation-spec.md). Synthetic data only; not served by Curator. -->
+<style>
+:root{color-scheme:dark;--bg:#101415;--panel:#181e20;--panel2:#1c2426;--line:#2b3436;--text:#eceee8;--muted:#9ba8a8;--accent:#c8df9b;--warm:#d2a776;--bad:#e5a49b;--info:#9ec3df;--pink:#e7b6c9}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button{font:inherit;border:1px solid var(--line);background:#20282a;color:var(--text);padding:8px 14px;border-radius:7px;cursor:pointer}button:disabled{opacity:.4}.primary{background:var(--accent);border-color:var(--accent);color:#1a2516;font-weight:600}.subtle{background:transparent;color:var(--muted)}
+a{color:var(--accent);text-decoration:none}
+header{min-height:64px;padding:0 24px;display:flex;align-items:center;gap:24px;border-bottom:1px solid var(--line);background:#141a1b}.brand{display:flex;align-items:center;gap:10px}.brand strong{letter-spacing:4px;font-size:14px}.mark{border:1px solid #789479;color:var(--accent);width:30px;height:32px;display:grid;place-items:center;font:24px Georgia,serif;border-radius:10px 2px 10px 2px}
+.tabs{display:flex;gap:4px}.tabs span{color:var(--muted);font-size:13px;padding:7px 12px;border-radius:7px}.tabs .on{color:var(--accent);background:#253026}.proto{margin-left:auto;font-size:10px;letter-spacing:1.5px;color:var(--warm);border:1px dashed #6b5a45;padding:4px 8px;border-radius:5px}
+.wb{display:grid;grid-template-columns:200px minmax(0,1fr) minmax(380px,520px);min-height:calc(100vh - 64px)}
+.side{border-right:1px solid var(--line);padding:18px 10px}.side div{padding:8px 10px;border-radius:6px;font-size:13px;color:var(--muted)}.side .sel{background:#26312b;color:var(--accent);border-left:2px solid var(--accent)}.side .sub{padding-left:24px;font-size:12px}
+.list{padding:20px 24px;min-width:0}.eyebrow{font-size:10px;color:var(--muted);letter-spacing:2px;font-weight:600}h1{font-family:Georgia,serif;font-weight:400;font-size:28px;margin:4px 0 10px}h2{font-size:15px;margin:0 0 6px}h3{font-size:13px;margin:12px 0 6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.muted{color:var(--muted);font-size:12px}
+.file{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:7px;padding:9px 10px;margin:6px 0;background:#1a2022;font-size:13px}.file input{accent-color:var(--accent)}.file.sel{border-color:#9db485;background:#212b23}
+.panel{border-left:1px solid #3b493d;background:#1c241f;display:flex;flex-direction:column;min-width:0}.panel .head{padding:16px 18px;border-bottom:1px solid var(--line)}.panel .body{padding:14px 18px;overflow:auto;flex:1}.panel .foot{padding:12px 18px;border-top:1px solid #37443a;background:#222c24;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.steps{display:flex;gap:6px;margin-top:8px}.steps span{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:1px 8px}.steps .on{color:#1a2516;background:var(--accent);border-color:var(--accent)}.steps .done{color:var(--accent);border-color:#536344}
+fieldset{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 12px}legend{font-size:12px;color:var(--muted);padding:0 4px}label.opt{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:6px 0}label.opt input{accent-color:var(--accent);margin-top:3px}label.opt small{display:block;color:var(--muted);font-size:11px}
+.sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 12px}.sum div{border:1px solid var(--line);border-radius:7px;padding:8px}.sum b{display:block;font-size:20px;font-weight:300}.sum small{color:var(--muted);font-size:11px}
+.item{border:1px solid var(--line);border-radius:8px;margin:8px 0;background:#192022}.item>.top{display:flex;gap:8px;align-items:center;padding:9px 10px;border-bottom:1px solid #222b2d}.item>.top b{flex:1;font-weight:500;font-size:13px;overflow-wrap:anywhere}
+.item table{width:100%;border-collapse:collapse;font-size:12px}.item td{padding:5px 10px;border-top:1px solid #222b2d;vertical-align:top}.item td:first-child{color:var(--muted);width:92px}.path{font:11px ui-monospace,monospace;color:#b9c4c0;overflow-wrap:anywhere}
+.tag{font-size:10px;border-radius:4px;padding:1px 6px;border:1px solid var(--line);white-space:nowrap}.create{color:var(--accent);border-color:#536344}.same{color:var(--muted)}.update{color:var(--info);border-color:#3e5566}.block{color:var(--bad);border-color:#7a4c45}.missing{color:var(--warm);border-color:#6b5a45}.skip{color:var(--muted);border-style:dashed}
+.diff{font:11px/1.6 ui-monospace,monospace;background:#11191a;border-radius:6px;padding:8px;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}.diff .del{color:var(--bad)}.diff .add{color:var(--accent)}.diff .keep{color:#7d8b88}
+.banner{border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin:0 0 10px;font-size:12px}.banner.warn{border-color:#6b5a45;background:#2a2219}.banner.info{border-color:#3e5566;background:#18232b}.banner.ok{border-color:#536344;background:#1f291e}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.lane{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--panel);min-height:160px}.lane h3{margin:0 0 6px;font-size:11px;letter-spacing:1px;color:var(--muted)}.job{border:1px solid #6a4b57;background:#2a1f24;border-radius:7px;padding:9px;font-size:12px}.job small{display:block;color:var(--muted)}progress{width:100%;accent-color:var(--pink);height:8px}
+dialog{background:#1b2324;color:var(--text);border:1px solid #42504d;border-radius:12px;padding:20px;width:min(480px,92vw)}dialog::backdrop{background:#050909b8}
+.note{font-size:11px;color:#7d8b88;margin-top:18px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:1100px){.wb{grid-template-columns:170px minmax(0,1fr)}.panel{grid-column:1/-1;border-left:0;border-top:1px solid #3b493d}}
+@media(max-width:700px){header{flex-wrap:wrap;padding:10px 14px;gap:8px}.proto{display:none}.tabs{overflow-x:auto;width:100%}.wb{display:block}.side{display:flex;overflow-x:auto;gap:4px;border-right:0;border-bottom:1px solid var(--line);padding:8px}.side div{white-space:nowrap}.list{padding:14px 16px}.lanes{grid-template-columns:1fr}.sum{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head><body>
+<header><div class="brand"><div class="mark">C</div><strong>CURATOR</strong></div><nav class="tabs"><span>Home</span><span class="on">Library Manager</span><span>History</span><span>Configuration</span></nav><span class="proto">PROTOTYPE · SYNTHETIC DATA</span></header>
+<div class="wb" id="wb"></div>
+<dialog id="confirm"><h2>Queue NFO and artwork export?</h2><p class="muted" id="confirm-text"></p><div class="row" style="justify-content:flex-end"><button onclick="confirm.close()">Back to preview</button><button class="primary" onclick="confirm.close()">Queue export</button></div></dialog>
+<script>
+'use strict';
+const S=new URLSearchParams(location.hash.slice(1)).get('s')||'scope';
+const h=(t,a={},...k)=>{const e=document.createElement(t);for(const [x,v] of Object.entries(a)){if(x==='class')e.className=v;else if(v!=null&&v!==false)e.setAttribute(x,v===true?'':v);}for(const c of k.flat())if(c!=null&&c!==false)e.append(c instanceof Node?c:document.createTextNode(c));return e;};
+const tag=(cls,text)=>h('span',{class:'tag '+cls},text);
+// Synthetic plan items (shape proposed for #90/#91): one row per media file.
+// Every count, footer, confirmation, queue card and receipt below is computed from POLICY and APPROVED,
+// so the approval shown always agrees with the manifest.
+const POLICY=['detail','approved','approve','queued','receipt'].includes(S)?'update':'create';
+const APPROVED=['approved','approve','queued','receipt'].includes(S);
+const ITEMS=[
+ {title:'Sample Film 31 (2024)',folder:'/media/films/Sample Film 31 (2024)/',video:'Sample Film 31 (2024).mkv',nfo:['create','Sample Film 31 (2024).nfo'],
+  metadata:'Current Plex metadata, including 2 fields you saved in Curator (description, genres)',
+  images:[['Poster','poster.jpg','create','Source: current Plex selection · JPEG 1000×1500 · 2:3. An older Curator draft poster exists and is not used.'],['Background','background.jpg','create','Source: current Plex selection · JPEG 1920×1080'],['Square','square.jpg','missing','No square artwork selected; nothing is generated'],['Logo','logo.png','create','Source: logo you saved in Curator (Plex has no logo selected) · PNG with transparency']],cast:'6 people · roles and order kept · 6 portrait references portable'},
+ {title:'Sample Film 40 (2023)',folder:'/media/films/Sample Film 40 (2023)/',video:'Sample Film 40 (2023).mp4',nfo:['existing','Sample Film 40 (2023).nfo'],existing:true,
+  metadata:'Current Plex metadata, including the description you saved in Curator',
+  images:[['Poster','poster.png','same','Already present, same bytes as the current Plex selection (PNG)'],['Background','background.jpg','create','Source: background you saved in Curator, which is the current Plex selection · JPEG 1920×1080'],['Square','square.jpg','missing','None selected'],['Logo','logo.png','missing','None selected']],cast:'4 people · 1 portrait reference is a private Curator image: text exported, portrait kept in Plex, reference omitted'},
+ {title:'Sample Short 41',folder:'/media/films/Shorts/',video:'Sample Short 41.mp4',nfo:['block','—'],shared:true,
+  images:[['Poster','Sample Short 41-poster.jpg','block','Shared folder: generic names would apply to 6 videos; use basename-prefixed names'],['Background','Sample Short 41-fanart.jpg','block','Blocked with the NFO']],cast:'—'},
+ {title:'Sample Film 32',folder:'/media/films/Sample Film 32/',video:'Sample Film 32.mkv',nfo:['skip','Sample Film 32.nfo'],third:true,
+  images:[['Poster','poster.jpg','skip','Existing file kept'],['Background','background.jpg','create','Source: current Plex selection · JPEG 1920×1080']],cast:'Not changed: existing NFO is kept'},
+ {title:'Demo Film Part 1',folder:'/media/films/Demo Film/',video:'Demo Film pt1.mkv',nfo:['block','—'],
+  images:[],cast:'—',multipart:true},
+];
+const labels={create:'Create',same:'Unchanged',update:'Update (approved)',proposed:'Update (needs approval)',excluded:'Update not approved',block:'Blocked',missing:'Missing',skip:'Kept',kept:'Kept'};
+const tagClass={proposed:'update',excluded:'skip',kept:'skip'};
+// The NFO action for an item under the current policy and approval.
+function nfoState(it){if(!it.existing)return it.nfo[0];if(POLICY==='create')return 'kept';return APPROVED?'update':(S==='detail'?'excluded':'proposed');}
+function manifest(){const m={items:0,create:0,update:0,excluded:0,kept:0,images:0,missing:0,blocked:0};
+ for(const it of ITEMS){const n=nfoState(it);if(n==='block'){m.blocked++;continue;}
+  if(n==='create')m.create++;if(n==='update')m.update++;if(n==='excluded'||n==='proposed')m.excluded++;if(n==='skip'||n==='kept')m.kept++;
+  const images=it.images.filter(i=>i[2]==='create').length;m.images+=images;m.missing+=it.images.filter(i=>i[2]==='missing').length;
+  if(n==='create'||n==='update'||images)m.items++;}
+ return m;}
+const M=manifest(),plural=(n,one,many)=>n+' '+(n===1?one:many);
+const policyText=POLICY==='create'?'Create missing files only':'Create missing files and propose updates to Curator-written NFO files';
+function nfoParts(){return [M.create?plural(M.create,'new NFO file','new NFO files'):null,M.update?plural(M.update,'approved NFO update','approved NFO updates')+' (previous file retained)':null,plural(M.images,'image','images')].filter(Boolean).join(', ');}
+function side(){return h('nav',{class:'side'},h('div',{class:'sel'},'Synthetic Films'),h('div',{class:'sub'},'Queue'),h('div',{class:'sub'},'File management'),h('div',{class:'sub'},'Artwork'),h('div',{},'Demo Series'));}
+function list(){const l=h('main',{class:'list'},h('div',{class:'eyebrow'},'SYNTHETIC FILMS · FILE MANAGEMENT'),h('h1',{},'File management'),
+ h('div',{class:'row'},h('span',{class:'muted'},'5 selected'),h('button',{class:'primary'},'Generate NFO files'),h('button',{},'Rename…'),h('button',{},'Join…')));
+ for(const [i,it] of ITEMS.entries())l.append(h('div',{class:'file'+(i<5?' sel':'')},h('input',{type:'checkbox',checked:true}),h('span',{},it.video),h('span',{class:'muted',style:'margin-left:auto'},it.folder.split('/').slice(-2,-1)[0]||'')));
+ if(S==='queued'||S==='receipt')return queueOrHistory();
+ return l;}
+function steps(n){return h('div',{class:'steps'},...['Scope','Preview','Approve'].map((t,i)=>h('span',{class:i<n?'done':i===n?'on':''},(i+1)+'. '+t)));}
+function scope(){return [h('div',{class:'head'},h('div',{class:'eyebrow'},'GENERATE NFO FILES'),h('h2',{},'Choose what to export'),steps(0)),
+ h('div',{class:'body'},
+  h('fieldset',{},h('legend',{},'Scope'),opt('scope','5 selected files',true,'Exactly the files selected in the list'),opt('scope','Folder: Sample Film 31 (2024)',false,'Every video under this folder'),opt('scope','Whole library: Synthetic Films (140 files)',false,'Large plans are summarised; every item can be expanded')),
+  h('fieldset',{},h('legend',{},'Existing files'),opt('policy','Create missing files only (default)',true,'Existing NFO and image files are kept untouched'),opt('policy','Also propose updates to Curator-written NFO files',false,'Each update is shown as a difference and must be approved one by one; an update you do not approve is left out. The previous file is retained. Files written by other tools are never updated here.')),
+  h('fieldset',{},h('legend',{},'Include'),opt('inc','NFO metadata',true,'Current Plex metadata, including edits you saved in Curator: title, description, dates, studio, genres, verified IDs, ratings with their source, credits and cast',true),opt('inc','Every available supported image',true,'The current Plex selection, or artwork you explicitly saved in Curator, beside the video using Plex names. Each image shows its source. Missing kinds are reported, never generated.',true)),
+  h('p',{class:'muted'},'Planning reads Plex and your files only. Nothing is written until you approve, and Plex is not refreshed or switched to another agent.')),
+ h('div',{class:'foot'},h('button',{class:'subtle'},'Cancel'),h('button',{class:'primary',style:'margin-left:auto'},'Build preview'))];}
+function opt(name,text,checked,sub,locked){return h('label',{class:'opt'},h('input',{type:name==='inc'?'checkbox':'radio',name,checked,disabled:locked}),h('span',{},text,h('small',{},sub)));}
+function itemCard(it,open){
+ const n=nfoState(it),c=h('section',{class:'item'},h('div',{class:'top'},h('b',{},it.title),tag(tagClass[n]||n,'NFO: '+labels[n])));
+ const t=h('table',{});
+ t.append(h('tr',{},h('td',{},'Video'),h('td',{},h('span',{class:'path'},it.folder+it.video))));
+ if(it.multipart){t.append(h('tr',{},h('td',{},'Reason'),h('td',{},'Multi-part movie (pt1, pt2): the Plex NFO agent does not support split files. Skipped; nothing is written.')));c.append(t);return c;}
+ if(it.shared){t.append(h('tr',{},h('td',{},'Reason'),h('td',{},'Shared folder with 6 videos. A generic poster.jpg would apply to all of them. Needs basename-prefixed names; association must be confirmed before this item can be planned.')));}
+ if(it.third){t.append(h('tr',{},h('td',{},'NFO'),h('td',{},'An NFO written by another tool exists. It is kept as it is and never overwritten from here, under either policy.')));}
+ else if(n==='kept')t.append(h('tr',{},h('td',{},'NFO'),h('td',{},h('span',{class:'path'},it.folder+it.nfo[1]),h('div',{class:'muted'},'A Curator-written NFO exists and is kept as it is under the create-missing policy. Choose “Also propose updates” to review changes to it.'))));
+ else if(!it.shared)t.append(h('tr',{},h('td',{},'NFO'),h('td',{},h('span',{class:'path'},it.folder+it.nfo[1]),n==='excluded'||n==='proposed'?h('div',{class:'muted'},'Not approved, so it is left out of the export. The existing file stays as it is.'):null)));
+ if(it.metadata)t.append(h('tr',{},h('td',{},'Metadata'),h('td',{},it.metadata)));
+ for(const [k,f,st,why] of it.images)t.append(h('tr',{},h('td',{},k),h('td',{},h('div',{class:'row'},tag(st,labels[st]),h('span',{class:'path'},f)),h('div',{class:'muted'},why))));
+ t.append(h('tr',{},h('td',{},'Cast'),h('td',{},it.cast)));
+ c.append(t);
+ if(open&&it.existing&&POLICY==='update')c.append(h('div',{style:'padding:0 10px 10px'},h('h3',{},'Changes to the existing Curator-written NFO'),h('div',{class:'diff'},
+  h('span',{class:'keep'},'  <title>Sample Film 40</title>\n'),h('span',{class:'del'},'- <plot>A short synthetic description.</plot>\n'),h('span',{class:'add'},'+ <plot>A longer synthetic description edited in Curator.</plot>\n'),h('span',{class:'add'},'+ <premiered>2023-04-12</premiered>\n'),h('span',{class:'keep'},'  <custom:tag>kept unknown element</custom:tag>\n')),
+  h('p',{class:'muted'},'Unknown elements are preserved. The previous file is retained before replacement.'),
+  h('label',{class:'opt'},h('input',{type:'checkbox',checked:APPROVED}),h('span',{},'Approve this update',h('small',{},APPROVED?'Approved: included in the export and in the counts above.':'Not approved: excluded from the export and from the counts above. Tick to include it.')))));
+ return c;}
+function preview(open){
+ const tiles=[[M.create,'NFO to create']];
+ if(M.update)tiles.push([M.update,'NFO update approved']);
+ if(M.excluded)tiles.push([M.excluded,POLICY==='update'?'NFO update not approved (left out)':'NFO update']);
+ tiles.push([M.kept,'NFO kept (existing file)'],[M.images,'Images to create'],[M.missing,'Images missing'],[M.blocked,'Items blocked']);
+ return [h('div',{class:'head'},h('div',{class:'eyebrow'},'GENERATE NFO FILES · 5 SELECTED FILES'),h('h2',{},'Preview'),steps(1)),
+ h('div',{class:'body'},
+  h('div',{class:'sum'},...tiles.map(([n,t])=>h('div',{},h('b',{},String(n)),h('small',{},t)))),
+  h('div',{class:'banner warn'},M.blocked+' items cannot be exported as they are: a shared folder and a multi-part movie. They are skipped; the rest can still be queued. This is a partial package, not a complete backup.'),
+  ...ITEMS.map((it,i)=>itemCard(it,open&&i===1)),
+  h('p',{class:'note'},'Planned against the files, Plex metadata and Plex selection read at 14:05. If a file, the Plex selection, saved Curator metadata or artwork, or your configuration changes before writing, that item is planned again for review instead of being written.')),
+ h('div',{class:'foot'},h('span',{class:'muted'},'Policy: '+policyText),h('button',{class:'subtle',style:'margin-left:auto'},'Back'),h('button',{class:'primary',id:'approve'},'Approve and queue '+plural(M.items,'item','items')))];}
+function queueOrHistory(){
+ const m=h('main',{class:'list'});
+ if(S==='queued'){m.append(h('div',{class:'eyebrow'},'ALL LIBRARIES'),h('h1',{},'Queue'),h('div',{class:'banner ok'},'NFO export queued as one File operations job with '+plural(M.items,'approved item','approved items')+'; '+M.blocked+' skipped. It uses the existing limit, pause and recovery. The queue was not started by this approval.'),
+  h('div',{class:'lanes'},h('section',{class:'lane'},h('h3',{},'FILE OPERATIONS'),h('div',{class:'job'},'Export NFO and artwork · Synthetic Films',h('small',{},'One job · '+plural(M.items,'item','items')+': '+nfoParts()),h('small',{},'Waiting for Start queue · writes beside media only; never refreshes Plex')))),
+  h('p',{class:'note'},'Only File operations is shown because it is the only queue type with jobs; empty types are hidden, as in the existing queue.'));return m;}
+ m.append(h('div',{class:'eyebrow'},'HISTORY · JOBS'),h('h1',{},'History'),
+  h('section',{class:'item'},h('div',{class:'top'},h('b',{},'Export NFO and artwork · Synthetic Films'),tag('missing','Finished with omissions')),
+   h('table',{},h('tr',{},h('td',{},'Initiator'),h('td',{},'You · approved 14:07 · finished 14:12 · one job, '+plural(M.items,'item','items'))),
+    h('tr',{},h('td',{},'Policy'),h('td',{},policyText+' · '+plural(M.update,'update','updates')+' approved')),
+    h('tr',{},h('td',{},'NFO'),h('td',{},'Created '+M.create+' · Updated '+M.update+' (previous file retained) · Kept '+M.kept+' · Skipped '+M.blocked+' (shared folder, multi-part)')),
+    h('tr',{},h('td',{},'Images'),h('td',{},'Created '+(M.images-1)+' · Unchanged 1 · Missing '+M.missing+' (no source selected) · Failed 1: background.jpg for Sample Film 32 (mount went offline; nothing partial left behind, retry rechecks the file)')),
+    h('tr',{},h('td',{},'Sources'),h('td',{},'Metadata: current Plex metadata, including edits saved in Curator. Artwork: current Plex selection, or artwork explicitly saved in Curator; each file’s source is in the per-item receipt.')),
+    h('tr',{},h('td',{},'Verified'),h('td',{},'Every written file was read back and its hash recorded')),
+    h('tr',{},h('td',{},'Not done'),h('td',{},'Plex was not refreshed. Refreshing is a separate action with its own identity checks. This is a partial package, not a complete backup.')))),
+  h('div',{class:'row'},h('button',{},'Retry 1 failed image'),h('button',{class:'subtle'},'View per-item receipt')));
+ return m;}
+const wb=document.getElementById('wb');
+wb.append(side(),list());
+if(['scope','preview','detail','approved','approve'].includes(S)){const p=h('aside',{class:'panel','aria-label':'Generate NFO files'});p.append(...(S==='scope'?scope():preview(S==='detail'||S==='approved')));wb.append(p);}
+if(S==='approve'){document.getElementById('confirm-text').textContent=plural(M.items,'item','items')+' will be written beside their videos as one export job: '+nfoParts()+'. '+M.blocked+' items are skipped. Existing files are never overwritten without your approval. Plex is not refreshed. It runs in the File operations queue when the queue is started.';setTimeout(()=>document.getElementById('confirm').showModal(),0);}
+</script></body></html>
