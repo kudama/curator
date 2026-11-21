@@ -1,5 +1,7 @@
 """Small replaceable Plex adapter. No direct Plex database access."""
 
+from . import development
+
 import json
 import re
 import hashlib
@@ -45,6 +47,7 @@ class Plex:
         )
 
     def __init__(self, url, token, transport=None):
+        development.block_external()
         parsed = urlsplit(url)
         if (
             parsed.scheme not in {'http', 'https'}
