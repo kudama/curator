@@ -69,6 +69,24 @@ findings and verification. New commits invalidate that review; request re-review
 Code changes require relevant existing checks and meaningful regression coverage.
 Documentation-only changes need link/structure/scope verification, not invented tests.
 
+### Codex / Claude cross-review and Forge controllers
+
+Operator instruction, 2026-11-20: Codex reviews Claude-authored work, and Claude
+reviews Codex-authored work. Record the requested counterpart on the PR and linked
+issue. No self-approval; a separate local Forge model pass is supporting evidence
+and does not satisfy this cross-review. Delegated worker changes belong to their
+authoring controller for routing. Re-review the exact head after revisions.
+
+Use the available Forge controller API/MCP for bounded worker tasks and supporting
+analysis/checks. Prefer scoped work orders where supported. Supply only permitted
+source/revisions, tools and acceptance criteria; poll the returned task ID until
+terminal, inspect proposals, and independently validate useful findings. Do not
+blindly retry uncertain submissions or treat worker success as correctness. Keep
+task/order references in private engineering records; publish only sanitized
+reviewer/model, scope, reviewed SHA, findings and checks. Controller access does
+not expand grants. If unavailable, record the delegation blocker and continue
+independent senior work; do not start unmanaged replacement workers.
+
 GitHub currently has one collaborator account. PRs/checks can be enforced, but
 GitHub cannot distinguish Codex/Claude/Forge when they share that account. Different
 agent review is therefore an explicit, auditable process requirement, not a claim
