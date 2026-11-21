@@ -62,6 +62,7 @@ async function openPersonPortrait(profile,back=null){
 async function openLocalLogo(asset,options={}){
  const returnParent=preservedArtworkPanel();inspectorDirty=false;const panel=artworkPanel('TITLE LETTERING · TRANSPARENT PNG','Create logo');if(!panel){returnParent();return;}const {token,detail,actions}=panel;
  let sourcePhoto=options.sourcePhoto||null,sourceEncoded=null,result=null,job=null,pendingSignature=null;
+ let fontsAvailable=false,previewTimer=null,rendering=false,queuedPreview=false,revision=0;
  const layout=node('div',undefined,'logo-editor-layout'),visual=node('div',undefined,'logo-editor-preview logo-preview'),form=node('div'),note=node('p','Local text composition · 0 Gems','muted');layout.append(visual,form);detail.append(layout);
  const title=node('input');title.value=asset.title;title.maxLength=200;title.setAttribute('aria-label','Logo title text');const font=node('select');font.setAttribute('aria-label','Logo font');const color=node('input');color.type='color';color.value='#f1dbc0';color.setAttribute('aria-label','Logo text color');const fontStatus=node('p','Loading installed fonts…','muted');
  for(const [label,input] of [['Title text',title],['Font',font],['Text color',color]]){const wrap=node('label',label);wrap.append(input);form.append(wrap);}form.append(fontStatus);
@@ -69,12 +70,33 @@ async function openLocalLogo(asset,options={}){
  const previewBackground=node('select');previewBackground.setAttribute('aria-label','Logo preview background');for(const [value,label] of [['checkerboard','Checkerboard'],['light','Light'],['dark','Dark']]){const option=node('option',label);option.value=value;previewBackground.append(option);}previewBackground.onchange=()=>{visual.classList.toggle('logo-preview',previewBackground.value==='checkerboard');visual.style.backgroundColor=previewBackground.value==='light'?'#f6f1f4':previewBackground.value==='dark'?'#111017':'';};detail.append(previewBackground);
  const apply=button('Use logo draft',async()=>{if(!result)return;apply.disabled=true;const recover=preservedArtworkPanel();try{const encoded=await encodedArtwork(result.photo),original=result.original?await encodedArtwork(result.original):null;returnParent();await options.apply(encoded,original,result);}catch(error){recover();note.textContent=error.message;apply.disabled=false;}},'primary');apply.disabled=true;
  const render=button('Preview logo',renderLogo,'text-button');
- function dirty(){if(sourceEncoded||sourcePhoto)render.disabled=false;result=null;job=null;pendingSignature=null;apply.disabled=true;inspectorDirty=true;note.textContent=sourceEncoded||sourcePhoto?'Source image selected; preview background removal.':'Unsaved logo text · preview with host fonts before using.';}
+ function schedulePreview(){
+  clearTimeout(previewTimer);queuedPreview=false;
+  if(sourceEncoded||sourcePhoto||!fontsAvailable||!title.value.trim())return;
+  note.textContent='Updating logo preview…';
+  previewTimer=setTimeout(()=>{previewTimer=null;if(openedTask!==token||!detail.isConnected)return;if(rendering){queuedPreview=true;return;}void renderLogo();},250);
+ }
+ function dirty(){revision++;result=null;job=null;pendingSignature=null;apply.disabled=true;inspectorDirty=true;render.hidden=!(sourceEncoded||sourcePhoto);render.disabled=rendering;note.textContent=sourceEncoded||sourcePhoto?'Source image selected; preview background removal.':!title.value.trim()?'Enter title text to preview.':!fontsAvailable?'Host fonts are unavailable.':'Updating logo preview…';schedulePreview();}
  title.oninput=font.onchange=color.oninput=dirty;cleanupColor.oninput=tolerance.oninput=dirty;upload.onchange=async()=>{if(!upload.files[0])return;sourcePhoto=null;sourceEncoded=await fileBase64(upload.files[0]);dirty();};
- async function renderLogo(){render.disabled=true;try{const source=sourceEncoded||(sourcePhoto?await encodedArtwork(sourcePhoto):null),payload=source?{mode:'logo_cleanup',asset:asset.id,image:source,color:cleanupColor.value,fuzz:Number(tolerance.value)}:{mode:'logo_text',asset:asset.id,text:title.value,font:font.value,color:color.value};const signature=JSON.stringify(payload);if(!job||pendingSignature!==signature){job=await api('artwork/local',payload);pendingSignature=signature;}const rendered=await waitArtworkRender(job,note);if(openedTask!==token)return;result=rendered;visual.replaceChildren(retainedArtworkImage(result.photo,'Transparent logo draft',true));note.textContent='Transparent PNG · '+result.width+' × '+result.height+' · original proportions · draft only';apply.disabled=false;inspectorDirty=true;}catch(error){note.textContent=error.message;}finally{render.disabled=false;}}
+ async function renderLogo(){
+  if(rendering)return;rendering=true;render.disabled=true;const version=revision;
+  const active=()=>openedTask===token&&detail.isConnected&&version===revision;
+  const progress={set textContent(value){if(active())note.textContent=value;}};
+  try{
+   const source=sourceEncoded||(sourcePhoto?await encodedArtwork(sourcePhoto):null);if(!active())return;
+   const payload=source?{mode:'logo_cleanup',asset:asset.id,image:source,color:cleanupColor.value,fuzz:Number(tolerance.value)}:{mode:'logo_text',asset:asset.id,text:title.value,font:font.value,color:color.value};
+   const signature=JSON.stringify(payload);let currentJob=job;
+   if(!currentJob||pendingSignature!==signature){currentJob=await api('artwork/local',payload);if(active()){job=currentJob;pendingSignature=signature;}}
+   const rendered=await waitArtworkRender(currentJob,progress);if(!active())return;
+   result=rendered;visual.replaceChildren(retainedArtworkImage(result.photo,'Transparent logo draft',true));note.textContent='Transparent PNG · '+result.width+' × '+result.height+' · original proportions · draft only';apply.disabled=false;inspectorDirty=true;
+  }catch(error){if(active()){note.textContent=error.message;render.hidden=false;}}
+  finally{rendering=false;render.disabled=!sourceEncoded&&!sourcePhoto&&!fontsAvailable;if(queuedPreview)schedulePreview();}
+ }
  const cancel=()=>{if(!prepareInspector())return;returnParent();};inspectorBack=cancel;actions.append(note,render,button('Cancel',cancel,'subtle'),apply);
- try{const catalog=await api('artwork/fonts');if(openedTask!==token)return;font.replaceChildren();for(const name of catalog.fonts){const option=node('option',name);option.value=name;font.append(option);}const preferred=catalog.fonts.find(name=>/^(Arial|Helvetica|Times|Baskerville|Georgia)$/i.test(name))||catalog.fonts[0];if(preferred)font.value=preferred;fontStatus.textContent=catalog.available?catalog.fonts.length+' installed fonts on the Curator host':catalog.reason;render.disabled=!catalog.available&&!sourcePhoto;}catch(error){fontStatus.textContent=error.message;render.disabled=!sourcePhoto;}
+ render.hidden=!sourcePhoto;render.disabled=true;
+ try{const catalog=await api('artwork/fonts');if(openedTask!==token)return;font.replaceChildren();for(const name of catalog.fonts){const option=node('option',name);option.value=name;font.append(option);}const preferred=catalog.fonts.find(name=>/^(Arial|Helvetica|Times|Baskerville|Georgia)$/i.test(name))||catalog.fonts[0];if(preferred)font.value=preferred;fontsAvailable=catalog.available&&catalog.fonts.length>0;fontStatus.textContent=fontsAvailable?catalog.fonts.length+' installed fonts on the Curator host':catalog.reason;render.disabled=!fontsAvailable&&!sourcePhoto;}catch(error){fontStatus.textContent=error.message;render.disabled=!sourcePhoto;}
  if(sourcePhoto){sources.open=true;visual.append(retainedArtworkImage(sourcePhoto,'Original logo source'));note.textContent='Original retained. Choose the background color and preview its removal.';}
+ else if(fontsAvailable)schedulePreview();
 }
 async function openFolderArtwork(folderId){
  const panel=artworkPanel('SHARED BACKGROUND','Folder artwork');if(!panel)return;const {token,detail,actions}=panel;const status=node('p','Loading folder scope…','muted');detail.append(status);
