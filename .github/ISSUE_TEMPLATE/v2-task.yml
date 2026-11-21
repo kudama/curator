@@ -1,0 +1,48 @@
+name: Curator v2 task
+description: Bounded work with dependencies, ownership and verifiable acceptance
+title: 'V2: '
+labels: [v2, 'work:blocked']
+body:
+  - type: markdown
+    attributes:
+      value: 'Check #102 and the milestone for existing work first. Ready is not an automatic dispatch. Keep private media, paths, credentials and runtime records out of this public issue.'
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome and requirement
+      description: Link the exact specification/requirement and existing parent issue.
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase
+      options: [Design, Implementation, Validation, Coordination]
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and decisions
+      description: Link prerequisites, approved renders and unresolved choices. Say None if the next bounded step has no prerequisites.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: File scope and boundaries
+      description: Expected modules, shared-file reservations, exclusions and authorization boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and validation
+      description: Observable behavior, meaningful synthetic checks, and any separately authorized client/provider acceptance.
+    validations:
+      required: true
+  - type: textarea
+    id: ownership
+    attributes:
+      label: Ownership and next action
+      value: 'Executor: unclaimed. Starting SHA/branch/file scope must be recorded before editing. Independent reviewer must differ from the implementer. Coordinator triages the initial Blocked state to Ready after checking dependencies.'
