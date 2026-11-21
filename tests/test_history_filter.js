@@ -80,10 +80,24 @@ test('each finished, failed, blocked, interrupted and cancelled state maps to an
 });
 test('a stale snapshot is rejected after re-reading current state, without any request',async()=>{
  const h=recoveryHarness({...base,kind:'metadata',status:'failed'});const snapshot={...h.c.state.tasks[0]};
- h.c.refresh=async()=>{h.calls.push('refresh');h.c.state={tasks:[{...snapshot,version:4}]};};
+ h.c.refresh=async()=>{h.calls.push('refresh');h.pane.scrollTop=0;h.c.state={tasks:[{...snapshot,version:4}]};};
  h.c.snapshot=snapshot;
  await assert.rejects(h.run("historyRecoveryAction(snapshot,{call:'retry'})"),/changed since History was shown/);
  assert.equal(h.calls.filter(x=>typeof x==='object').length,0);
+ assert.equal(h.pane.scrollTop,240);
+});
+test('an initial refresh failure restores position and sends no recovery request',async()=>{
+ const h=recoveryHarness({...base,kind:'metadata',status:'failed'});h.c.snapshot={...h.c.state.tasks[0]};
+ h.c.refresh=async()=>{h.pane.scrollTop=0;throw Error('Initial refresh failed');};
+ await assert.rejects(h.run("historyRecoveryAction(snapshot,{call:'retry'})"),/Initial refresh failed/);
+ assert.equal(h.calls.filter(x=>x.path).length,0);assert.equal(h.pane.scrollTop,240);
+});
+test('a post-action refresh failure still restores position without repeating the mutation',async()=>{
+ const h=recoveryHarness({...base,kind:'metadata',status:'failed'});h.c.snapshot={...h.c.state.tasks[0]};let refreshes=0;
+ const replacement={scrollTop:0};
+ h.c.refresh=async()=>{h.pane.scrollTop=0;if(++refreshes===2){h.c.document.querySelector=()=>replacement;throw Error('Final refresh failed');}};
+ await assert.rejects(h.run("historyRecoveryAction(snapshot,{call:'retry'})"),/Final refresh failed/);
+ assert.equal(h.calls.filter(x=>x.path).length,1);assert.equal(refreshes,2);assert.equal(replacement.scrollTop,240);
 });
 test('retry re-reads, sends the current version, never starts the queue and keeps the scroll position',async()=>{
  const h=recoveryHarness({...base,kind:'metadata',status:'failed'});h.c.snapshot={...h.c.state.tasks[0]};
@@ -96,9 +110,10 @@ test('retry re-reads, sends the current version, never starts the queue and keep
 });
 test('a refused recovery (missing output) is reported and the list still refreshes',async()=>{
  const h=recoveryHarness({...base,kind:'upscale',status:'blocked',output:'/o',source_hash:'s',output_hash:'o'});h.c.snapshot={...h.c.state.tasks[0]};
+ h.c.refresh=async()=>{h.calls.push('refresh');h.pane.scrollTop=0;};
  h.c.api=async()=>{throw Error('No validated, unpublished output is available to review');};
  await assert.rejects(h.run("historyRecoveryAction(snapshot,{call:'resume_review'})"),/No validated/);
- assert.equal(h.calls.filter(x=>x==='refresh').length,2);
+ assert.equal(h.calls.filter(x=>x==='refresh').length,2);assert.equal(h.pane.scrollTop,240);
 });
 test('a retry the server refuses is reported, not shown as queued',async()=>{
  const h=recoveryHarness({...base,kind:'metadata',status:'failed'});h.c.snapshot={...h.c.state.tasks[0]};
