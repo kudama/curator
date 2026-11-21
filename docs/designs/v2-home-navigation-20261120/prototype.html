@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Curator v2 — Home and navigation prototype</title>
-<!-- Design prototype for issue #104. Synthetic data only; not served by Curator and not wired to any API. -->
+<!-- Design prototype for issue #104 (provenance only; no issue numbers in product copy). Synthetic data only; not served by Curator and not wired to any API. -->
 <style>
 :root{color-scheme:dark;--bg:#101415;--panel:#181e20;--panel2:#1c2426;--line:#2b3436;--text:#eceee8;--muted:#9ba8a8;--accent:#c8df9b;--warm:#d2a776;--bad:#e5a49b;--info:#9ec3df}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -30,7 +30,7 @@ main{padding:26px 34px 60px;max-width:1280px;min-width:0}h1{font-family:Georgia,
 /* Library Manager: the existing workbench, unchanged */
 .workbench{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:calc(100vh - 106px)}.side{border-right:1px solid var(--line);padding:20px 12px}.side a{display:block;color:var(--muted);padding:9px 10px;border-radius:6px;font-size:13px}.side a.sel{background:#26312b;color:var(--accent);border-left:2px solid var(--accent)}.side .sublink{padding-left:26px;font-size:12px}.side .sublink.sel{background:none;border:0;color:var(--text)}
 .wb-main{padding:22px 28px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px}.toolbar a{font-size:12px;color:var(--muted);padding:6px 9px;border-radius:6px}.toolbar a.active{color:var(--accent);background:#253026}
-.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.lane{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:12px;min-height:220px}.lane h3{font-size:12px;margin:0 0 8px;color:var(--muted);letter-spacing:1px}.job{border:1px solid #303b3c;border-radius:7px;padding:9px 10px;margin:7px 0;font-size:12px;background:#1b2224}.job.attn{border-color:#7a4c45}.job small{display:block;color:var(--muted)}
+.lane .more{padding:4px 10px;font-size:12px;margin-top:4px}.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.lane{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:12px;min-height:220px}.lane h3{font-size:12px;margin:0 0 8px;color:var(--muted);letter-spacing:1px}.job{border:1px solid #303b3c;border-radius:7px;padding:9px 10px;margin:7px 0;font-size:12px;background:#1b2224}.job.attn{border-color:#7a4c45}.job small{display:block;color:var(--muted)}
 .split{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,1fr);gap:14px}.inspector{border:1px solid #3b493d;border-radius:10px;background:#1c241f;padding:16px}.inspector input,.inspector textarea{width:100%;background:#11191a;color:var(--text);border:1px solid #3b4747;border-radius:6px;padding:8px;margin:4px 0 10px;font:inherit}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.muted{color:var(--muted);font-size:12px}
 .history-row{border-bottom:1px solid var(--line);padding:12px 4px;display:flex;gap:12px;align-items:center}.history-row div{flex:1}.history-row p{margin:2px 0;font-size:12px;color:var(--muted)}
@@ -55,15 +55,15 @@ const ARRIVALS=[['Sample Film 31','films','ok'],['Sample Film 32','films','todo:
 const HEALTH=[['films','Movies',[96,null,null,81,88]],['series','TV Shows',[99,null,null,90,93]],['family','Other Videos',[62,48,71,85,null]]];
 const DIMS=['Metadata','Cast','Artwork','Upscaling','Re-encoding'];
 const hash=new URLSearchParams(location.hash.slice(1)),S=hash.get('s')||'home';
-const route={home:'home',loading:'home',error:'home',empty:'home',focus:'home',library:'library',draft:'library',history:'history',config:'config'}[S]||'home';
+const route={home:'home',loading:'home',error:'home',empty:'home',focus:'home',library:'library',queue:'library',draft:'library',history:'history',config:'config'}[S]||'home';
 const h=(tag,attrs={},...kids)=>{const e=document.createElement(tag);for(const [k,v] of Object.entries(attrs)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else if(v!=null&&v!==false)e.setAttribute(k,v===true?'':v);}for(const k of kids.flat())if(k!=null&&k!==false)e.append(k instanceof Node?k:document.createTextNode(k));return e;};
 const link=(href,text,attrs={})=>h('a',{href,...attrs},text);
 // Routes are the navigation contract in README.md. Every link below is a real, shareable hash URL.
 const R={home:'#/home',lib:(id,view,q='')=>`#/library/${id}/${view}${q}`,history:q=>'#/history'+q,config:p=>'#/configuration/'+p};
-function tabs(){const t=document.getElementById('tabs');const items=[['home','Home',R.home],['library','Library Manager',R.lib('films','files'),h('span',{class:'count',title:'Results ready to review'},'4')],['history','History',R.history('')],['config','Configuration',R.config('standards/movie')]];
+function tabs(){const t=document.getElementById('tabs');const items=[['home','Home',R.home],['library','Library Manager',R.lib('films','files'),h('span',{class:'count',title:'Ready to review: 3 results to publish, 2 metadata suggestions, 1 artwork change'},'6')],['history','History',R.history('')],['config','Configuration',R.config('standards/movie')]];
  t.replaceChildren(...items.map(([key,label,href,badge])=>h('a',{href,'aria-current':route===key?'page':null,class:S==='focus'&&key==='library'?'force-focus':null},label,badge||null)));}
 function status(){const s=document.getElementById('status');s.replaceChildren(
- S==='error'?h('span',{class:'bad'},'Connection interrupted. Showing the update from 14:02; reconnecting automatically.'):h('span',{},'● 1 processing · 0 publishing · 6 waiting'),
+ S==='error'?h('span',{class:'bad'},'Connection interrupted. Showing the update from 14:02; reconnecting automatically.'):h('span',{},'● 1 processing · 1 publishing · 14 waiting'),
  h('span',{},'Queue runs across all libraries'),link(R.lib('films','queue'),'View queue'));}
 // ---- Home ----
 function home(){
@@ -73,12 +73,14 @@ function home(){
  const grid=h('div',{class:'home'});
  const loading=S==='loading',sk=n=>Array.from({length:n},()=>h('div',{class:'skeleton'}));
  // 1. Decisions
- grid.append(h('section',{class:'card span-7','aria-labelledby':'d-h'},h('div',{class:'card-head'},h('h2',{id:'d-h'},'Needs your decision'),link(R.lib('all','review'),'Open review')),
+ grid.append(h('section',{class:'card span-7','aria-labelledby':'d-h'},h('div',{class:'card-head'},h('h2',{id:'d-h'},'Needs your decision'),link(R.lib('all','queue','?status=review'),'All reviews')),
   ...(loading?sk(3):[
-   decision('4','Results are ready to review','Upscales and encodes wait for your comparison before publishing',R.lib('all','review'),'Review results'),
+   decision('3','Results are ready to publish','Upscales, encodes and joins wait for your comparison before publishing',R.lib('all','review','?kind=all'),'Review results'),
+   decision('2','Metadata suggestions to review','Preview each change, then save it to Plex yourself',R.lib('all','queue','?status=review&lane=metadata'),'Review metadata'),
+   decision('1','Artwork change to approve','Compare the current and proposed artwork before it is queued',R.lib('films','artwork','?status=review'),'Review artwork'),
    decision('2','Jobs need attention','One failed, one interrupted · History shows the safe next step',R.lib('all','queue','?status=attention'),'Open in Queue','bad'),
    decision('9','Family videos are missing dates','Other Videos standard · Metadata',R.lib('family','files','?view=attention&dimension=metadata'),'Open in Library Manager','warm'),
-   decision('1','Standards question','“Preserve originals” wording needs your confirmation',R.config('standards/other_videos'),'Open Configuration','warm')])));
+   decision('1','Standards question','An Other Videos setting needs your confirmation',R.config('standards/other_videos'),'Open Configuration','warm')])));
  // 2. Work accomplished
  grid.append(h('section',{class:'card span-5','aria-labelledby':'w-h'},h('div',{class:'card-head'},h('h2',{id:'w-h'},'Work accomplished'),h('span',{class:'muted'},'Last 7 days')),
   ...(loading?sk(3):[h('div',{class:'stat'},h('div',{},h('b',{},'38'),h('small',{},'jobs completed')),h('div',{},h('b',{},'11'),h('small',{},'upscales published')),h('div',{},h('b',{},'214 GB'),h('small',{},'saved by re-encoding'))),
@@ -89,11 +91,11 @@ function home(){
  // 4. Library health
  grid.append(h('section',{class:'card span-4','aria-labelledby':'hl-h'},h('div',{class:'card-head'},h('h2',{id:'hl-h'},'Library health'),link(R.config('standards/movie'),'Standards')),
   loading?h('div',{},...sk(4)):h('table',{class:'health'},h('thead',{},h('tr',{},h('th',{},'Library'),h('th',{},'Lowest dimension'))),h('tbody',{},...HEALTH.map(([id,type,v])=>{const on=v.map((x,i)=>[x,DIMS[i]]).filter(([x])=>x!=null).sort((a,b)=>a[0]-b[0]);const [pct,dim]=on[0];return h('tr',{},h('td',{},link(R.lib(id,'files','?view=attention'),LIBS.find(l=>l.id===id).title),h('div',{class:'muted'},type+' · '+on.length+' of 5 dimensions')),h('td',{},h('span',{class:'bar'},h('i',{style:`width:${pct}%`})),pct+'% '+dim.toLowerCase()));}))),
-  h('p',{class:'muted',style:'margin:8px 0 0'},'Percent of items meeting each enabled dimension of the library’s standard (#107). Dimensions a standard turns off are not counted.')));
+  h('p',{class:'muted',style:'margin:8px 0 0'},'Percent of items meeting each enabled dimension of the library’s standard. Dimensions a standard turns off are not counted.')));
  // 5. Seer + recommendations: future sources with explicit empty states
- grid.append(h('section',{class:'card span-6','aria-labelledby':'s-h'},h('div',{class:'card-head'},h('h2',{id:'s-h'},'Requests that landed')),h('div',{class:'empty'},'Seer is not connected. Requests will appear here once matching to Plex is agreed (#114) and connected (#115).')));
- grid.append(h('section',{class:'card span-6','aria-labelledby':'r-h'},h('div',{class:'card-head'},h('h2',{id:'r-h'},'Worth watching')),h('div',{class:'empty'},'Recommendations are not set up. Sources and permissions are being agreed (#112); nothing is requested or bought from here.')));
- m.append(grid);m.append(h('p',{class:'note'},'Prototype for issue #104. Synthetic libraries, titles and counts. Library health and arrival status need standards evaluation (#107); Requests and Worth watching show their not-connected states.'));
+ grid.append(h('section',{class:'card span-6','aria-labelledby':'s-h'},h('div',{class:'card-head'},h('h2',{id:'s-h'},'Requests that landed')),h('div',{class:'empty'},'Seer is not connected. Requests that have landed in Plex will appear here once it is.')));
+ grid.append(h('section',{class:'card span-6','aria-labelledby':'r-h'},h('div',{class:'card-head'},h('h2',{id:'r-h'},'Worth watching')),h('div',{class:'empty'},'Recommendations are not set up yet. Nothing is requested or bought from here.')));
+ m.append(grid);m.append(h('p',{class:'note'},'Prototype note (not product copy): synthetic libraries, titles and counts. Health and arrival status need standards evaluation; Requests and Worth watching show their not-connected states.'));
  return m;
 }
 function decision(n,title,detail,href,action,tone=''){return h('div',{class:'decision'},h('span',{class:'n '+tone},n),h('p',{},title,h('small',{},detail)),link(href,action));}
@@ -101,14 +103,19 @@ function decision(n,title,detail,href,action,tone=''){return h('div',{class:'dec
 function library(){
  const wrap=h('div',{class:'workbench'});
  const side=h('nav',{class:'side','aria-label':'Libraries'},h('div',{class:'eyebrow',style:'margin:0 10px 10px'},'LIBRARIES'),
-  ...LIBS.flatMap(l=>l.id==='films'?[link(R.lib(l.id,'files'),l.title,{class:'sel','aria-current':'true'}),link(R.lib(l.id,'queue'),'Queue',{class:'sublink'+(S==='library'?' sel':'')}),link(R.lib(l.id,'filemanagement'),'File management',{class:'sublink'}),link(R.lib(l.id,'artwork'),'Artwork',{class:'sublink'})]:[link(R.lib(l.id,'files'),l.title)]));
+  ...LIBS.flatMap(l=>l.id==='films'?[link(R.lib(l.id,'files'),l.title,{class:'sel','aria-current':'true'}),link(R.lib(l.id,'queue'),'Queue',{class:'sublink'+(S==='library'||S==='queue'?' sel':'')}),link(R.lib(l.id,'filemanagement'),'File management',{class:'sublink'}),link(R.lib(l.id,'artwork'),'Artwork',{class:'sublink'})]:[link(R.lib(l.id,'files'),l.title)]));
  const main=h('main',{class:'wb-main',id:'main',tabindex:'-1'});
- if(S==='library'){
+ if(S==='queue'){
+  main.append(h('div',{class:'eyebrow'},'ALL LIBRARIES'),h('h1',{},'Queue'),
+   h('div',{class:'toolbar'},...[['All jobs 24',''],['Processing 2','running'],['Waiting 14','queued'],['Ready to review 6','review'],['Needs attention 2','attention']].map(([t,v])=>link(R.lib('all','queue','?status='+v),t,{class:v===''?'active':''}))),
+   h('div',{class:'lanes'},...QUEUE.map(([title,running,jobs,more])=>lane(title,jobs,running,more))),
+   h('p',{class:'note'},'Prototype note (not product copy): all five queue types are shown because each has jobs. A type with no jobs in the current filter is hidden. Long waiting groups collapse; running and publishing work stays visible. Results ready to publish are counted under Ready to review and compared there, not shown in the lanes; artwork and metadata reviews stay in their own lanes and flows.'));
+ }else if(S==='library'){
   main.append(h('div',{class:'eyebrow'},'ALL LIBRARIES'),h('h1',{},'Queue'),
    h('div',{class:'banner info'},h('p',{},'Opened from Home: showing ',h('b',{},'Needs attention'),' across all libraries. The filter only changes what you see; it does not change or start any job.'),link(R.lib('all','queue'),'Show all jobs')),
    h('div',{class:'toolbar'},...[['All jobs',''],['Processing','running'],['Waiting','queued'],['Ready to review','review'],['Needs attention 2','attention']].map(([t,v])=>link(R.lib('all','queue','?status='+v),t,{class:v==='attention'?'active':''}))),
-   h('div',{class:'lanes'},lane('UPSCALING',[['Sample Film 12','Failed · Topaz could not read the source',true]]),lane('ENCODING',[['Demo Series S1E4','Interrupted · output retained, check before retry',true]]),lane('FILE OPERATIONS',[])),
-   h('p',{class:'note'},'Library Manager is the existing workbench, including the approved three-lane queue, inspector and review flows. v2 changes only how it is reached: the Main tabs and deep links. Start queue, limits and review keep their existing controls and confirmations.'));
+   h('div',{class:'lanes'},lane('UPSCALING',[['Sample Film 12','Failed · Topaz could not read the source',true]]),lane('ENCODING',[['Demo Series S1E4','Interrupted · output retained, check before retry',true]])),
+   h('p',{class:'note'},'Prototype note (not product copy): Library Manager is the existing workbench and its queue keeps all five types (Upscaling, Encoding, File operations, Artwork generation, Metadata). Only the two types with jobs needing attention are shown here, because empty types are hidden. v2 changes only how it is reached. Start queue, limits and review keep their existing controls and confirmations.'));
  }else{
   main.append(h('div',{class:'eyebrow'},'SYNTHETIC FILMS'),h('h1',{},'Synthetic Films'),h('div',{class:'toolbar'},link(R.lib('films','files','?view=attention'),'Needs attention 12',{class:'active'}),link(R.lib('films','files','?view=files'),'All files 140'),link(R.lib('films','files','?view=completed'),'Completed 96')),
    h('div',{class:'split'},h('div',{},...['Sample Film 05','Sample Film 06','Sample Film 07','Sample Film 08'].map((t,i)=>h('div',{class:'job',style:i===2?'border-color:#9db485':''},t,h('small',{},i===2?'Metadata · editing':'Upscale suggested')))),
@@ -116,16 +123,23 @@ function library(){
  }
  wrap.append(side,main);return wrap;
 }
-function lane(title,jobs){return h('section',{class:'lane','aria-label':title},h('h3',{},title),...(jobs.length?jobs.map(([t,s,a])=>h('div',{class:'job'+(a?' attn':'')},t,h('small',{},s))):[h('p',{class:'muted'},'Nothing needs attention here.')]));}
+function lane(title,jobs,running,more){return h('section',{class:'lane','aria-label':title},h('h3',{},title),running?h('p',{class:'muted',style:'margin:0 0 8px;font-size:12px'},running):null,...jobs.map(([t,s,a])=>h('div',{class:'job'+(a?' attn':'')},t,h('small',{},s))),more?h('button',{class:'more'},'Show '+more+' more'):null);}
+const QUEUE=[
+ ['UPSCALING','1 running · limit 1 · across all libraries',[['Sample Film 14','Processing · 42%'],['Sample Film 15','Waiting · position 1'],['Sample Film 16','Waiting · position 2'],['Sample Film 12','Failed · Topaz could not read the source',true]],4],
+ ['ENCODING','0 running · limit 1',[['Demo Series S1E6','Waiting · position 1'],['Demo Series S1E5','Waiting · position 2'],['Demo Series S1E4','Interrupted · output retained, check before retry',true]],3],
+ ['FILE OPERATIONS','Copy/delete: 1 running total · limit 4',[['Trip - Part 1','Publishing · copying'],['Clean up originals','Waiting · 2 retained originals']],0],
+ ['ARTWORK GENERATION','0 running · limit 1',[['Sample Film 09','Waiting · approved quote, poster 2:3'],['Example Family Videos','Ready to review · background']],0],
+ ['METADATA','0 running · limit 1',[['Birthday 2026','Ready to review · 3 suggested fields'],['Beach Day','Ready to review · people'],['Sample Film 07','Waiting · apply saved changes']],0],
+];
 // ---- History: arrives with the filters from Home's link ----
 function history(){
  const m=h('main',{id:'main',tabindex:'-1'},h('div',{class:'eyebrow'},'HISTORY'),h('h1',{},'History'),
   h('div',{class:'banner info'},h('p',{},'Opened from Home → Work accomplished. Filters are in the address, so this view can be bookmarked or opened again.'),link(R.history(''),'Clear filters')),
   h('div',{class:'filters'},h('span',{},'Show ',h('b',{},'Jobs')),h('span',{},'Library ',h('b',{},'All libraries')),h('span',{},'When ',h('b',{},'Last 7 days')),h('span',{},'Status ',h('b',{},'Completed'))));
  for(const [t,k,who] of [['Sample Film 20','Upscale video · applied','Queued by You'],['Demo Series S2E1','Optimize encoding · applied','Queued by You'],['Birthday 2026','Metadata · applied','AI-assisted']])m.append(h('div',{class:'history-row'},h('div',{},h('b',{},t),h('p',{},k+' · '+who)),h('button',{},'View')));
- m.append(h('p',{class:'note'},'History is the existing screen from #86 and #111; v2 only reaches it from the Main tabs and from Home links with filters in the URL.'));return m;
+ m.append(h('p',{class:'note'},'Prototype note (not product copy): History is the existing screen; v2 only reaches it from the Main tabs and from Home links with filters in the URL.'));return m;
 }
-function config(){return h('main',{id:'main',tabindex:'-1'},h('div',{class:'eyebrow'},'CONFIGURATION'),h('h1',{},'Configuration'),h('p',{class:'sub'},'Connections & tools and Processing defaults (today’s Settings), Standards by Plex type and Library overrides. The standards screens are proposed separately in #105.'),
+function config(){return h('main',{id:'main',tabindex:'-1'},h('div',{class:'eyebrow'},'CONFIGURATION'),h('h1',{},'Configuration'),h('p',{class:'sub'},'Connections & tools and Processing defaults (today’s Settings), Standards by Plex type and Library overrides.'),
  h('div',{class:'home'},...[['Connections & tools','Plex, tools, global thresholds',R.config('connections')],['Processing defaults','Per-library encode and upscale presets',R.config('processing')],['Standards by Plex type','Movies · TV Shows · Other Videos',R.config('standards/movie')],['Library overrides','Per-library differences',R.config('library/films')]].map(([t,d,href])=>h('a',{class:'card span-6',href},h('h2',{},t),h('p',{class:'muted'},d)))));}
 // ---- Render ----
 tabs();status();const page=document.getElementById('page');page.append(({home,library,history,config})[route]());
