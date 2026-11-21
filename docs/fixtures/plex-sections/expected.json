@@ -1,0 +1,160 @@
+{
+ "_note": "today = rules.library_kind() at the starting revision. proposed_first_connect = the suggested standard type when a library is first connected (scanner hint added). After first connect, the chosen standard type never changes on reconnect.",
+ "sections": [
+  {
+   "key": "1",
+   "case": "Ordinary Movies library",
+   "today": "movie",
+   "proposed_first_connect": "movie"
+  },
+  {
+   "key": "2",
+   "case": "Ordinary TV Shows library",
+   "today": "show",
+   "proposed_first_connect": "show"
+  },
+  {
+   "key": "3",
+   "case": "Other Videos (current Plex)",
+   "today": "other_videos",
+   "proposed_first_connect": "other_videos"
+  },
+  {
+   "key": "4",
+   "case": "Legacy Personal Media agent (Plex plans to remove legacy agents)",
+   "today": "other_videos",
+   "proposed_first_connect": "other_videos"
+  },
+  {
+   "key": "5",
+   "case": "Personal media moved to the Plex NFO Movie agent; scanner still Video Files",
+   "today": "movie",
+   "proposed_first_connect": "other_videos"
+  },
+  {
+   "key": "6",
+   "case": "Commercial films using the Plex NFO Movie agent",
+   "today": "movie",
+   "proposed_first_connect": "movie"
+  },
+  {
+   "key": "7",
+   "case": "Series using the Plex NFO Series agent",
+   "today": "show",
+   "proposed_first_connect": "show"
+  },
+  {
+   "key": "8",
+   "case": "Custom metadata provider chain (identifier format unverified)",
+   "today": "movie",
+   "proposed_first_connect": "movie"
+  }
+ ],
+ "reconnect_cases": [
+  {
+   "case": "Other Videos library switches agent from tv.plex.agents.none to tv.plex.agents.nfo.movie",
+   "before": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Video Files Scanner"
+   },
+   "today": {
+    "kind": "movie",
+    "effect": "silently switches to the Movies standard: cast and artwork stop counting, local AI suggestions stop"
+   },
+   "proposed": {
+    "standard_kind": "other_videos",
+    "observed_kind": "movie",
+    "notice": "Plex now reports this library as Movies (agent changed). It still follows the Other Videos standard.",
+    "history": "one curator event, level info"
+   }
+  },
+  {
+   "case": "Movies library switches agent from tv.plex.agents.movie to tv.plex.agents.nfo.movie",
+   "before": {
+    "standard_kind": "movie",
+    "observed_kind": "movie"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Movie"
+   },
+   "today": {
+    "kind": "movie",
+    "effect": "none"
+   },
+   "proposed": {
+    "standard_kind": "movie",
+    "observed_kind": "movie",
+    "notice": null,
+    "history": "none"
+   }
+  },
+  {
+   "case": "Legacy agent removed by Plex; library becomes tv.plex.agents.none",
+   "before": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.none",
+    "scanner": "Plex Video Files Scanner"
+   },
+   "today": {
+    "kind": "other_videos",
+    "effect": "none"
+   },
+   "proposed": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos",
+    "notice": null,
+    "history": "none"
+   }
+  }
+ ],
+ "schema_upgrade_cases": [
+  {
+   "case": "Existing library, profile home, kind movie (operator marked personal media)",
+   "before": {
+    "kind": "movie",
+    "profile": "home"
+   },
+   "after": {
+    "standard_kind": "other_videos",
+    "observed_kind": "movie",
+    "profile": "home"
+   }
+  },
+  {
+   "case": "Existing library, profile commercial, kind other_videos",
+   "before": {
+    "kind": "other_videos",
+    "profile": "commercial"
+   },
+   "after": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos",
+    "profile": "commercial",
+    "note": "profile kept; the earlier operator decision keeps current behaviour through an override, written separately when scans read standards (#107)"
+   }
+  },
+  {
+   "case": "Existing ordinary Movies library",
+   "before": {
+    "kind": "movie",
+    "profile": "commercial"
+   },
+   "after": {
+    "standard_kind": "movie",
+    "observed_kind": "movie",
+    "profile": "commercial"
+   }
+  }
+ ]
+}
