@@ -471,6 +471,7 @@ class Service(
         config = self.config()
         known = {}
         pending_renames = []
+        scanned_items = {}  # asset id -> Plex item seen in this scan, for rename reconciliation (#70)
         for a in assets:
             if a['library'] == library['id']:
                 known.setdefault((a['rating_key'], a['plex_path']), []).append(a)
@@ -564,6 +565,7 @@ class Service(
                             task_ids = task_index.setdefault(aid, {})
                             self.reconcile_findings(asset, findings, task_ids)
                             self.recommend_folder_defaults(asset, folder_defaults, task_ids)
+                        scanned_items[aid] = item
                         state['count'] += 1
             with self.store.transaction():
                 for asset in self.store.all('assets'):
@@ -582,6 +584,8 @@ class Service(
                                 missing_file=presence['state'] == 'missing',
                             )
                         self.store.put('assets', asset['id'], asset)
+            if self.pending_rename_receipts(library['id']):
+                self.reconcile_rename_receipts(library, scanned_items, self.checked_client(library))
             state['finished'] = now()
             self.connection_ok()
             self.store.record(
