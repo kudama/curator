@@ -2,6 +2,10 @@
 
 Recorded 2026-11-19 from the operator's Forge design discussion. This is the agreed product direction and a starting brief for detailed design. Only the separate theme slice described below is implemented by this change; navigation, discovery and maintenance features remain to be specified and built.
 
+## Current delivery ledger
+
+The [v2 readiness audit](v2-readiness.md), [tracking issue #102](https://github.com/kudama/curator/issues/102) and [shared agent workflow](agent-workflow.md) map this direction to implementation and acceptance. The original theme-slice wording above is historical; later merged foundations do not complete the full direction.
+
 ## Purpose and experience
 
 Curator first helps the operator bring a large existing catalog up to the desired standard. It then shifts toward maintaining new arrivals with progressively less intervention and helping the operator discover something worth watching. Design around fewer repeated decisions, useful defaults, batch work, review by exception, preserved working context and visible progress.
