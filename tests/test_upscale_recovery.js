@@ -33,3 +33,10 @@ test('an ordinary upscale keeps its existing approval controls',async()=>{
 test('late preview responses never add controls to a changed task',async()=>{
  const h=setup();h.c.state={tasks:[{...h.task,version:4}]};await tick();assert.ok(!h.nodes.some(n=>n.tag==='button'));assert.equal(h.queue.hidden,false);
 });
+test('a resolution exception is shown only for its matching output and version, never another failure',()=>{
+ const code=source.slice(source.indexOf('function validResolutionException('),source.indexOf('function renderUpscaleRecovery('));const c=vm.createContext({});vm.runInContext(code,c);
+ c.task={kind:'upscale',version:4,source_hash:'s',output_hash:'o',validation:['Output is below 1080-class target'],resolution_exception:{operator:'operator',version:4,source_hash:'s',output_hash:'o',binding:'b',reason:'explicit'}};
+ assert.equal(vm.runInContext('validResolutionException(task)',c),true);
+ c.task.version=5;assert.equal(vm.runInContext('validResolutionException(task)',c),false);
+ c.task.version=4;c.task.validation.push('Duration changed');assert.equal(vm.runInContext('validResolutionException(task)',c),false);
+});

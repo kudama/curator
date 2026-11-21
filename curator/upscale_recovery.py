@@ -36,6 +36,7 @@ def processing_validation(task):
         and issues == [tools.RESOLUTION_FLOOR]
         and exception.get('binding') == exception_binding(task)
         and exception.get('operator') == 'operator'
+        and exception.get('version') == task.get('version')
         and exception.get('reason')
     ):
         return []
@@ -60,10 +61,14 @@ class UpscaleRecovery:
 
     def _upscale_recovery_snapshot(self, key, version):
         task, asset = self._upscale_recovery_task(key, version)
-        settings = task.get('tool_settings') or {
-            **self.config(),
-            **self.processing_defaults().get(task['library'], {}).get('upscale', {}),
-        }
+        settings = (
+            task.get('plan', {}).get('upscale_recovery', {}).get('settings')
+            or task.get('tool_settings')
+            or {
+                **self.config(),
+                **self.processing_defaults().get(task['library'], {}).get('upscale', {}),
+            }
+        )
         settings = {k: v for k, v in settings.items() if k in PROCESSING_KEYS}
         settings['topaz_rate_control'] = settings.get('topaz_rate_control') or 'quality'
         settings.setdefault('topaz_quality', 65)
@@ -153,6 +158,7 @@ class UpscaleRecovery:
                     current.update(status='awaiting_review', result=evidence['result'])
                     current['resolution_exception'] = dict(
                         operator='operator',
+                        version=current['version'],
                         reason='Explicitly review retained output below the resolution floor',
                         at=now(),
                         source_hash=current['source_hash'],

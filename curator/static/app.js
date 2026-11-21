@@ -338,6 +338,9 @@ function recommendation(t,asset){
  box.append(node('div','RECOMMENDATION','eyebrow'),node('h3',title),node('p',description),node('p',next,'next-step'));
  return box;
 }
+function validResolutionException(task){
+ const e=task.resolution_exception;return task.kind==='upscale'&&task.validation?.length===1&&task.validation[0]==='Output is below 1080-class target'&&e?.operator==='operator'&&e.version===task.version&&e.source_hash===task.source_hash&&e.output_hash===task.output_hash&&Boolean(e.binding&&e.reason);
+}
 function renderUpscaleRecovery(detail,actions,task,queueApproval){
  const box=node('section'),status=node('p','Checking upscale recovery choices…','muted');box.append(status);detail.append(box);
  const current=()=>openedTask===task.id&&state.tasks.some(t=>t.id===task.id&&t.version===task.version&&t.status===task.status&&!t.deleted);
@@ -399,7 +402,7 @@ async function openTask(id,workspace='metadata'){
  if(t.provenance)detail.append(node('p','Evidence: '+t.provenance.join(' · '),'muted'));
  if(t.candidates){const grid=node('div',undefined,'frame-grid');for(const frame of t.candidates){const fig=node('figure'),img=node('img');img.src='/api/frames/'+t.asset+'/'+frame.file;img.alt='Candidate frame at '+frame.seconds+' seconds';fig.append(img,node('figcaption',frame.seconds+' seconds · right-click to save for Mage'));grid.append(fig);}detail.append(node('h3','Cover candidates'),grid);}
 
- const resumable=t.status==='blocked'&&['optimize','upscale'].includes(t.kind)&&t.output&&t.source_hash&&t.output_hash&&!t.published&&!t.validation?.length;
+ const resumable=t.status==='blocked'&&['optimize','upscale'].includes(t.kind)&&t.output&&t.source_hash&&t.output_hash&&!t.published&&(!t.validation?.length||validResolutionException(t));
  if(resumable){detail.append(node('p','The processed output is retained. Resolve the reported publishing issue, then return it to review without re-encoding. Publication rechecks source/output hashes.','muted'));actions.append(button('Return output to review',async()=>{await api('task/action',{id:t.id,action:'resume_review',version:t.version});await refresh();closeInspector(true);await openTask(t.id);},'primary'));}
  if(t.kind==='rename'&&t.status==='blocked'&&t.rename_started)actions.append(button('Restore original filenames',()=>taskAction(t,'restore_rename'),'primary'));
  if(t.kind==='join'&&['blocked','awaiting_review'].includes(t.status)&&t.output&&!t.validation?.length)actions.append(button('Refresh metadata preview',async()=>{await api('task/action',{id:t.id,version:t.version,action:'refresh_join_metadata'});await refresh();closeInspector(true);await openTask(t.id);},'subtle'));
@@ -410,7 +413,7 @@ async function openTask(id,workspace='metadata'){
  }
  if(t.kind==='upscale'&&['recommendation','blocked','failed','cancelled'].includes(t.status))renderUpscaleRecovery(detail,actions,t,queueApproval);
  if(t.plan?.upscale_recovery)detail.append(node('p','Reviewed 4× plan from the original: '+t.plan.upscale_recovery.dimensions.join(' × ')+' · '+t.plan.upscale_recovery.settings.topaz_filter,'muted'));
- if(t.resolution_exception)detail.prepend(node('p','Resolution exception: this output remains below the library target. Review the comparison before separately accepting publication.','task-error'));
+ if(validResolutionException(t))detail.prepend(node('p','Resolution exception: this output remains below the library target. Review the comparison before separately accepting publication.','task-error'));
  if(t.retained_attempts?.length)detail.append(node('p',t.retained_attempts.length+' prior processed output(s) retained with attempt history.','muted'));
  if(t.status==='awaiting_review'){
   let publishButton=null,publishing=false;const reviewVersion=t.version;

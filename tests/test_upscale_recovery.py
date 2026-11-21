@@ -85,6 +85,17 @@ class UpscaleRecovery(unittest.TestCase):
         self.assertEqual(self.file.read_bytes(), b'processed')
         self.assertEqual(self.file.with_name('film-old.mkv').read_bytes(), b'original-video')
 
+    def test_valid_exception_survives_publication_failure_and_supported_resume(self):
+        self.make()
+        with self.probes(), patch('curator.tools.output_decodes', return_value=True):
+            saved = self.recover('review_resolution')
+        saved.update(status='blocked', publication_error={'phase': 'copy failed'})
+        with self.store.transaction():
+            self.store.put('tasks', saved['id'], saved)
+        resumed = self.service.action(saved['id'], 'resume_review', saved['version'])
+        self.assertEqual(resumed['status'], 'awaiting_review')
+        self.assertFalse(processing_validation(resumed))
+
     def test_other_failures_decode_failure_or_changed_hash_cannot_be_waived(self):
         for issue in [
             'Duration changed',
@@ -128,6 +139,9 @@ class UpscaleRecovery(unittest.TestCase):
         self.assertEqual(preview['redo']['dimensions'], [1616, 2880])
         saved = self.recover('prepare_4x', preview)
         self.assertEqual(saved['status'], 'recommendation')
+        prepared_preview = self.service.upscale_recovery_preview(saved['id'], saved['version'])
+        self.assertFalse(prepared_preview['needs_recovery'])
+        self.assertEqual(prepared_preview['redo']['filter'], FILTER.replace('scale=2', 'scale=4'))
         self.assertNotIn('approval', saved)
         self.assertNotIn('output', saved)
         self.assertEqual(saved['retained_attempts'][0]['output'], str(self.output))
