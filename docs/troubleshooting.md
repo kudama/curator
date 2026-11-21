@@ -47,3 +47,17 @@ Media already at 4K class stops receiving automatic optional-upscale recommendat
 For a single dynamic Topaz filter with reviewed 1×, 2× or 4× scaling and automatic width/height, Curator predicts displayed output dimensions before queue approval and again before processing. A plan exceeding the existing 4096-pixel long-edge / 2160-pixel short-edge ceiling is refused with the predicted dimensions. For example, 3840×2160 at 2× would produce 7680×4320. Change and review the settings before retrying; Curator preserves the selected model/filter and retained outputs.
 
 Explicit output sizing and complex filter chains retain their existing post-processing validation; this guard does not invent their geometry. The separately planned recovery feature in issue #97 will offer resolution-only output acceptance or a reviewed 4× attempt from the original. That recovery feature is not implemented by this prevention fix.
+
+## Metadata or artwork after a rename (#70)
+
+Before a rename moves any file, Curator reads the item from Plex again and keeps a private recovery receipt: the current metadata (title, description, studio, tagline, genres, collections, labels, cast with roles and order) and the bytes of each selected artwork kind. Receipts live in the state folder under `rename-receipts/` (folder 0700, files 0600) and are never changed afterwards. If Plex cannot be read, or a selected image cannot be saved, the rename does not start and nothing moves.
+
+Curator still does not force a Plex refresh after renaming. When a later library scan finds the renamed file, Curator compares Plex with the receipt, and only for an exact match: the same Curator asset and library, the destination path, the same item type and an unchanged file fingerprint. Anything else is marked blocked for manual review.
+
+- Fields Plex kept need nothing. The receipt is marked reconciled.
+- Fields that now differ become a **proposed restore** on the item's metadata task. Review it in the metadata editor and apply it there; nothing is written to Plex automatically.
+- Fields Curator itself changed after the rename are never proposed. Open metadata work on the same item is reported as a conflict and left untouched.
+- Replaced or missing artwork is reported, and the original bytes stay in the receipt. Restoring artwork from a receipt is a separate, explicit step that is not offered in the app yet.
+- A rename that fully rolls back marks its receipt void. Curator history records each check, with a warning when something needs review.
+
+Rename and shared file-operation queues stay paused until the operator resumes them; this change does not resume them.
