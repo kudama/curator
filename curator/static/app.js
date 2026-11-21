@@ -338,6 +338,25 @@ function recommendation(t,asset){
  box.append(node('div','RECOMMENDATION','eyebrow'),node('h3',title),node('p',description),node('p',next,'next-step'));
  return box;
 }
+function validResolutionException(task){
+ const e=task.resolution_exception;return task.kind==='upscale'&&task.validation?.length===1&&task.validation[0]==='Output is below 1080-class target'&&e?.operator==='operator'&&e.version===task.version&&e.source_hash===task.source_hash&&e.output_hash===task.output_hash&&Boolean(e.binding&&e.reason);
+}
+function renderUpscaleRecovery(detail,actions,task,queueApproval){
+ const box=node('section'),status=node('p','Checking upscale recovery choices…','muted');box.append(status);detail.append(box);
+ const current=()=>openedTask===task.id&&state.tasks.some(t=>t.id===task.id&&t.version===task.version&&t.status===task.status&&!t.deleted);
+ api('upscale/recovery-preview',{id:task.id,version:task.version}).then(preview=>{
+  if(!current())return;if(!preview.needs_recovery){box.remove();return;}
+  if(queueApproval&&!task.plan?.upscale_recovery)queueApproval.hidden=true;
+  box.replaceChildren(node('h3','Below-target upscale'),node('p','Original: '+(preview.source_dimensions?.join(' × ')||'unknown')+' · Retained output: '+(preview.output_dimensions?.join(' × ')||'none')),node('p',preview.target,'muted'));
+  for(const issue of preview.validation)box.append(node('p',issue,'task-error'));
+  if(preview.validation.some(issue=>issue!=='Output is below 1080-class target'))box.append(node('p','A 4× redo changes scale only. Other reported failures still require correction.','muted'));
+  let busy=false;const controls=[];
+  const recover=async action=>{if(busy||!current())return;busy=true;for(const control of controls)control.disabled=true;const progress=node('p',action==='prepare_4x'?'Preparing original-source plan…':'Independently checking source and retained output; this may take time…','muted');box.append(progress);try{await api('upscale/recovery',{id:task.id,version:task.version,action,token:preview.token});await refresh();if(openedTask===task.id){closeInspector(true);await openTask(task.id);}toast(action==='prepare_4x'?'4× plan prepared from the original. Review it, then explicitly approve and queue.':'Output independently revalidated and returned to comparison review. Nothing published.');}finally{progress.remove();busy=false;for(const control of controls)control.disabled=false;}};
+  if(preview.can_review){const accept=button('Review below-target output',()=>recover('review_resolution'),'primary');controls.push(accept);box.append(accept,node('p','Waives only the resolution floor for this exact output. All other checks must pass; publication requires separate comparison review.','muted'));}
+  if(preview.redo.allowed){box.append(node('p','4× from original → '+preview.redo.dimensions.join(' × ')+' (source-relative scale, not a 4K promise)'),node('p',preview.redo.filter,'muted'),node('p','Encoding: HEVC · '+(preview.redo.encoding.topaz_rate_control==='bitrate'?preview.redo.encoding.topaz_bitrate_mbps+' Mbps':'quality '+preview.redo.encoding.topaz_quality)+' · audio/subtitles copied','muted'));const redo=button('Prepare 4× redo',()=>recover('prepare_4x'),'subtle');controls.push(redo);box.append(redo);}
+  else box.append(node('p',preview.redo.error||'4× geometry is unavailable. Choose supported settings before queueing.','muted'));
+ }).catch(error=>{if(current())status.textContent='Recovery choices unavailable: '+error.message;});
+}
 async function openTask(id,workspace='metadata'){
  if(!prepareInspector())return;inspectorMode='task';
  openedTask=id;$('task-feedback').hidden=true;$('task-reason').hidden=false;const t=state.tasks.find(t=>t.id===id),asset=state.assets.find(a=>a.id===t.asset);$('task-kind').textContent=(TASK_LABELS[t.kind]||t.kind).toUpperCase()+' · '+taskStatusLabel(t.status);$('task-title').textContent=t.title;$('task-reason').textContent=t.error||t.reason;selectedAssetId=t.asset;
@@ -347,7 +366,7 @@ async function openTask(id,workspace='metadata'){
  if(asset&&['metadata','home'].includes(t.kind))return openFileEditor(t,asset,workspace);
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  const processedReview=t.status==='awaiting_review'&&['upscale','optimize'].includes(t.kind);if(processedReview)$('task-reason').hidden=true;
- let processingSelector=null,prepareComparison=null;
+ let processingSelector=null,prepareComparison=null,queueApproval=null;
  if(t.kind==='upscale'&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&featureAvailable('unattended_runs')){const saved=state.processing_defaults?.[t.library]?.upscale;detail.append(node('p',saved?'Uses remembered upscale settings for this library.':'Uses workspace upscale settings.','muted'),button(saved?'Use current workspace settings for this library':'Remember current upscale settings for this library',()=>run(async()=>{const values=Object.fromEntries(['topaz_filter','topaz_rate_control','topaz_quality','topaz_bitrate_mbps'].filter(key=>state.config[key]!==undefined).map(key=>[key,state.config[key]]));await api('processing-defaults',{library:t.library,kind:'upscale',values});await refresh();await openTask(t.id);}), 'subtle'));}
  if(['queued','running','publishing'].includes(t.status)&&['upscale','optimize'].includes(t.kind)&&typeof renderQueueTaskFacts==='function')renderQueueTaskFacts(detail,t,asset);
  else detail.append(recommendation(t,asset));
@@ -383,15 +402,19 @@ async function openTask(id,workspace='metadata'){
  if(t.provenance)detail.append(node('p','Evidence: '+t.provenance.join(' · '),'muted'));
  if(t.candidates){const grid=node('div',undefined,'frame-grid');for(const frame of t.candidates){const fig=node('figure'),img=node('img');img.src='/api/frames/'+t.asset+'/'+frame.file;img.alt='Candidate frame at '+frame.seconds+' seconds';fig.append(img,node('figcaption',frame.seconds+' seconds · right-click to save for Mage'));grid.append(fig);}detail.append(node('h3','Cover candidates'),grid);}
 
- const resumable=t.status==='blocked'&&['optimize','upscale'].includes(t.kind)&&t.output&&t.source_hash&&t.output_hash&&!t.published&&!t.validation?.length;
+ const resumable=t.status==='blocked'&&['optimize','upscale'].includes(t.kind)&&t.output&&t.source_hash&&t.output_hash&&!t.published&&(!t.validation?.length||validResolutionException(t));
  if(resumable){detail.append(node('p','The processed output is retained. Resolve the reported publishing issue, then return it to review without re-encoding. Publication rechecks source/output hashes.','muted'));actions.append(button('Return output to review',async()=>{await api('task/action',{id:t.id,action:'resume_review',version:t.version});await refresh();closeInspector(true);await openTask(t.id);},'primary'));}
  if(t.kind==='rename'&&t.status==='blocked'&&t.rename_started)actions.append(button('Restore original filenames',()=>taskAction(t,'restore_rename'),'primary'));
  if(t.kind==='join'&&['blocked','awaiting_review'].includes(t.status)&&t.output&&!t.validation?.length)actions.append(button('Refresh metadata preview',async()=>{await api('task/action',{id:t.id,version:t.version,action:'refresh_join_metadata'});await refresh();closeInspector(true);await openTask(t.id);},'subtle'));
  if(t.kind==='join'&&t.status==='blocked'&&t.output&&!t.validation?.length)actions.append(button(t.published?'Resume Plex verification':'Return joined output to review',async()=>{await api('task/action',{id:t.id,version:t.version,action:'resume_join'});await refresh();closeInspector(true);await openTask(t.id);},'primary'));
  if(!(t.kind==='rename'&&t.rename_started)&&!(t.kind==='join'&&t.output)&&!resumable&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','metadata'].includes(t.kind)){
   const approve=button(t.kind==='home'?'Queue AI assist':'Approve & queue',()=>taskAction(t,'queue',processingSelector?{handbrake_preset:processingSelector.value(),remember_preset:processingSelector.remember?.()}:{}),'primary');
-  if(processingSelector){processingSelector.updateQueue=()=>{approve.disabled=!processingSelector.ready;};processingSelector.updateQueue();}actions.append(approve);
+  if(processingSelector){processingSelector.updateQueue=()=>{approve.disabled=!processingSelector.ready;};processingSelector.updateQueue();}actions.append(approve);queueApproval=approve;
  }
+ if(t.kind==='upscale'&&['recommendation','blocked','failed','cancelled'].includes(t.status))renderUpscaleRecovery(detail,actions,t,queueApproval);
+ if(t.plan?.upscale_recovery)detail.append(node('p','Reviewed 4× plan from the original: '+t.plan.upscale_recovery.dimensions.join(' × ')+' · '+t.plan.upscale_recovery.settings.topaz_filter,'muted'));
+ if(validResolutionException(t))detail.prepend(node('p','Resolution exception: this output remains below the library target. Review the comparison before separately accepting publication.','task-error'));
+ if(t.retained_attempts?.length)detail.append(node('p',t.retained_attempts.length+' prior processed output(s) retained with attempt history.','muted'));
  if(t.status==='awaiting_review'){
   let publishButton=null,publishing=false;const reviewVersion=t.version;
   if(t.kind==='join'){

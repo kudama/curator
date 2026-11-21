@@ -43,6 +43,7 @@ from .errors import UserError
 from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
 from .history import acting, current_initiator
+from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
 
 
@@ -69,6 +70,7 @@ class Service(
     RecoveryWorkflows,
     RunSummaries,
     LibraryStandards,
+    UpscaleRecovery,
 ):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
@@ -802,7 +804,7 @@ class Service(
                     task['status'] != 'blocked'
                     or task['kind'] not in {'optimize', 'upscale'}
                     or task.get('published')
-                    or task.get('validation')
+                    or processing_validation(task)
                     or not task.get('source_hash')
                     or not task.get('output_hash')
                     or not Path(task.get('output', '')).is_file()
@@ -942,6 +944,11 @@ class Service(
             }
             # Do not persist an unrelated Plex credential into processing plans.
             task['tool_settings'].pop('plex_token', None)
+            recovery = task.get('plan', {}).get('upscale_recovery')
+            if task['kind'] == 'upscale' and recovery:
+                if recovery['source'] != asset['fingerprint']:
+                    raise UserError('Original source changed since the 4× preview')
+                task['tool_settings'] = recovery['settings']
             if task['kind'] == 'optimize':
                 task['tool_settings'].update(
                     tools.freeze_handbrake_preset(
@@ -1383,6 +1390,7 @@ class Service(
                 (self.store.root / 'comparisons' / task['id'] / side / f'{index}.jpg').unlink(missing_ok=True)
         self._save(task, comparison_loaded=False, progress={'phase': 'Checking original'})
         source_hash = tools.digest(asset['local_path'])
+        task.pop('resolution_exception', None)
         cmd = tools.command(task['kind'], asset['local_path'], output, task['tool_settings'])
         log = folder / 'tool.log'
         telemetry = EncodingProgress(task['kind'], asset['technical'].get('duration_seconds'))
@@ -1423,28 +1431,7 @@ class Service(
         result = tools.probe(output, task['tool_settings'])
         issues = tools.validate(asset['technical'], result)
         # Decode output independently of the processing tool's exit status.
-        decode = subprocess.run(
-            [
-                tools.executable(task['tool_settings'], 'ffmpeg'),
-                '-nostdin',
-                '-v',
-                'error',
-                '-xerror',
-                '-i',
-                str(output),
-                '-map',
-                '0:v:0',
-                '-map',
-                '0:a?',
-                '-f',
-                'null',
-                '-',
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=3600,
-        )
-        if decode.returncode:
+        if not tools.output_decodes(output, task['tool_settings']):
             issues.append('Independent output decode failed')
         if task['id'] in self.cancels:
             raise UserError('Cancelled during validation; original preserved')
@@ -1789,7 +1776,7 @@ class Service(
         self._save(task, progress={'phase': 'Verifying source and output'})
         client = self.checked_client(self.library(asset['library']))
         output = Path(task['output'])
-        if task.get('validation') or tools.digest(output) != task['output_hash']:
+        if processing_validation(task) or tools.digest(output) != task['output_hash']:
             raise UserError('Output failed validation or changed after review')
         if tools.digest(asset['local_path']) != task['source_hash']:
             raise UserError('Source changed after processing')

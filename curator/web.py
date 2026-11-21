@@ -502,6 +502,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.apply_metadata(data['id'], data['version'], data['changes'])
             elif path == '/api/cast/apply':
                 result = service.apply_cast(data['id'], data['version'], data['cast'])
+            elif path == '/api/upscale/recovery-preview':
+                result = service.upscale_recovery_preview(data['id'], data['version'])
+            elif path == '/api/upscale/recovery':
+                result = service.upscale_recover(data['id'], data['version'], data['action'], data['token'])
             elif path == '/api/task/action':
                 result = service.action(data['id'], data['action'], data['version'], data.get('handbrake_preset'))
             elif path == '/api/queue/change':
