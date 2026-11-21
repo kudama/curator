@@ -1,0 +1,21 @@
+{
+ "_note": "Local feedback only.",
+ "feedback": [
+  {
+   "asset": "105",
+   "external_ids": [
+    "tmdb://900005"
+   ],
+   "feedback": "more",
+   "at": "2026-11-18T10:00:00Z"
+  },
+  {
+   "asset": "102",
+   "external_ids": [
+    "tmdb://900002"
+   ],
+   "feedback": "not_for_me",
+   "at": "2026-11-19T10:00:00Z"
+  }
+ ]
+}

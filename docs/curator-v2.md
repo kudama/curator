@@ -43,6 +43,8 @@ Candidate signals: recently added media, Rotten Tomatoes scores, social populari
 
 Curator should be able to maintain selected collections and publish them as rows in Plex Home / library Recommended. The operator confirmed Plex Pass. Plex documents [published collections](https://support.plex.tv/articles/publishing-collections/) and [recommendation row management](https://support.plex.tv/articles/manage-recommendations/); this does not establish control over Plex's internal recommendation algorithm or prove an implemented Curator integration. Proposed starter rows include “Picked by Curator” and “New and worth watching.”
 
+The proposed first discovery delivery and its contract are in [v2-discovery.md](v2-discovery.md) (#112).
+
 Potential external sources discussed: [TMDB trends](https://developer.themoviedb.org/docs/popularity-and-trending), [Netflix's public Top 10](https://www.netflix.com/tudum/top10), [FlixPatrol's paid API](https://flixpatrol.com/api2/) and [JustWatch's partner API](https://apis.justwatch.com/docs/api/). No provider subscription, account connection, social-data integration or paid access was selected or purchased. Match available titles by verified catalog identity; preserve the distinction between recommendations already in Plex and titles that could be requested later.
 
 ## Plex / Tautulli theme slice

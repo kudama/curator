@@ -1,0 +1,189 @@
+{
+ "_note": "Synthetic Plex-shaped items. Fixture clock: 2026-11-20T21:00:00Z. lib-family is an Other Videos library and is never picked.",
+ "libraries": {
+  "lib-films": "movie",
+  "lib-series": "show",
+  "lib-family": "other_videos"
+ },
+ "items": [
+  {
+   "ratingKey": "101",
+   "title": "Sample Film 31",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1794960000,
+   "Genre": [
+    {
+     "tag": "Animation"
+    },
+    {
+     "tag": "Action"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900001"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 8.2,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 7.0,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "102",
+   "title": "Sample Film 32",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1794355200,
+   "Genre": [
+    {
+     "tag": "Drama"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900002"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 6.4,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 8.8,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "103",
+   "title": "Sample Film 33",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1794787200,
+   "Genre": [
+    {
+     "tag": "Comedy"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900003"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000
+  },
+  {
+   "ratingKey": "104",
+   "title": "Sample Film 34",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1795046400,
+   "Genre": [
+    {
+     "tag": "Action"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900004"
+    }
+   ],
+   "viewCount": 1,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 9.0,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 8.5,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "105",
+   "title": "Sample Film 35",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1777939200,
+   "Genre": [
+    {
+     "tag": "Animation"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900005"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 1800000,
+   "duration": 6000000,
+   "rating": 7.5,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 8.0,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "106",
+   "title": "Sample Film 36",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1791763200,
+   "Genre": [
+    {
+     "tag": "Action"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900006"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 9.5,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 9.1,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "201",
+   "title": "Demo Series",
+   "type": "show",
+   "library": "lib-series",
+   "addedAt": 1794700800,
+   "Genre": [
+    {
+     "tag": "Drama"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tvdb://800001"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 7.0,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 7.2,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "301",
+   "title": "Birthday 2026",
+   "type": "movie",
+   "library": "lib-family",
+   "addedAt": 1795132800,
+   "Genre": [],
+   "Guid": [],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000
+  }
+ ]
+}
