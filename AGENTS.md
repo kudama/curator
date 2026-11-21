@@ -27,6 +27,13 @@ merged PR titles are supporting evidence, not proof of completion.
 - Feature branches start from current `v2`; feature PRs target `v2`. Do not push
   directly to `v2` or `main`, rewrite another agent's branch, or bundle unrelated
   changes. Independently reviewed backports to `main` use separate focused PRs.
+- Operator instruction (2026-11-20): Codex reviews Claude-authored PRs; Claude
+  reviews Codex-authored PRs. A local Forge model review supports this cross-review
+  and does not replace it. The authoring controller owns delegated worker changes.
+- Use Forge controllers for bounded worker delegation and supporting checks.
+  Keep work orders scoped to approved source, tools and deliverables; poll to a
+  terminal result and inspect it before use. Do not dispatch unmanaged replacement
+  workers if a controller is unavailable; record the delegation blocker.
 - Implementer and reviewer must be different agents. Record reviewer identity,
   exact head SHA, findings and verification; invalidate the review after changes.
   Never label self-review as independent. Shared GitHub credentials do not create
