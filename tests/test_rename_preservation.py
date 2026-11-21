@@ -80,6 +80,7 @@ class Preservation(unittest.TestCase):
         self.assertEqual(receipt['artwork']['cover']['file'], 'cover.png')
         self.assertEqual(receipt['artwork']['background']['file'], 'background.jpg')
         self.assertTrue(receipt['destination_fingerprint'])
+        self.assertEqual(receipt['source_fingerprint'], task['plan']['moves'][0]['fingerprint'])
 
     def test_no_capture_means_no_move(self):
         task = self.plan()
@@ -222,3 +223,118 @@ class Preservation(unittest.TestCase):
         self.assertEqual(receipt['status'], 'blocked')
         self.assertIn('changed', receipt['reason'])
         self.assertNotIn('outcome', receipt)
+
+    def test_interrupted_receipt_without_verified_destination_is_blocked(self):
+        self.run_task(self.plan())
+        self.plex.scan_folder(self.library, '/plex')
+        self.plex.rows['1']['summary'] = ''
+        with self.store.transaction():
+            [receipt] = self.receipts()
+            receipt.pop('destination_fingerprint')
+            receipt['status'] = 'captured'
+            self.store.put('settings', receipt['id'], receipt)
+        self.scan()
+        [receipt] = self.receipts()
+        self.assertEqual(receipt['status'], 'blocked')
+        self.assertNotIn('outcome', receipt)
+
+    def test_missing_pre_move_identity_is_blocked_even_with_a_destination_fingerprint(self):
+        self.run_task(self.plan())
+        self.plex.scan_folder(self.library, '/plex')
+        with self.store.transaction():
+            [receipt] = self.receipts()
+            receipt.pop('source_fingerprint')
+            self.store.put('settings', receipt['id'], receipt)
+        self.scan()
+        self.assertEqual(self.receipts()[0]['status'], 'blocked')
+
+    def test_captured_receipt_never_restores_metadata_to_a_replaced_source(self):
+        self.service.capture_rename_receipt(self.plan(), self.assets[0], self.plex)
+        (self.folder / 'Trip - Part 1.mkv').write_bytes(b'unrelated replacement')
+        self.plex.rows['1']['summary'] = ''
+        self.scan()
+        [receipt] = self.receipts()
+        self.assertEqual(receipt['status'], 'blocked')
+        self.assertNotIn('outcome', receipt)
+
+    def test_capture_refuses_a_source_that_changes_while_artwork_is_read(self):
+        image = self.plex.image
+
+        def image_and_replace(*args):
+            (self.folder / 'Trip - Part 1.mkv').write_bytes(b'changed during capture')
+            return image(*args)
+
+        with patch.object(self.plex, 'image', side_effect=image_and_replace):
+            with self.assertRaisesRegex(ValueError, 'rename not started'):
+                self.service.capture_rename_receipt(self.plan(), self.assets[0], self.plex)
+        self.assertEqual(self.receipts(), [])
+        self.assertEqual(list((self.store.root / 'rename-receipts').iterdir()), [])
+
+    def test_reconcile_checks_the_actual_file_not_just_the_scanned_fingerprint(self):
+        self.run_task(self.plan())
+        self.plex.scan_folder(self.library, '/plex')
+        (self.folder / 'Better.mkv').write_bytes(b'replaced after the scan')
+        [receipt] = self.receipts()
+        result = self.service._reconcile_one(
+            self.library, receipt, {self.assets[0]['id']: self.plex.item('1')}, self.plex
+        )
+        self.assertEqual(result['status'], 'blocked')
+
+    def test_newer_edit_between_artwork_read_and_proposal_is_not_overwritten(self):
+        self.run_task(self.plan())
+        self.plex.scan_folder(self.library, '/plex')
+        self.plex.rows['1'].update(summary='', tagline='')
+        propose = self.service._propose_metadata_restore
+
+        def edit_then_propose(asset, receipt, fields):
+            metadata = self.service.metadata_task(asset['id'])
+            self.service.apply_metadata(metadata['id'], metadata['version'], {'summary': 'Newer description'})
+            return propose(asset, receipt, fields)
+
+        with patch.object(self.service, '_propose_metadata_restore', side_effect=edit_then_propose):
+            self.scan()
+        outcome = self.receipts()[0]['outcome']
+        self.assertEqual(outcome['superseded'], ['summary'])
+        self.assertEqual(outcome['differs'], ['tagline'])
+        restore = self.service.get_task(outcome['restore']['task'])
+        self.assertEqual(restore['plan']['changes'], {'tagline': 'Tagline'})
+        self.assertEqual(self.plex.rows['1']['summary'], 'Newer description')
+
+    def test_all_superseded_fields_leave_the_newer_applied_task_unchanged(self):
+        self.run_task(self.plan())
+        self.plex.scan_folder(self.library, '/plex')
+        self.plex.rows['1']['summary'] = ''
+        propose = self.service._propose_metadata_restore
+        applied = []
+
+        def edit_then_propose(asset, receipt, fields):
+            metadata = self.service.metadata_task(asset['id'])
+            applied.append(self.service.apply_metadata(metadata['id'], metadata['version'], {'summary': 'Newer'}))
+            return propose(asset, receipt, fields)
+
+        with patch.object(self.service, '_propose_metadata_restore', side_effect=edit_then_propose):
+            self.scan()
+        outcome = self.receipts()[0]['outcome']
+        self.assertEqual(outcome['superseded'], ['summary'])
+        self.assertEqual(outcome['differs'], [])
+        self.assertNotIn('restore', outcome)
+        task = self.service.get_task(applied[0]['id'])
+        self.assertEqual(task['status'], 'applied')
+        self.assertEqual(task['version'], applied[0]['version'])
+        self.assertEqual(task['plan']['changes'], {'summary': 'Newer'})
+
+    def test_file_replaced_during_artwork_reads_cannot_receive_a_restore_proposal(self):
+        self.run_task(self.plan())
+        self.plex.scan_folder(self.library, '/plex')
+        self.plex.rows['1']['summary'] = ''
+        propose = self.service._propose_metadata_restore
+
+        def replace_then_propose(asset, receipt, fields):
+            (self.folder / 'Better.mkv').write_bytes(b'replaced during reconciliation')
+            return propose(asset, receipt, fields)
+
+        with patch.object(self.service, '_propose_metadata_restore', side_effect=replace_then_propose):
+            self.scan()
+        restore = self.receipts()[0]['outcome']['restore']
+        self.assertEqual(restore['state'], 'conflict')
+        self.assertNotIn('task', restore)

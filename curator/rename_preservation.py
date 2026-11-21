@@ -16,8 +16,9 @@ explicit restore. No Plex refresh is forced and no paid generation is replayed.
 import copy
 import hashlib
 import os
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
+from . import tools
 from .errors import UserError
 from .logs import log, redact
 from .plex import Plex
@@ -57,6 +58,10 @@ class RenamePreservation:
 
     def capture_rename_receipt(self, task, asset, client):
         """Fresh pre-move snapshot. Raises before anything moves if it cannot be taken."""
+        source = Path(asset['local_path'])
+        source_fingerprint = tools.fingerprint(source)
+        if source.is_symlink() or source_fingerprint != asset.get('fingerprint'):
+            raise UserError('Source changed; rename not started')
         try:
             item = client.item(asset['rating_key'])
         except Exception as error:
@@ -80,6 +85,8 @@ class RenamePreservation:
                 with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as handle:
                     handle.write(data)
                 artwork[kind] = dict(file=name, sha256=hashlib.sha256(data).hexdigest(), bytes=len(data))
+            if source.is_symlink() or tools.fingerprint(source) != source_fingerprint:
+                raise UserError('Source changed during capture')
         except Exception as error:
             for child in folder.iterdir():
                 child.unlink()
@@ -102,6 +109,7 @@ class RenamePreservation:
             rating_key=str(item['ratingKey']),
             item_type=item.get('type'),
             source_plex_path=asset['plex_path'],
+            source_fingerprint=source_fingerprint,
             destination_plex_path=str(PurePosixPath(asset['plex_path']).with_name(task['plan']['filename'])),
             metadata=metadata,
             artwork=artwork,
@@ -169,22 +177,27 @@ class RenamePreservation:
         rolled_back = asset['plex_path'] == receipt['source_plex_path']
         if asset['plex_path'] not in {receipt['destination_plex_path'], receipt['source_plex_path']}:
             return self.settle_rename_receipt(receipt, 'blocked', reason='The file moved again; review it manually')
-        if receipt.get('destination_fingerprint') and not rolled_back:
-            if asset.get('fingerprint') != receipt['destination_fingerprint']:
-                return self.settle_rename_receipt(
-                    receipt, 'blocked', reason='The renamed file changed after the rename'
-                )
+        expected = receipt.get('source_fingerprint' if rolled_back else 'destination_fingerprint')
+        if not receipt.get('source_fingerprint') or not expected:
+            return self.settle_rename_receipt(
+                receipt, 'blocked', reason='File identity was not verified; review the interrupted rename manually'
+            )
+        path = Path(asset['local_path'])
+        if (
+            asset.get('library') != receipt['library']
+            or path.is_symlink()
+            or asset.get('fingerprint') != expected
+            or tools.fingerprint(path) != expected
+        ):
+            return self.settle_rename_receipt(receipt, 'blocked', reason='The file changed after the rename snapshot')
         if receipt.get('item_type') and item.get('type') != receipt['item_type']:
             return self.settle_rename_receipt(receipt, 'blocked', reason='Plex matched the file as a different type')
         current = self.metadata_fields(item)
         captured = receipt['metadata']
-        newer = self._newer_curator_edits(asset['id'], receipt['captured_at'])
         retained, differs, superseded = [], [], []
         for field in METADATA_FIELDS:
             if _comparable(field, current.get(field)) == _comparable(field, captured.get(field)):
                 retained.append(field)
-            elif field in newer:
-                superseded.append(field)
             else:
                 differs.append(field)
         artwork = {}
@@ -209,8 +222,14 @@ class RenamePreservation:
         )
         status = 'reconciled'
         if differs:
-            outcome['restore'] = self._propose_metadata_restore(asset, receipt, differs)
-            status = 'review'
+            restore = self._propose_metadata_restore(asset, receipt, differs)
+            # Classifications are rechecked with the proposal under the same transaction.
+            superseded.extend(restore.pop('superseded', []))
+            retained.extend(restore.pop('retained', []))
+            differs[:] = [field for field in differs if field not in superseded and field not in retained]
+            if differs:
+                outcome['restore'] = restore
+                status = 'review'
         if any(state != 'retained' for state in artwork.values()):
             status = 'review'
         settled = self.settle_rename_receipt(receipt, status, outcome=outcome)
@@ -230,20 +249,49 @@ class RenamePreservation:
 
     def _propose_metadata_restore(self, asset, receipt, fields):
         """A reviewable proposal on the item's metadata task; never a Plex write."""
-        changes = {field: copy.deepcopy(receipt['metadata'][field]) for field in fields}
-        if 'cast' in changes:
-            changes['cast'] = [
-                {k: v for k, v in row.items() if k in {'name', 'role', 'thumb'}} for row in changes['cast']
-            ]
-        try:
-            Plex.validate_changes(changes)
-        except Exception:
-            return dict(state='not_proposed', reason='Captured values cannot be written back as they are')
         with self.store.transaction():
             current = self.store.get('assets', asset['id'])
             if not current:
                 return dict(state='not_proposed', reason='The item is no longer in the catalog')
-            task = self.task(current, dict(kind='metadata', reason='Restore metadata Plex lost after a rename'))
+            if (
+                any(
+                    current.get(key) != asset.get(key)
+                    for key in ('library', 'plex_path', 'local_path', 'rating_key', 'fingerprint')
+                )
+                or Path(current['local_path']).is_symlink()
+                or tools.fingerprint(current['local_path']) != current.get('fingerprint')
+            ):
+                return dict(state='conflict', reason='The item changed during reconciliation; review it manually')
+            newer = self._newer_curator_edits(asset['id'], receipt['captured_at'])
+            observed = self.metadata_fields(current['item'])
+            superseded = [field for field in fields if field in newer]
+            retained = [
+                field
+                for field in fields
+                if field not in newer
+                and _comparable(field, observed.get(field)) == _comparable(field, receipt['metadata'].get(field))
+            ]
+            excluded = dict(superseded=superseded, retained=retained)
+            changes = {
+                field: copy.deepcopy(receipt['metadata'][field])
+                for field in fields
+                if field not in superseded and field not in retained
+            }
+            if not changes:
+                return dict(state='not_needed', **excluded)
+            if 'cast' in changes:
+                changes['cast'] = [
+                    {k: v for k, v in row.items() if k in {'name', 'role', 'thumb'}} for row in changes['cast']
+                ]
+            try:
+                Plex.validate_changes(changes)
+            except Exception:
+                return dict(
+                    state='not_proposed', reason='Captured values cannot be written back as they are', **excluded
+                )
+            task = self.store.get('tasks', stable_id(current['id'], 'metadata')) or self.task(
+                current, dict(kind='metadata', reason='Restore metadata Plex lost after a rename')
+            )
             existing = (task.get('plan') or {}).get('changes')
             if (
                 task.get('deleted')
@@ -251,7 +299,9 @@ class RenamePreservation:
                 or task['status'] == 'awaiting_review'
                 or (existing and task['status'] not in {'applied', 'resolved'})
             ):
-                return dict(state='conflict', task=task['id'], reason='Other metadata work for this item is open')
+                return dict(
+                    state='conflict', task=task['id'], reason='Other metadata work for this item is open', **excluded
+                )
             task.update(
                 status='recommendation',
                 version=task['version'] + 1,
@@ -268,4 +318,4 @@ class RenamePreservation:
                 task['id'],
                 dict(action='rename restore proposed', receipt=receipt['receipt'], fields=sorted(changes)),
             )
-        return dict(state='proposed', task=task['id'], fields=sorted(changes))
+        return dict(state='proposed', task=task['id'], fields=sorted(changes), **excluded)
