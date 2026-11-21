@@ -37,7 +37,7 @@ def seed(sandbox):
             if path.exists() or image.exists():
                 raise ValueError('Synthetic output already exists; preserving it')
             subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-n', '-f', 'lavfi', '-i',
-                            f'color=c={color}:s=640x360:r=12', '-t', '12', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(path)], check=True)
+                            f'color=c={color}:s=640x360:r=12', '-t', '12', '-c:v', 'mpeg4', '-pix_fmt', 'yuv420p', str(path)], check=True)
             subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-n', '-i', str(path), '-frames:v', '1', str(image)], check=True)
             aid = stable_id('development', number)
             item = dict(ratingKey=str(number), type='movie', title=title, summary='Synthetic DEV/TEST sample. No personal media.',
