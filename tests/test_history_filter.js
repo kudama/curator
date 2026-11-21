@@ -106,3 +106,13 @@ test('a retry the server refuses is reported, not shown as queued',async()=>{
  await assert.rejects(h.run("historyRecoveryAction(snapshot,{call:'retry'})"),/manual recovery required/);
  assert.ok(!h.calls.some(x=>x.toast));
 });
+test('a valid resolution exception for this exact output offers the existing return to review; others do not',()=>{
+ const floor='Output is below 1080-class target';
+ const task={...base,kind:'upscale',status:'blocked',output:'/o',source_hash:'s',output_hash:'o',validation:[floor],
+  resolution_exception:{operator:'operator',version:3,source_hash:'s',output_hash:'o',binding:'b',reason:'r'}};
+ const call=t=>{const h=recoveryHarness(t);h.c.subject=h.c.state.tasks[0];return JSON.parse(h.run('JSON.stringify(historyRecovery(subject))'));};
+ const ok=call(task);assert.equal(ok.action.call,'resume_review');assert.match(ok.text,/below the resolution target/);
+ for(const change of [{version:4},{output_hash:'other'},{validation:[floor,'Aspect ratio changed']},{kind:'optimize'},{resolution_exception:{...task.resolution_exception,operator:'rule'}},{resolution_exception:undefined}]){
+  const result=call({...task,...change});assert.notEqual(result?.action?.call,'resume_review',JSON.stringify(change));
+ }
+});

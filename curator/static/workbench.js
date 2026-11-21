@@ -360,6 +360,9 @@ function renderHistory(){
   const recovery=historyRecovery(task);if(recovery)text.append(node('p',recovery.text,'history-recovery muted'));text.append(jobTimeline(task));
   row.append(text);if(recovery?.action)row.append(button(recovery.action.label,()=>historyRecoveryAction(task,recovery.action),'primary'));row.append(button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
 }
+// A resolution-only exception the operator recorded for this exact output (PR #129). The server
+// re-checks it; this only decides whether History offers the existing resume_review.
+function historyResolutionException(task){const e=task.resolution_exception;return task.kind==='upscale'&&(task.validation||[]).length===1&&task.validation[0]==='Output is below 1080-class target'&&e?.operator==='operator'&&e.version===task.version&&e.source_hash===task.source_hash&&e.output_hash===task.output_hash&&Boolean(e.binding&&e.reason);}
 // Recovery from History reuses existing actions only. Opening a job never acts;
 // buttons that act re-read the job first, and the server checks version and source again.
 function historyRecovery(task){
@@ -370,7 +373,7 @@ function historyRecovery(task){
  if(task.published)return {text:'Publication may be incomplete. View the job to check its publication log and Plex verification. Do not process it again.'};
  if(kind==='rename'&&task.rename_started)return {text:'The rename started but did not finish. View the job to check its receipt and restore the original filenames.'};
  if(kind==='join'&&task.output&&validated)return {text:'A joined output is retained. View the job to refresh its metadata preview and return it to review.'};
- if(status==='blocked'&&['optimize','upscale'].includes(kind)&&task.output&&task.source_hash&&task.output_hash&&validated)return {text:'A validated output is retained. It can return to review without processing again; publishing still needs your review.',action:{label:'Return output to review',call:'resume_review'}};
+ if(status==='blocked'&&['optimize','upscale'].includes(kind)&&task.output&&task.source_hash&&task.output_hash&&(validated||historyResolutionException(task)))return {text:(validated?'A validated output is retained.':'An output you accepted below the resolution target is retained.')+' It can return to review without processing again; publishing still needs your review.',action:{label:'Return output to review',call:'resume_review'}};
  if(task.output)return {text:'An output is retained but did not pass validation. View the job to inspect it before choosing to process again.'};
  if(['artwork','mage_generation','portrait'].includes(kind))return {text:'Recover artwork from artwork review. Paid generation needs a fresh quote.'};
  if(kind==='folder_metadata')return {text:'Folder changes need a fresh preview before they can be queued again.'};

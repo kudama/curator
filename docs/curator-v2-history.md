@@ -52,7 +52,7 @@ Each job in History shows the next supported step for its state, using only acti
 | Publication started (`published`) | Guidance: check the publication log and Plex verification in the inspector; never reprocess |
 | Rename started | Guidance: restore the original filenames from the inspector |
 | Join with a retained output | Guidance: refresh the preview and return to review from the inspector |
-| Blocked upscale/encode with a validated, unpublished output | **Return output to review** (existing `resume_review`) |
+| Blocked upscale/encode with a validated, unpublished output, or an upscale whose only failure is the resolution floor and whose recorded resolution exception matches this exact output (#97/#129) | **Return output to review** (existing `resume_review`) |
 | Retained output that failed validation | Guidance: inspect it before choosing to process again |
 | Artwork, paid generation, portraits | Guidance: use artwork review (a fresh quote for paid generation) |
 | Folder metadata | Guidance: a fresh preview is required |
