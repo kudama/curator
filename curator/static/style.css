@@ -162,7 +162,7 @@
 :is(#history-view,#history-scope,#history-period,#history-level,#history-status){height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
 .view-options:has(#history-view-control:not([hidden]))>button{height:40px;display:inline-flex;align-items:center;justify-content:center}
 .history-timeline,.history-details{margin-top:6px;font-size:11px}.history-timeline summary,.history-details summary{cursor:pointer;color:var(--muted)}.history-timeline ol{margin:6px 0 0;padding-left:18px}.history-details dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:6px 0 0}.history-details dt{color:var(--muted)}.history-details dd{margin:0;overflow-wrap:anywhere}
-.curator-event.warning strong{color:#e4c38f}.curator-event.error strong{color:var(--bad)}
+.history-recovery{color:#d8c79c!important}.history-row{flex-wrap:wrap}.history-row>div:first-child{flex:1 1 260px}.curator-event.warning strong{color:#e4c38f}.curator-event.error strong{color:var(--bad)}
 
 /* Feedback participates in layout; messages never cover the work controls. */
 .inline-feedback{flex-shrink:0;min-width:0;max-height:24vh;overflow:auto;margin:0 0 12px}

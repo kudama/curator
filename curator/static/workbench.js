@@ -84,7 +84,7 @@ function updateQueueLayout(){
  for(const card of document.querySelectorAll('[data-task-id]')){const selected=queue&&open&&card.dataset.taskId===openedTask;card.classList.toggle('inspected',selected);if(selected)card.setAttribute('aria-current','true');else card.removeAttribute('aria-current');}
 }
 function showInspector(){if(!inspectorOpen()){inspectorReturnFocus=document.activeElement;inspectorReturnQueueFocus=queueFocusIdentity(inspectorReturnFocus);queueScrollPosition=document.querySelector('.file-pane').scrollTop;}$('task-dialog').hidden=false;updateQueueLayout();const body=$('task-dialog').querySelector('.task-scroll');if(body)body.scrollTop=0;$('task-title').tabIndex=-1;$('task-title').focus({preventScroll:true});}
-function closeInspector(force=false){if(!force&&inspectorBack){const back=inspectorBack;inspectorBack=null;back();return;}if(!force&&!prepareInspector())return;inspectorBack=null;inspectorDirty=false;openedTask=null;inspectorMode=null;$('task-dialog').hidden=true;updateQueueLayout();document.querySelector('.workbench').classList.remove('review-wide');$('inspector-expand').setAttribute('aria-label','Expand review panel');$('inspector-expand').title='Expand review panel';if(['processing','review','filemanagement'].includes(screen))document.querySelector('.file-pane').scrollTop=queueScrollPosition;if(inspectorReturnFocus?.isConnected&&inspectorReturnFocus!==document.body)inspectorReturnFocus.focus({preventScroll:true});else if(!restoreQueueFocus(inspectorReturnQueueFocus)){const fallback=document.querySelector('.file-tool-row.selected button,.file-entry[aria-pressed="true"],#queue-status-links button.active');fallback?.focus({preventScroll:true});}}
+function closeInspector(force=false){if(!force&&inspectorBack){const back=inspectorBack;inspectorBack=null;back();return;}if(!force&&!prepareInspector())return;inspectorBack=null;inspectorDirty=false;openedTask=null;inspectorMode=null;$('task-dialog').hidden=true;updateQueueLayout();document.querySelector('.workbench').classList.remove('review-wide');$('inspector-expand').setAttribute('aria-label','Expand review panel');$('inspector-expand').title='Expand review panel';if(['processing','review','filemanagement','history'].includes(screen))document.querySelector('.file-pane').scrollTop=queueScrollPosition;if(inspectorReturnFocus?.isConnected&&inspectorReturnFocus!==document.body)inspectorReturnFocus.focus({preventScroll:true});else if(!restoreQueueFocus(inspectorReturnQueueFocus)){const fallback=document.querySelector('.file-tool-row.selected button,.file-entry[aria-pressed="true"],#queue-status-links button.active');fallback?.focus({preventScroll:true});}}
 function fileName(asset){return (asset.plex_path||asset.local_path||'').split('/').pop()||asset.title;}
 function matchesSearch(asset){return !searchText||[fileName(asset),asset.title,asset.plex_path].join(' ').toLocaleLowerCase().includes(searchText);}
 function fileTasks(asset){if(!asset)return [];return (catalogIndex().byAsset.get(asset.id)||[]).filter(t=>t.library===libraryId);}
@@ -355,7 +355,41 @@ async function enableRunNotifications(){
 }
 function renderHistory(){
  if(historyView==='curator')return renderCuratorHistory();
- return [...reviewBatchCards(true),...cleanupJobCards(true),...state.tasks.filter(t=>historyLibraryMatches(t.library)&&historyStatusMatches(t)&&historyInPeriod(t.updated||t.created)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',historyMeta([TASK_LABELS[task.kind]||task.kind,taskStatusLabel(task.status),new Date(task.updated||task.created).toLocaleString(),task.queued_by?'Queued by '+(HISTORY_INITIATORS[task.queued_by]||task.queued_by):'',historyScope==='all'?historyLibraryTitle(task.library):'']),'muted'),jobTimeline(task));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
+ return [...reviewBatchCards(true),...cleanupJobCards(true),...state.tasks.filter(t=>historyLibraryMatches(t.library)&&historyStatusMatches(t)&&historyInPeriod(t.updated||t.created)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',historyMeta([TASK_LABELS[task.kind]||task.kind,taskStatusLabel(task.status),new Date(task.updated||task.created).toLocaleString(),task.queued_by?'Queued by '+(HISTORY_INITIATORS[task.queued_by]||task.queued_by):'',historyScope==='all'?historyLibraryTitle(task.library):'']),'muted'));
+  if(task.error&&['failed','blocked'].includes(task.status))text.append(node('p',task.error,'task-error'));
+  const recovery=historyRecovery(task);if(recovery)text.append(node('p',recovery.text,'history-recovery muted'));text.append(jobTimeline(task));
+  row.append(text);if(recovery?.action)row.append(button(recovery.action.label,()=>historyRecoveryAction(task,recovery.action),'primary'));row.append(button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
+}
+// Recovery from History reuses existing actions only. Opening a job never acts;
+// buttons that act re-read the job first, and the server checks version and source again.
+function historyRecovery(task){
+ const status=task.status,kind=task.kind,validated=!(task.validation||[]).length;
+ if(task.cleanup_pending)return {text:'Cleanup of the retained original did not finish. View the job to inspect it; any restore happens there.'};
+ if(['applied','resolved'].includes(status))return null;
+ if(status==='rejected')return {text:'Rejected results stay closed. History has no supported way to reopen them.'};
+ if(task.published)return {text:'Publication may be incomplete. View the job to check its publication log and Plex verification. Do not process it again.'};
+ if(kind==='rename'&&task.rename_started)return {text:'The rename started but did not finish. View the job to check its receipt and restore the original filenames.'};
+ if(kind==='join'&&task.output&&validated)return {text:'A joined output is retained. View the job to refresh its metadata preview and return it to review.'};
+ if(status==='blocked'&&['optimize','upscale'].includes(kind)&&task.output&&task.source_hash&&task.output_hash&&validated)return {text:'A validated output is retained. It can return to review without processing again; publishing still needs your review.',action:{label:'Return output to review',call:'resume_review'}};
+ if(task.output)return {text:'An output is retained but did not pass validation. View the job to inspect it before choosing to process again.'};
+ if(['artwork','mage_generation','portrait'].includes(kind))return {text:'Recover artwork from artwork review. Paid generation needs a fresh quote.'};
+ if(kind==='folder_metadata')return {text:'Folder changes need a fresh preview before they can be queued again.'};
+ if(kind==='inspect')return {text:'Scan the library again to recheck this file.'};
+ if(!['failed','blocked','cancelled'].includes(status))return null;
+ if(!taskAvailable(task))return {text:'The source file is missing from the catalog, so this job cannot be queued again. Scan the library first.'};
+ if(status!=='cancelled'&&safeFailedRetry(task))return {text:'Nothing was written. Retry checks the source and settings again and queues the job; the queue does not start.',action:{label:'Retry',call:'retry'}};
+ return {text:status==='cancelled'?'Cancelled before completion. View the job to check its settings and queue it again.':'View the job to inspect the cause, then queue it again with a fresh source and settings check.'};
+}
+async function historyRecoveryAction(snapshot,action){
+ const pane=document.querySelector('.file-pane'),top=pane?pane.scrollTop:0;
+ await refresh();
+ const current=state.tasks.find(t=>t.id===snapshot.id);
+ if(!current||current.version!==snapshot.version||current.status!==snapshot.status||historyRecovery(current)?.action?.call!==action.call)throw Error('This job changed since History was shown. Check its current state before acting.');
+ try{
+  if(action.call==='retry'){const result=await api('recovery/retry-failed',{tasks:[{id:current.id,version:current.version}]});const item=result.items[0];if(item?.status!=='queued')throw Error(item?.error||'The job could not be queued again');toast('Queued again. The queue has not been started.');}
+  else if(action.call==='resume_review'){await api('task/action',{id:current.id,version:current.version,action:'resume_review'});toast('Output returned to review. Publishing still needs your review.');}
+  else throw Error('Unsupported recovery action');
+ }finally{await refresh();if(pane)pane.scrollTop=top;}
 }
 const HISTORY_INITIATORS={operator:'You',rule:'Rule',ai:'AI-assisted',curator:'Curator'};
 function historyMeta(parts){return parts.filter(Boolean).join(' · ');}
