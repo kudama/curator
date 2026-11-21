@@ -73,13 +73,12 @@ class Quality(unittest.TestCase):
         self.assertEqual(assess(dict(width=1280, height=720))[0]['kind'], 'upscale')
 
     def test_cinematic_and_portrait(self):
-        for width, height in [(1920, 800), (1080, 1920), (3840, 1600)]:
+        for width, height in [(1920, 800), (1080, 1920)]:
             self.assertTrue(assess(dict(width=width, height=height))[0]['evidence']['optional'])
 
-    def test_optional_upscale_keeps_separate_handbrake_recommendation(self):
+    def test_4k_keeps_handbrake_recommendation_without_another_upscale(self):
         findings = assess(dict(width=3840, height=2160, duration_seconds=60, bitrate=80_000_000))
-        self.assertEqual([x['kind'] for x in findings], ['upscale', 'optimize'])
-        self.assertTrue(findings[0]['evidence']['optional'])
+        self.assertEqual([x['kind'] for x in findings], ['optimize'])
 
     def test_unknown_or_invalid(self):
         for width in [0, None, True, float('nan'), -1, '1920']:

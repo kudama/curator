@@ -219,6 +219,43 @@ def probe(path, config):
         raise UserError('No usable video stream') from None
 
 
+def upscale_output_geometry(source, settings):
+    """Predict reviewed dynamic 1x/2x/4x filters; complex/explicit layouts stay unknown."""
+    import math
+
+    vf = settings.get('topaz_filter', '')
+    if not isinstance(source, dict) or not isinstance(vf, str) or not vf.startswith('tvai_up=') or ',' in vf:
+        return None
+    fields = {}
+    for part in vf.removeprefix('tvai_up=').split(':'):
+        key, separator, value = part.partition('=')
+        if not separator or key in fields:
+            return None
+        fields[key] = value
+    if fields.get('w') != '0' or fields.get('h') != '0':
+        return None
+    try:
+        scale = float(fields.get('scale', ''))
+        if scale not in (1, 2, 4):
+            return None
+        width, height = display_geometry(source)
+        if not all(math.isfinite(edge) and edge > 0 for edge in (width, height)):
+            return None
+    except (KeyError, ValueError, TypeError):
+        return None
+    return width * scale, height * scale
+
+
+def validate_upscale_target(source, settings):
+    geometry = upscale_output_geometry(source, settings)
+    if geometry and (max(geometry) > 4096 or min(geometry) > 2160):
+        width, height = geometry
+        raise UserError(
+            f'This upscale would produce {width:g} × {height:g}, above the 4K ceiling. '
+            'Change the upscale settings before retrying.'
+        )
+
+
 def validate(source, output):
     issues = []
     duration = source['duration_seconds']

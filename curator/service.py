@@ -948,6 +948,8 @@ class Service(
                     )
                 )
             tools.command(task['kind'], asset['local_path'], '/tmp/curator-output.mkv', task['tool_settings'])
+            if task['kind'] == 'upscale':
+                tools.validate_upscale_target(asset.get('technical'), task['tool_settings'])
         if task['kind'] == 'metadata' and not task['plan'].get('changes'):
             raise UserError('Preview/edit metadata changes before queueing')
         task.update(
@@ -1363,6 +1365,8 @@ class Service(
         return {**task, 'metadata': self.metadata_fields(observed)}
 
     def _process(self, task, asset):
+        if task['kind'] == 'upscale':
+            tools.validate_upscale_target(asset.get('technical'), task['tool_settings'])
         folder = self.store.root / 'outputs' / task['id'] / uuid.uuid4().hex
         folder.mkdir(parents=True, mode=0o700)
         suffix = Path(asset['local_path']).suffix.lower()

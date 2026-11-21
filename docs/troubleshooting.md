@@ -39,3 +39,11 @@ There is no automatic general rollback UI. To restore manually, stop Curator aft
 ## Getting help
 
 Report the Curator commit, macOS/Python/tool versions, task phase, expected behavior and sanitized error in GitHub Issues. Prefer a small generated test video. Keep tokens, personal media, private paths, settings and the SQLite database out of public reports. Security reports follow [SECURITY.md](../SECURITY.md).
+
+## Repeated upscale or output above the 4K ceiling
+
+Media already at 4K class stops receiving automatic optional-upscale recommendations, including after Plex gives it a new catalog identity. High-bitrate encoding recommendations remain available independently.
+
+For a single dynamic Topaz filter with reviewed 1×, 2× or 4× scaling and automatic width/height, Curator predicts displayed output dimensions before queue approval and again before processing. A plan exceeding the existing 4096-pixel long-edge / 2160-pixel short-edge ceiling is refused with the predicted dimensions. For example, 3840×2160 at 2× would produce 7680×4320. Change and review the settings before retrying; Curator preserves the selected model/filter and retained outputs.
+
+Explicit output sizing and complex filter chains retain their existing post-processing validation; this guard does not invent their geometry. The separately planned recovery feature in issue #97 will offer resolution-only output acceptance or a reviewed 4× attempt from the original. That recovery feature is not implemented by this prevention fix.
