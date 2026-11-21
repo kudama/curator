@@ -385,14 +385,16 @@ function historyRecovery(task){
 }
 async function historyRecoveryAction(snapshot,action){
  const pane=document.querySelector('.file-pane'),top=pane?pane.scrollTop:0;
- await refresh();
- const current=state.tasks.find(t=>t.id===snapshot.id);
- if(!current||current.version!==snapshot.version||current.status!==snapshot.status||historyRecovery(current)?.action?.call!==action.call)throw Error('This job changed since History was shown. Check its current state before acting.');
  try{
-  if(action.call==='retry'){const result=await api('recovery/retry-failed',{tasks:[{id:current.id,version:current.version}]});const item=result.items[0];if(item?.status!=='queued')throw Error(item?.error||'The job could not be queued again');toast('Queued again. The queue has not been started.');}
-  else if(action.call==='resume_review'){await api('task/action',{id:current.id,version:current.version,action:'resume_review'});toast('Output returned to review. Publishing still needs your review.');}
-  else throw Error('Unsupported recovery action');
- }finally{await refresh();if(pane)pane.scrollTop=top;}
+  await refresh();
+  const current=state.tasks.find(t=>t.id===snapshot.id);
+  if(!current||current.version!==snapshot.version||current.status!==snapshot.status||historyRecovery(current)?.action?.call!==action.call)throw Error('This job changed since History was shown. Check its current state before acting.');
+  try{
+   if(action.call==='retry'){const result=await api('recovery/retry-failed',{tasks:[{id:current.id,version:current.version}]});const item=result.items[0];if(item?.status!=='queued')throw Error(item?.error||'The job could not be queued again');toast('Queued again. The queue has not been started.');}
+   else if(action.call==='resume_review'){await api('task/action',{id:current.id,version:current.version,action:'resume_review'});toast('Output returned to review. Publishing still needs your review.');}
+   else throw Error('Unsupported recovery action');
+  }finally{await refresh();}
+ }finally{if(pane)(document.querySelector('.file-pane')||pane).scrollTop=top;}
 }
 const HISTORY_INITIATORS={operator:'You',rule:'Rule',ai:'AI-assisted',curator:'Curator'};
 function historyMeta(parts){return parts.filter(Boolean).join(' · ');}
