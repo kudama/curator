@@ -9,3 +9,10 @@ Raise `curator.errors.UserError` for messages written for the person using Curat
 Bug reports should describe the expected and observed behavior, macOS/Python/tool versions, task phase, and a sanitized reproduction. Use generated test-pattern media where possible. Do not attach the runtime database or settings. Pull requests should explain the problem, resulting behavior, and validation.
 
 Contributions are provided under the repository's MIT license.
+
+## Shared v2 work
+
+Read [AGENTS.md](AGENTS.md), the [shared workflow](docs/agent-workflow.md) and
+[v2 readiness ledger](docs/v2-readiness.md) before claiming work. Use the Curator v2
+milestone, existing shared boards and linked issues; keep one executor per task,
+independent review evidence and separate acceptance/deployment status.
