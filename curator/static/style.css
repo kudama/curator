@@ -295,3 +295,6 @@
  .queue-workspace #task-dialog>.dialog-head,.queue-workspace #task-dialog>.dialog-actions,.queue-workspace #task-dialog .task-scroll{padding:12px}
  .queue-workspace #task-dialog>.dialog-actions{flex-shrink:0}
 }
+
+.artwork-downloads{display:flex;flex-wrap:wrap;gap:12px 20px;margin:16px 0 24px}
+.artwork-downloads>a{min-width:0;max-width:100%;overflow-wrap:anywhere}
