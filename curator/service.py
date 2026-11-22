@@ -48,6 +48,7 @@ from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
+from .discovery import Discovery
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
@@ -57,6 +58,7 @@ identifier = stable_id
 
 
 class Service(
+    Discovery,
     PreviewCards,
     PreviewRendering,
     PreviewReview,
@@ -602,6 +604,7 @@ class Service(
             if self.pending_rename_receipts(library['id']):
                 self.reconcile_rename_receipts(library, scanned_items, self.checked_client(library))
             state['finished'] = now()
+            self.reconcile_discovery_feedback()
             self.connection_ok()
             self.store.record(
                 'scan',
