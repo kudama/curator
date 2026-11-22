@@ -198,6 +198,8 @@ def write_sidecar(planned, data, verify_source=lambda: None):
         previous = verify_destination(planned, fd)
         verify_source()
         if planned['action'] in {'kept', 'unchanged'}:
+            if directory_identity(folder) != planned['parent']:
+                raise UserError('Media folder pathname changed; make a new export preview')
             return dict(state=planned['action'], sha256=(planned['existing'] or {}).get('sha256'))
         if planned['action'] not in {'create', 'update'}:
             raise UserError('Unsupported sidecar operation')

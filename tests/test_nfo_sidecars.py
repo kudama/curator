@@ -105,6 +105,21 @@ class Sidecars(unittest.TestCase):
         self.assertEqual(list(sub.iterdir()), [])
         self.assertEqual((retained / 'movie.nfo').read_bytes(), b'new')
 
+    def test_directory_swap_before_unchanged_receipt_is_refused(self):
+        sub = self.folder / 'title'
+        sub.mkdir()
+        (sub / 'movie.nfo').write_bytes(b'existing')
+        plan = plan_sidecar(sub, 'movie.nfo', b'existing')
+
+        def swap():
+            sub.rename(self.folder / 'previous')
+            sub.mkdir()
+
+        with self.assertRaisesRegex(UserError, 'pathname changed'):
+            write_sidecar(plan, b'existing', swap)
+        self.assertEqual(list(sub.iterdir()), [])
+        self.assertEqual((self.folder / 'previous' / 'movie.nfo').read_bytes(), b'existing')
+
     def test_symlinks_case_collisions_and_traversal_rejected(self):
         external = self.folder / 'other'
         external.write_bytes(b'untouched')
