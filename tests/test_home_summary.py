@@ -240,3 +240,90 @@ class Home(unittest.TestCase):
         for kwargs in ({'library': 'unknown'}, {'view': 'raw'}, {'limit': True}, {'limit': 0}, {'limit': 31}):
             with self.assertRaises(UserError):
                 self.service.home_summary(**kwargs)
+
+    def test_old_publish_wrapper_cannot_count_requeued_work_as_a_second_completion(self):
+        task = self.task('completed-once', status='applied')
+        task.update(status='queued', version=2)
+        with self.store.transaction():
+            self.store.put('tasks', task['id'], task)
+            self.store.put(
+                'settings',
+                'late-wrapper',
+                dict(
+                    id='late-wrapper',
+                    record_type='file_operation',
+                    library='one',
+                    operation='publish',
+                    payload={'task': task['id'], 'version': 1},
+                    phase='complete',
+                    created=self.at,
+                ),
+            )
+        self.assertEqual(self.service.home_summary()['work']['completed'], 1)
+
+    def test_cleanup_partial_receipt_is_attention_even_when_wrapper_completed(self):
+        receipt = dict(
+            id='cleanup',
+            record_type='backup_cleanup',
+            library='one',
+            phase='complete',
+            created=self.at,
+            selected=['original'],
+            items=[dict(id='original', status='failed')],
+        )
+        with self.store.transaction():
+            self.store.put('settings', receipt['id'], receipt)
+            self.store.put(
+                'settings',
+                'cleanup-wrapper',
+                dict(
+                    id='cleanup-wrapper',
+                    record_type='file_operation',
+                    library='one',
+                    operation='cleanup',
+                    payload={'receipt': 'cleanup'},
+                    phase='complete',
+                    created=self.at,
+                ),
+            )
+        self.assertEqual(self.service.home_summary()['counts']['needs_attention'], 1)
+        route = self.service.home_summary()['decisions']['attention_routes'][0]
+        self.assertTrue(route['href'].startswith('#/history?'))
+        with self.store.transaction():
+            wrapper = self.store.get('settings', 'cleanup-wrapper')
+            wrapper['phase'] = 'failed'
+            self.store.put('settings', wrapper['id'], wrapper)
+        self.assertEqual(self.service.home_summary()['counts']['needs_attention'], 1)
+
+    def test_future_observation_is_unknown_and_never_presented_as_fresh(self):
+        future = (self.clock + timedelta(days=30)).isoformat()
+        self.asset('a1', 'one', scanned=future)
+        result = self.service.home_summary(library='one')
+        self.assertTrue(result['stale'])
+        self.assertIsNone(result['observed_at'])
+        self.assertEqual(result['health']['unknown_items'], 1)
+        self.assertTrue(all(row['unknown'] == 1 for row in result['libraries'][0]['dimensions']))
+
+    def test_partial_export_attention_uses_its_library_file_management_and_combined_home_link(self):
+        with self.store.transaction():
+            self.store.put(
+                'settings',
+                'partial-export',
+                dict(
+                    id='partial-export',
+                    record_type='file_operation',
+                    library='one',
+                    operation='nfo_export',
+                    payload={'plan': 'private-plan'},
+                    phase='complete',
+                    result={'phase': 'partial'},
+                    created=self.at,
+                ),
+            )
+        result = self.service.home_summary()
+        self.assertEqual(result['counts']['needs_attention'], 1)
+        self.assertEqual(
+            result['decisions']['attention_routes'],
+            [dict(label='Partial exports · Library one', count=1, href='#/library/one/filemanagement')],
+        )
+        self.assertEqual(self.service.home_summary(view='compact')['links']['attention'], '#/home')

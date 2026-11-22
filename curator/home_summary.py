@@ -110,6 +110,12 @@ class HomeSummary:
                 members = [asset for asset in assets if asset['library'] == key]
                 for asset in members:
                     completions[asset['id']] = evaluate(asset, effective, config)[0]
+                    scanned = epoch(asset.get('scanned'))
+                    if scanned and scanned > clock.timestamp():
+                        completions[asset['id']]['status'] = 'unknown'
+                        for dimension in completions[asset['id']]['dimensions'].values():
+                            if dimension['state'] != 'disabled':
+                                dimension.update(state='unknown', reason='Observation time is in the future')
                 aggregate = summarize([completions[asset['id']] for asset in members])
                 enabled = [dimension for dimension in DIMENSIONS if effective['values'][dimension]['enabled']]
                 dimensions = []
@@ -124,6 +130,7 @@ class HomeSummary:
                         )
                     )
                 observed = [epoch(asset.get('scanned')) for asset in members]
+                observed = [value if value and value <= clock.timestamp() else None for value in observed]
                 observed_at = min(observed) if observed and all(observed) else None
                 health.append(
                     dict(
@@ -162,12 +169,57 @@ class HomeSummary:
             ]
             artwork = [row for row in artwork if row['count']]
             attention = {task['id'] for task in tasks if task.get('status') in {'failed', 'blocked'}}
+            cleanup_attention, export_attention = set(), {}
             for job in file_jobs:
-                if job['phase'] in {'failed', 'interrupted'} or (job.get('result') or {}).get('phase') in {
+                outcome = job.get('result') if isinstance(job.get('result'), dict) else {}
+                if job['phase'] in {'failed', 'interrupted'} or outcome.get('phase') in {
                     'partial',
                     'failed',
                 }:
-                    attention.add(job.get('payload', {}).get('task') or job['id'])
+                    key = job.get('payload', {}).get('task') or job.get('payload', {}).get('receipt') or job['id']
+                    attention.add(key)
+                    if job.get('operation') in {'cleanup', 'restore_cleanup'}:
+                        cleanup_attention.add(key)
+                    elif job.get('operation') == 'nfo_export' and outcome.get('phase') == 'partial':
+                        export_attention.setdefault(job['library'], set()).add(key)
+            for receipt in self.store.where('settings', record_type='backup_cleanup'):
+                if receipt.get('library') in scoped and (
+                    receipt.get('phase') == 'interrupted'
+                    or any(
+                        item.get('status') == 'failed'
+                        for item in receipt.get('items', [])
+                        if item.get('id') in receipt.get('selected', [])
+                    )
+                ):
+                    attention.add(receipt['id'])
+                    cleanup_attention.add(receipt['id'])
+            exports = set().union(*export_attention.values()) if export_attention else set()
+            work_attention = attention - cleanup_attention - exports
+            attention_routes = []
+            if work_attention:
+                attention_routes.append(
+                    dict(
+                        label='Jobs need attention',
+                        count=len(work_attention),
+                        href=library_link(library, 'queue', status='attention'),
+                    )
+                )
+            if cleanup_attention:
+                attention_routes.append(
+                    dict(
+                        label='Cleanup outcomes need inspection',
+                        count=len(cleanup_attention),
+                        href='#/history?' + urlencode(dict(view='jobs', library=library, period='all', status='all')),
+                    )
+                )
+            for key, rows in export_attention.items():
+                attention_routes.append(
+                    dict(
+                        label='Partial exports · ' + scoped[key]['title'],
+                        count=len(rows),
+                        href=library_link(key, 'filemanagement'),
+                    )
+                )
             missing = [
                 asset
                 for asset in assets
@@ -181,6 +233,7 @@ class HomeSummary:
                 metadata=sum(task.get('kind') in METADATA for task in ready),
                 artwork=artwork,
                 needs_attention=len(attention),
+                attention_routes=attention_routes,
                 missing_required=len(missing),
                 standards_questions=sum(
                     (row.get('standard_kind') or row.get('kind')) != (row.get('observed_kind') or row.get('kind'))
@@ -247,7 +300,7 @@ class HomeSummary:
             ready='#/home',
             results=library_link(library, 'review'),
             metadata=library_link(library, 'queue', status='review', lane='metadata'),
-            attention=library_link(library, 'queue', status='attention'),
+            attention='#/home',
             history='#/history?' + urlencode(dict(view='jobs', library=library, period=7)),
             standards='#/configuration/standards/movie',
         )

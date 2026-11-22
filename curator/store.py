@@ -179,15 +179,14 @@ class Store:
         """One durable observed outcome, independent of later mutable task status.
 
         This is not a backfill: old records have no invented completion date or
-        initiator. Publication bookkeeping shares its task's deduplication key.
+        initiator. Successful publication/file-task wrappers are bookkeeping for
+        an already-recorded task transition, never another completed job.
         """
+        if table == 'settings' and value.get('operation') in {'publish', 'file_task'}:
+            return
         if not self.get('settings', 'home-outcome-coverage'):
             self.put('settings', 'home-outcome-coverage', dict(record_type='completion_coverage', observed_since=now()))
         task = value if table == 'tasks' else None
-        if task is None and value.get('operation') in {'publish', 'file_task'}:
-            task = self.get('tasks', value.get('payload', {}).get('task'))
-            if task and task.get('status') != 'applied':
-                task = None
         identity = f'task:{task["id"]}:{task.get("version")}:{task.get("queue_attempt", "")}' if task else str(key)
         source = (task or {}).get('source') or {}
         result = (task or {}).get('result') or {}
