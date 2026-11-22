@@ -56,6 +56,7 @@ from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
+from .nfo_export import NfoExports
 from .plex import PlexError
 
 
@@ -64,6 +65,7 @@ identifier = stable_id
 
 class Service(
     HomeSummary,
+    NfoExports,
     PreviewCards,
     PreviewRendering,
     PreviewReview,
@@ -106,6 +108,7 @@ class Service(
         register_secret(self.config().get('plex_token'))
         Mage(self.store.root).register_key_secret()
         self.recover_file_jobs()
+        self.recover_nfo_exports()
         self.recover_review_batches()
         self.recover_backup_cleanups()
         self.recover_removed_queue_tasks()

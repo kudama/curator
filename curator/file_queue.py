@@ -69,7 +69,7 @@ class FileQueueWorkflows:
     def file_queue_paused(self):
         return bool(self.store.get('settings', self.pause_key(None, 'file_operations'), False))
 
-    def queue_file_operation(self, operation, payload, background=False):
+    def queue_file_operation(self, operation, payload, background=False, start=True, admit=None):
         if operation not in {
             'publish',
             'cleanup',
@@ -80,10 +80,11 @@ class FileQueueWorkflows:
             'archive_artwork',
             'archive_portrait',
             'local_artwork',
+            'nfo_export',
         }:
             raise UserError('Unsupported file operation')
         task = self.get_task(payload['task']) if 'task' in payload else None
-        local = operation == 'local_artwork'
+        local = operation in {'local_artwork', 'nfo_export'}
         profile = (
             self.store.get('settings', 'cast_profiles', {}).get(payload.get('profile'))
             if operation == 'archive_portrait'
@@ -116,8 +117,11 @@ class FileQueueWorkflows:
             updated=now(),
         )
         with self.store.transaction():
+            if admit is not None:
+                admit(job)
             self.store.put('settings', job['id'], job)
-        self.start_file_queue()
+        if start:
+            self.start_file_queue()
         if background:
             return job
         while True:
@@ -186,7 +190,8 @@ class FileQueueWorkflows:
                     continue
                 try:
                     self._execute_file_operation(job)
-                    job.update(phase='complete', updated=now())
+                    if job['phase'] == 'running':
+                        job.update(phase='complete', updated=now())
                 except Exception as error:
                     log.exception('File operation %s failed', job['operation'])
                     job.update(
@@ -235,6 +240,10 @@ class FileQueueWorkflows:
         operation = job['operation']
         if operation == 'local_artwork':
             job['result'] = self.render_local_artwork(payload)
+        elif operation == 'nfo_export':
+            job['result'] = self.execute_nfo_export(payload['plan'])
+            if job['result']['phase'] == 'paused':
+                job.update(phase='waiting', updated=now())
         elif operation == 'publish':
             task = self.get_task(payload['task'])
             if task['version'] != payload['version'] or task['status'] != 'publishing':
