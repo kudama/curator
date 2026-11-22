@@ -4,6 +4,8 @@ Generation stays on the existing idempotent REST submission path. This client
 cannot call generate, upload, modify account settings, or invoke arbitrary tools.
 """
 
+from . import development
+
 import json
 import uuid
 from urllib.request import Request
@@ -21,6 +23,7 @@ class MagePricing:
         self.protocol = '2025-03-26'
 
     def rpc(self, method, params, notification=False):
+        development.block_external()
         if (
             method not in {'initialize', 'notifications/initialized', 'tools/list', 'tools/call'}
             or method == 'tools/call'

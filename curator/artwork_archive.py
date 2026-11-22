@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 import unicodedata
+from . import development
 from pathlib import Path
 from .store import now
 from .errors import UserError
@@ -21,6 +22,7 @@ def archive_root(value, check_write=False):
     if not path.is_absolute() or path.is_symlink() or not path.is_dir():
         raise UserError('Choose an existing absolute artwork archive folder, not a symlink')
     path = path.resolve(strict=True)
+    development.check_path(path)
     if check_write:
         try:
             with tempfile.NamedTemporaryFile(prefix='.curator-write-check-', dir=path) as probe:

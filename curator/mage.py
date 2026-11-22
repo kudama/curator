@@ -3,6 +3,8 @@
 Catalog-default Gems never price a different model or reference configuration.
 """
 
+from . import development
+
 import json
 import os
 from pathlib import Path
@@ -28,6 +30,7 @@ class Mage:
         self._job_credential = None
 
     def save_key(self, key):
+        development.block_external()
         self._job_credential = None
         if not isinstance(key, str) or len(key) > 1000 or any(c.isspace() for c in key):
             raise UserError('Enter a valid Mage API key without whitespace')
@@ -56,6 +59,7 @@ class Mage:
             pass
 
     def get(self, path):
+        development.block_external()
         if path not in {'/architectures', '/account'}:
             raise UserError('Unsupported Mage discovery endpoint')
         if not self.configured():
@@ -112,6 +116,7 @@ class Mage:
         )
 
     def _job_request(self, method, path, body=None, idempotency_key=None):
+        development.block_external()
         import re
 
         allowed = (
@@ -225,6 +230,7 @@ class Mage:
         return self._retry_job('POST', '/requests/' + request_id + '/cancel', {})
 
     def download(self, url):
+        development.block_external()
         from urllib.parse import urlsplit
 
         parsed = urlsplit(url)
