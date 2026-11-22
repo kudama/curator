@@ -2,12 +2,14 @@
 
 All public planning helpers are read-only. The writer admits only the reviewed
 directory/file identities, stages complete bytes on that filesystem, and installs
-with a no-overwrite hard link. Updating is explicit: move the observed old file to
+with an exclusive directory-relative install (including Darwin SMB). Updating is
+explicit: move the observed old file to
 a private retention directory first, then use the same no-overwrite installation.
 A concurrent writer can block our install, but its file is never overwritten.
 """
 
 import hashlib
+import errno
 import os
 from pathlib import Path
 import stat
@@ -17,6 +19,7 @@ import zlib
 
 from . import development
 from .errors import UserError
+from .exclusive_install import install_exclusive_at
 
 MAX_SIDECAR = 32 * 1024 * 1024
 IMAGE_NAMES = dict(cover='poster', background='background', square='square', logo='logo')
@@ -238,11 +241,17 @@ def write_sidecar(planned, data, verify_source=lambda: None):
             finally:
                 os.close(backup_fd)
         try:
-            os.link(temporary, planned['name'], src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+            install_exclusive_at(fd, temporary, planned['name'])
         except FileExistsError:
             raise UserError(
                 'A sidecar appeared during commit; it was kept. Inspect retained files before retrying'
             ) from None
+        except OSError as error:
+            if error.errno in {errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS}:
+                raise UserError(
+                    'Destination filesystem does not support safe no-overwrite installation; no existing file was overwritten'
+                ) from None
+            raise
         observed = _read_at(fd, planned['name'])
         if not observed or observed[0]['sha256'] != planned['sha256']:
             raise UserError('Sidecar readback changed; inspect files before retrying')
