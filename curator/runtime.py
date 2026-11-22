@@ -76,6 +76,7 @@ class ServiceRuntime:
                 'restart_error': self.restart_error,
                 'build': dict(self.build),
                 'capabilities': [
+                    'preview_cards',
                     'bulk_review',
                     'backup_cleanup',
                     'encoding_controls',

@@ -59,3 +59,17 @@ that does not substitute for independent review before merging it into v2.
 
 Rollback consists of stopping only the dev label and returning the dev checkout to the
 last tested commit. Retain its sandbox. Remove the test instance only by explicit request.
+
+## Trailer cards (first implementation slice)
+
+Settings → Trailers → Manage trailer cards imports normalized PNGs under10MiB,
+up to4096px per side /8million pixels. Browser import normalizes PNG pixels; the
+server validates PNG contents and stores its own immutable version/hash. Replace
+creates a new version. Hide removes a choice without deleting retained versions.
+Defaults pin explicit versions, use optimistic revision checks and never start jobs.
+Read/reset is not a save; no-op saves create no history. Missing/changed selected
+versions must be resolved explicitly. Existing Settings draft stays beneath the
+card dialog. JPEG/PSD import and cleanup are not implemented by this slice.
+
+This is #140 only; card settings do not imply the renderer/review features
+(#141/#142) are already available. No provider or Plex call occurs.

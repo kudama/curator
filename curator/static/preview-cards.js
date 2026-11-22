@@ -1,0 +1,35 @@
+'use strict';
+async function previewCardUpload(file){
+ if(!file||file.type!=='image/png'||file.size>10*1024*1024)throw Error('Choose a PNG under 10 MiB.');
+ const url=URL.createObjectURL(file),image=new Image();
+ try{image.src=url;await image.decode();if(image.width>4096||image.height>4096||image.width*image.height>8000000)throw Error('Use a PNG up to 4096 pixels per side and 8 million pixels.');const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;canvas.getContext('2d').drawImage(image,0,0);return canvas.toDataURL('image/png').split(',')[1];}
+ finally{URL.revokeObjectURL(url);}
+}
+function previewField(label,control){const wrapper=node('label',label);wrapper.append(control);return wrapper;}
+async function openPreviewCards(){
+ const [catalog,initial]=await Promise.all([api('preview/cards'),api('preview/defaults')]);
+ const dialog=node('dialog',undefined,'large'),heading=node('div',undefined,'dialog-head'),close=button('×',()=>leave(),'icon-button');close.setAttribute('aria-label','Close trailer cards');heading.append(node('h2','Trailer cards & defaults'),close);
+ const feedback=node('p',undefined,'inline-feedback'),cards=node('div',undefined,'preview-card-library'),defaults=node('section'),form=node('form'),inputs={};let saved=initial,busy=false,dirty=false,importDirty=false;
+ dialog.append(heading,node('p','Import finished PNGs once. Rendering reuses saved versions; no image provider is called.','muted'),feedback,cards,form,defaults);
+ const tell=(error)=>{feedback.textContent=error.message||error;feedback.setAttribute('role','alert');};
+ async function act(operation){if(busy)return;busy=true;try{await operation();}catch(error){tell(error);}finally{busy=false;}}
+ function leave(){if(busy)return;if((dirty||importDirty)&&!confirm('Discard unsaved trailer card or default edits?'))return;dialog.close();dialog.remove();}
+ dialog.addEventListener('cancel',event=>{event.preventDefault();leave();});
+ const title=node('input'),role=node('select'),file=node('input'),importButton=button('Import card',()=>{},'primary');title.maxLength=100;title.required=true;file.type='file';file.accept='image/png';file.required=true;
+ for(const value of ['intro','outro']){const option=node('option',value==='intro'?'Intro':'Outro');option.value=value;role.append(option);}
+ form.append(node('h3','Add a card'),previewField('Name',title),previewField('Role',role),previewField('PNG · under 10 MiB · up to 4096 px / 8 MP',file),importButton);importButton.type='submit';
+ form.oninput=()=>{importDirty=true;};
+ form.onsubmit=event=>{event.preventDefault();act(async()=>{importButton.disabled=true;try{const image=await previewCardUpload(file.files[0]);await api('preview/cards/import',{name:title.value,role:role.value,image});form.reset();importDirty=false;await reloadCards();feedback.textContent='Card imported.';}finally{importButton.disabled=false;}});};
+ async function reloadCards(){catalog.cards=(await api('preview/cards')).cards;drawCards();updateChoices();}
+ function drawCards(){cards.replaceChildren(node('h3','Saved cards'));if(!catalog.cards.length)cards.append(node('p','No cards yet. Previews can also be generated without cards.','muted'));for(const card of catalog.cards){const row=node('article',undefined,'preview-card-row'),image=node('img');image.src=card.thumbnail_url;image.alt=card.name;const replacement=node('input');replacement.type='file';replacement.accept='image/png';replacement.setAttribute('aria-label','Replace '+card.name+' with a new PNG version');replacement.onchange=()=>act(async()=>{replacement.disabled=true;try{const image=await previewCardUpload(replacement.files[0]);await api('preview/cards/import',{id:card.id,revision:card.revision,name:card.name,role:card.role,image});await reloadCards();feedback.textContent='New version saved. Existing jobs and defaults keep their pinned version.';}finally{replacement.disabled=false;}});row.append(image,node('strong',card.name),node('span',card.role+' · v'+card.revision,'muted'),replacement,button('Hide',()=>act(async()=>{await api('preview/cards/hide',{id:card.id,revision:card.revision});await reloadCards();feedback.textContent='Hidden from new choices. Saved versions remain available.';}),'text-button'));cards.append(row);}}
+ defaults.append(node('h3','Preview defaults'),node('p','Defaults affect new drafts. Existing jobs and selected previews keep their saved settings.','muted'));
+ for(const kind of ['intro','outro']){const select=node('select');inputs[kind]=select;defaults.append(previewField(kind==='intro'?'Default intro':'Default outro',select));}
+ const labels={intro_duration_ms:'Intro duration (seconds)',outro_duration_ms:'Outro duration (seconds)',crossfade_ms:'Crossfade (seconds)',black_fade_ms:'Black fade (seconds)',audio_fade_ms:'Audio fade (seconds)',requested_duration_ms:'Clip length (seconds)'};
+ for(const [key,label] of Object.entries(labels)){const input=node('input');input.type='number';input.min=key.includes('duration')?'.001':'0';input.max=key==='requested_duration_ms'?'120':key.includes('duration')?'10':'2';input.step='.001';inputs[key]=input;defaults.append(previewField(label,input));}
+ function updateChoices(){for(const kind of ['intro','outro']){const select=inputs[kind],old=select.value;select.replaceChildren();const none=node('option','None');none.value='';select.append(none);for(const card of catalog.cards.filter(c=>c.role===kind)){const option=node('option',card.name+' · v'+card.revision);option.value=card.id+':'+card.revision;select.append(option);}const ref=saved.values[kind],pinned=ref?ref.card+':'+ref.version:'';for(const value of new Set([old,pinned]))if(value&&![...select.options].some(o=>o.value===value)){const option=node('option','Pinned version · '+value.slice(-10)+' (unavailable choices require replacement)');option.value=value;select.append(option);}select.value=old;}}
+ function reset(){updateChoices();for(const [key,input] of Object.entries(inputs)){const value=saved.values[key];input.value=['intro','outro'].includes(key)?(value?value.card+':'+value.version:''):value/1000;}dirty=false;}
+ for(const input of Object.values(inputs))input.onchange=()=>{dirty=true;};
+ const actions=node('div',undefined,'dialog-actions'),save=button('Save defaults',()=>act(async()=>{const values={output_profile:'preview-h264-720'};for(const [key,input] of Object.entries(inputs)){if(['intro','outro'].includes(key)){const [card,version]=input.value.split(':');values[key]=card?{card,version:Number(version)}:null;}else values[key]=Math.round(Number(input.value)*1000);}save.disabled=true;try{saved=await api('preview/defaults',{revision:saved.revision,changes:values});reset();feedback.textContent='Preview defaults saved.';}finally{save.disabled=false;}}),'primary');
+ actions.append(button('Reset to saved defaults',()=>act(async()=>{saved=await api('preview/defaults');reset();feedback.textContent='Reloaded saved defaults. No settings changed.';}),'text-button'),button('Close',()=>leave(),'subtle'),save);dialog.append(actions);
+ drawCards();reset();document.body.append(dialog);dialog.showModal();close.focus();
+}
