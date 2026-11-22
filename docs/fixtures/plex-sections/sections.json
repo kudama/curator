@@ -1,5 +1,5 @@
 {
- "_note": "Synthetic /library/sections Directory entries. Agent identifiers for Plex NFO and custom providers are UNVERIFIED (forum evidence only); confirm with a read-only GET /library/sections on the operator's server before implementation.",
+ "_note": "Synthetic /library/sections Directory entries. Scanner spelling 'Plex Video Files' was verified read-only on the operator's server (2026-11-21); 'Plex Video Files Scanner' is kept for versions that add the suffix. Agent identifiers for Plex NFO and custom providers remain UNVERIFIED.",
  "MediaContainer": {
   "Directory": [
    {
@@ -35,7 +35,7 @@
     "title": "Synthetic other",
     "type": "movie",
     "agent": "tv.plex.agents.none",
-    "scanner": "Plex Video Files Scanner",
+    "scanner": "Plex Video Files",
     "language": "en-US",
     "Location": [
      {
@@ -63,7 +63,7 @@
     "title": "Synthetic nfo-home",
     "type": "movie",
     "agent": "tv.plex.agents.nfo.movie",
-    "scanner": "Plex Video Files Scanner",
+    "scanner": "Plex Video Files",
     "language": "en-US",
     "Location": [
      {
