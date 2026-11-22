@@ -95,3 +95,29 @@ geometry, codec, expected audio and source/card identity before offering review.
 References: [FFmpeg xfade](https://ffmpeg.org/ffmpeg-filters.html#xfade),
 [adelay](https://ffmpeg.org/ffmpeg-filters.html#adelay). Keep stream profiles and
 time bases equal before blending; apply the source audio offset once.
+
+## Clip editor and candidate review
+
+Open a sample media file, then **Create preview**. Drag the start slider, use0/30/60s
+quick picks or enter an exact timestamp. Advanced exposes the default30s requested
+length, card durations/fades and original audio. The server shows frame-normalized
+range, shortened length and overlap-aware total before Generate becomes available.
+
+Generate closes setup and opens its exact job in Encoding. Paused work remains
+waiting; use the existing Encoding control to run it. Unknown submission outcomes
+retain the same key across reload; **Check job** reconciles it while Reset/editing
+stay locked. Inputs never silently create a second render.
+
+Completed candidates have a real player with user-initiated playback and default
+muting. Leaving the inspector pauses media and retains playback position. Source
+playback depends on browser codec support; a refreshed source frame and H.264
+candidate provide a fallback. All source/candidate routes require the existing
+session and support bounded-memory byte-range streaming.
+
+**Use in Curator** re-verifies source/card/candidate identity and atomically compares
+the selected-preview revision. It closes review on success and changes only the
+Curator selection. Previous candidates remain retained. Concurrent selection/delete
+requests cannot remove the selected job; stale edits keep their candidate/draft.
+**Publish to Plex** is visibly disabled until#143 is implemented and separately
+accepted. Trailers do not replace movies or call Mage. Drafts are stored in this
+browser tab, with in-memory fallback when browser storage is unavailable.

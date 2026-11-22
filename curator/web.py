@@ -27,6 +27,7 @@ from .history import HistoryHandler, acting
 from .migrations import LATEST as SCHEMA_VERSION
 from .plex import PlexError
 from .errors import UserError
+from .preview_review import video_range
 
 
 def listener_settings(host, expected_hosts=()):
@@ -109,6 +110,46 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return  # Only response writes: provider/operation errors keep normal handling.
 
+    def stream_video(self, path):
+        size = path.stat().st_size
+        try:
+            start, end, partial = video_range(self.headers.get('Range'), size)
+        except UserError:
+            self.send_response(416)
+            self.send_header('Content-Range', f'bytes */{size}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        with path.open('rb') as source:
+            source.seek(start)
+            self.send_response(206 if partial else 200)
+            self.send_header(
+                'Content-Type',
+                'video/mp4'
+                if path.suffix.lower() in {'.mp4', '.m4v'}
+                else 'video/quicktime'
+                if path.suffix.lower() == '.mov'
+                else 'video/x-matroska',
+            )
+            self.send_header('Content-Length', str(end - start + 1))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+            if partial:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            remaining = end - start + 1
+            try:
+                while remaining:
+                    chunk = source.read(min(512 * 1024, remaining))
+                    if not chunk:
+                        return
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return
+
     def request_host(self):
         hosts = self.headers.get_all('Host', [])
         return hosts[0] if len(hosts) == 1 and hosts[0] in self.server.allowed_authorities else None
@@ -184,6 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             '/workbench.js': ('workbench.js', 'application/javascript'),
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
+            '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
@@ -194,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                 data = data.replace(b'<title>Curator</title>', b'<title>Curator DEV / TEST</title>')
                 data = data.replace(
                     b'<body>',
-                    b'<body><div class="development-banner" role="status">DEV / TEST &middot; Isolated data &middot; External integrations disabled</div>',
+                    b'<body class="development-profile"><div class="development-banner" role="status">DEV / TEST &middot; Isolated data &middot; External integrations disabled</div>',
                 )
             return self.reply(data, content_type=kind, cookie=path == '/')
         if not self.allowed():
@@ -209,6 +251,24 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.artwork_target_image(query['asset'][0], query['kind'][0])
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/preview/job':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.preview_job(query['id'][0]))
+            if path == '/api/preview/video':
+                query = parse_qs(urlsplit(self.path).query)
+                _, output = self.server.service.preview_candidate(query['job'][0])
+                return self.stream_video(output)
+            if path == '/api/preview/source':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.stream_video(
+                    self.server.service.preview_source_video(query['asset'][0], query['version'][0])
+                )
+            if path == '/api/preview/frame':
+                query = parse_qs(urlsplit(self.path).query)
+                image = self.server.service.preview_source_frame(
+                    query['asset'][0], query['version'][0], int(query.get('start_ms', ['0'])[0])
+                )
+                return self.reply(image, content_type='image/jpeg')
             if path == '/api/preview/info':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.preview_info(query['asset'][0]))
@@ -429,6 +489,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_presence(data['library'])
             elif path == '/api/files/comparison':
                 result = service.join_comparison(data['id'])
+            elif path == '/api/preview/select':
+                result = service.select_preview(data['id'], data['version'], data['selection_revision'])
+            elif path == '/api/preview/discard':
+                result = service.discard_preview(data['id'], data['version'])
             elif path == '/api/preview/plan':
                 result = service.create_preview_plan(data)
             elif path == '/api/preview/generate':

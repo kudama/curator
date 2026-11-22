@@ -47,6 +47,7 @@ from .standards import LibraryStandards
 from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
+from .preview_review import PreviewReview
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
@@ -58,6 +59,7 @@ identifier = stable_id
 class Service(
     PreviewCards,
     PreviewRendering,
+    PreviewReview,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
@@ -774,6 +776,12 @@ class Service(
                 raise UserError('Joined output changed')
         with self.store.transaction():
             task = self.get_task(key)
+            if (
+                action in {'delete', 'reject'}
+                and task['kind'] == 'preview_render'
+                and self.preview_selection(task['asset'])['job'] == key
+            ):
+                raise UserError('Select a replacement before removing the saved Curator preview')
             if task['version'] != version:
                 raise UserError('Stale task version; refresh first')
             if task.get('deleted') and action != 'restore_task':

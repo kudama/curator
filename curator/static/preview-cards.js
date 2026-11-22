@@ -31,5 +31,5 @@ async function openPreviewCards(){
  for(const input of Object.values(inputs)){input.oninput=()=>{dirty=true;};input.onchange=()=>{dirty=true;};}
  const actions=node('div',undefined,'dialog-actions'),save=button('Save defaults',()=>act(async()=>{const values={output_profile:'preview-h264-720'};for(const [key,input] of Object.entries(inputs)){if(['intro','outro'].includes(key)){const [card,version]=input.value.split(':');values[key]=card?{card,version:Number(version)}:null;}else values[key]=Math.round(Number(input.value)*1000);}save.disabled=true;try{saved=await api('preview/defaults',{revision:saved.revision,changes:values});reset();feedback.textContent='Preview defaults saved.';}finally{save.disabled=false;}}),'primary');
  actions.append(button('Reset to saved defaults',()=>act(async()=>{saved=await api('preview/defaults');reset();feedback.textContent='Reloaded saved defaults. No settings changed.';}),'text-button'),button('Close',()=>leave(),'subtle'),save);dialog.append(actions);
- drawCards();reset();document.body.append(dialog);dialog.showModal();close.focus();
+ drawCards();reset();document.body.append(dialog);dialog.showModal();close.focus();return dialog;
 }
