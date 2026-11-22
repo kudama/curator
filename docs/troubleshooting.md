@@ -77,7 +77,20 @@ Curator still does not force a Plex refresh after renaming. When a later library
 - Fields Plex kept need nothing. The receipt is marked reconciled.
 - Fields that now differ become a **proposed restore** on the item's metadata task. Review it in the metadata editor and apply it there; nothing is written to Plex automatically.
 - Fields Curator itself changed after the rename are never proposed. Open metadata work on the same item is reported as a conflict and left untouched.
-- Replaced or missing artwork is reported, and the original bytes stay in the receipt. Restoring artwork from a receipt is a separate, explicit step that is not offered in the app yet.
+- Replaced or missing artwork is reported, and the original bytes stay in the receipt.
+- Cast pictures uploaded into Plex (which a rematch can lose) are kept in the receipt as Plex serves them. Pictures supplied by the Plex agent are kept as references only, because Plex can fetch them again. A picture that cannot be read is recorded and never stops the rename.
 - A rename that fully rolls back marks its receipt void. Curator history records each check, with a warning when something needs review.
+
+### Reviewing a rename and restoring what Plex lost (#154)
+
+Open **Rename recovery** from the rename job in History, or **Review rename** on a rename check in Curator history. It shows, for that item, each changed field (before the rename and now), each kept image beside what Plex shows now, and each kept cast picture, with whether the kept copy still verifies. "Now" means the last library scan. Opening a receipt never writes anything.
+
+- **Metadata** opens the proposed restore in the metadata editor, as before.
+- **Artwork:** tick the images to put back and choose **Create restore review**. Each becomes an ordinary artwork review waiting in Artwork; nothing is published until you approve it there, and publication again checks the destination and that Plex still shows the image you saw.
+- **Cast pictures:** tick the people and choose **Restore selected pictures**, then confirm. Only those pictures change; every other credit, role, order and picture stays as Plex has it. It is refused if the person is no longer credited or the cast changed since the last scan.
+
+Every restore first rechecks the receipt, the item, its library and file fingerprint, and that Plex still matches the renamed file. If Plex has not matched the file yet (not found), the restore waits for Plex's next scan: Curator never forces a refresh or rematches on its own. Failures are shown with what to do next, and the kept copies stay in the receipt.
+
+Renders with synthetic data: [desktop](designs/v2-rename-recovery-20261122/desktop.jpg), [phone](designs/v2-rename-recovery-20261122/phone.jpg).
 
 Rename and shared file-operation queues stay paused until the operator resumes them; this change does not resume them.
