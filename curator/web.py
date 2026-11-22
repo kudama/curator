@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
+            '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
         if path in static:
@@ -514,6 +515,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.discard_preview(data['id'], data['version'])
             elif path == '/api/preview/plan':
                 result = service.create_preview_plan(data)
+            elif path == '/api/preview/boundaries':
+                result = service.preview_boundaries(data)
             elif path == '/api/preview/generate':
                 result = service.generate_preview(data['plan'], data['request_id'])
             elif path == '/api/preview/cards/import':
@@ -533,7 +536,20 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/standards':
                 result = service.save_type_standard(data['kind'], data['revision'], data['values'])
             elif path == '/api/library/standard':
-                result = service.save_library_overrides(data['library'], data['revision'], data['overrides'])
+                if (
+                    set(data) != {'library', 'revision', 'kind', 'type_revision', 'type_digest', 'overrides'}
+                    or any(data[k] is None for k in ('kind', 'type_revision', 'type_digest'))
+                    or not isinstance(data['overrides'], dict)
+                ):
+                    raise UserError('Reload and review the inherited standard before saving')
+                result = service.save_library_overrides(
+                    data['library'],
+                    data['revision'],
+                    data['overrides'],
+                    kind=data['kind'],
+                    type_revision=data['type_revision'],
+                    type_digest=data['type_digest'],
+                )
             elif path == '/api/scan':
                 service.scan(data['library'])
                 result = {'started': True}
