@@ -21,6 +21,7 @@ function renderFileManagementControls(){
  label.hidden=actions.hidden=screen!=='filemanagement';if(label.hidden)return;
  const signature=JSON.stringify(state.libraries.map(l=>[l.id,l.title]));if(select.dataset.libraries!==signature){select.replaceChildren();for(const library of state.libraries){const option=node('option',library.title);option.value=library.id;select.append(option);}select.dataset.libraries=signature;}select.value=libraryId;
  const files=selectedManagementFiles();actions.replaceChildren();
+ actions.append(button('Generate NFO files',()=>openNfoExport(),'text-button'));
  for(const [kind,title,min,max] of [['rename','Rename file',1,1],['join','Join parts',2,Infinity],['group','Collection / playlist',1,Infinity]]){
   const control=button(title,()=>launchFileManagement(kind),'text-button');control.disabled=files.length<min||files.length>max;
   control.title=kind==='rename'?'Select one file':kind==='join'?'Select at least two files in this library':'Select files in this library';actions.append(control);
