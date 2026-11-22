@@ -38,12 +38,17 @@ class PreviewCards:
             raise UserError('Trailer card not found')
         return row
 
-    def preview_card_path(self, identity, version):
+    def preview_card_path(self, identity, version, filename=None):
         if not re.fullmatch(r'[a-f0-9]{32}', str(identity)) or type(version) is not int or version < 1:
             raise UserError('Invalid trailer card version')
         root = self.store.root / 'preview-cards'
         folder = root / identity
-        path = folder / f'{version}.png'
+        if filename is None:
+            row = self.preview_card_record(identity)
+            filename = row['versions'].get(str(version), {}).get('file', f'{version}.png')
+        if filename != f'{version}.png' and not re.fullmatch(str(version) + r'-[a-f0-9]{32}\.png', filename):
+            raise UserError('Invalid trailer card storage')
+        path = folder / filename
         if any(p.is_symlink() for p in (root, folder, path)):
             raise UserError('Trailer card storage is unavailable')
         return path
@@ -57,7 +62,7 @@ class PreviewCards:
             role=row['role'],
             name=row['name'],
             hidden=row['hidden'],
-            image=row['versions'][str(version)],
+            image={key: value for key, value in row['versions'][str(version)].items() if key != 'file'},
             thumbnail_url=f'/api/preview/cards/image?id={row["id"]}&version={version}',
         )
 
@@ -118,7 +123,8 @@ class PreviewCards:
                     created=now(),
                 )
             version = row['revision'] + 1
-            path = self.preview_card_path(row['id'], version)
+            filename = f'{version}-{uuid.uuid4().hex}.png'
+            path = self.preview_card_path(row['id'], version, filename)
             path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(path.parent.parent, 0o700)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -126,7 +132,9 @@ class PreviewCards:
                 stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
-            info = dict(version=version, sha256=hashlib.sha256(raw).hexdigest(), format='png', **dimensions)
+            info = dict(
+                version=version, sha256=hashlib.sha256(raw).hexdigest(), format='png', file=filename, **dimensions
+            )
             row['versions'][str(version)] = info
             row.update(revision=version, name=name.strip(), updated=now())
             self.store.put('settings', 'preview-card:' + row['id'], row)

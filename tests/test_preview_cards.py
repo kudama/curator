@@ -112,3 +112,48 @@ class PreviewCards(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.card()
         self.assertEqual(self.service.preview_cards()['cards'], [])
+
+    def test_history_failure_leaves_unreferenced_bytes_but_replacement_can_retry(self):
+        first = self.card()
+        old = self.service.preview_card_image(first['id'], 1)
+        replacement = dict(id=first['id'], revision=1, name='Updated', role='intro', image=png(64, 36))
+        with patch.object(self.store, 'record', side_effect=OSError('history failed')):
+            with self.assertRaises(OSError):
+                self.service.import_preview_card(replacement)
+        self.assertEqual(self.service.preview_card_record(first['id'])['revision'], 1)
+        self.assertEqual(self.service.preview_card_image(first['id'], 1), old)
+        unreferenced = set((self.store.root / 'preview-cards').rglob('*.png'))
+        second = self.service.import_preview_card(replacement)
+        self.assertEqual(second['revision'], 2)
+        self.assertEqual(len(set((self.store.root / 'preview-cards').rglob('*.png')) - unreferenced), 1)
+        self.assertEqual(self.service.preview_card_image(first['id'], 1), old)
+
+    def test_fsync_and_commit_failures_do_not_poison_retry(self):
+        for failure in ('fsync', 'commit'):
+            with self.subTest(failure=failure):
+                first = self.card()
+                old = self.service.preview_card_image(first['id'], 1)
+                replacement = dict(id=first['id'], revision=1, name='Retry', role='intro', image=png(64, 36))
+                if failure == 'fsync':
+                    with patch('curator.preview_cards.os.fsync', side_effect=OSError('write failed')):
+                        with self.assertRaises(OSError):
+                            self.service.import_preview_card(replacement)
+                else:
+                    original = self.store.db
+
+                    class FailedCommit:
+                        def __getattr__(self, key):
+                            return getattr(original, key)
+
+                        def commit(self):
+                            raise OSError('commit failed')
+
+                    self.store.db = FailedCommit()
+                    try:
+                        with self.assertRaises(OSError):
+                            self.service.import_preview_card(replacement)
+                    finally:
+                        self.store.db = original
+                self.assertEqual(self.service.preview_card_record(first['id'])['revision'], 1)
+                self.assertEqual(self.service.preview_card_image(first['id'], 1), old)
+                self.assertEqual(self.service.import_preview_card(replacement)['revision'], 2)
