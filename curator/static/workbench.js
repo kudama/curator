@@ -503,6 +503,7 @@ function renderWorkbench(){
  updateQueueLayout();
  updateQueuePositions();
  if(queueFocus&&!focused.isConnected)restoreQueueFocus(queueFocus);
+ if(typeof navAfterRender==='function')navAfterRender();
 }
 async function openAssetOverview(id){if(!prepareInspector())return;const asset=catalogIndex().byId.get(id);if(!asset)return;selectedAssetId=id;inspectorMode='overview';openedTask='asset:'+id;renderAssetOverview(asset);showInspector();render();}
 function renderAssetOverview(asset,signature=''){

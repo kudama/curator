@@ -226,6 +226,7 @@ class Handler(BaseHTTPRequestHandler):
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
+            '/navigation.js': ('navigation.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
