@@ -30,7 +30,7 @@ main{padding:26px 34px 60px;max-width:1280px;min-width:0}h1{font-family:Georgia,
 /* Library Manager: the existing workbench, unchanged */
 .workbench{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:calc(100vh - 106px)}.side{border-right:1px solid var(--line);padding:20px 12px}.side a{display:block;color:var(--muted);padding:9px 10px;border-radius:6px;font-size:13px}.side a.sel{background:#26312b;color:var(--accent);border-left:2px solid var(--accent)}.side .sublink{padding-left:26px;font-size:12px}.side .sublink.sel{background:none;border:0;color:var(--text)}
 .wb-main{padding:22px 28px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px}.toolbar a{font-size:12px;color:var(--muted);padding:6px 9px;border-radius:6px}.toolbar a.active{color:var(--accent);background:#253026}
-.lane .more{padding:4px 10px;font-size:12px;margin-top:4px}.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.lane{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:12px;min-height:220px}.lane h3{font-size:12px;margin:0 0 8px;color:var(--muted);letter-spacing:1px}.job{border:1px solid #303b3c;border-radius:7px;padding:9px 10px;margin:7px 0;font-size:12px;background:#1b2224}.job.attn{border-color:#7a4c45}.job small{display:block;color:var(--muted)}
+.per-lib{display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:13px}.lane .more{padding:4px 10px;font-size:12px;margin-top:4px}.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.lane{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:12px;min-height:220px}.lane h3{font-size:12px;margin:0 0 8px;color:var(--muted);letter-spacing:1px}.job{border:1px solid #303b3c;border-radius:7px;padding:9px 10px;margin:7px 0;font-size:12px;background:#1b2224}.job.attn{border-color:#7a4c45}.job small{display:block;color:var(--muted)}
 .split{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,1fr);gap:14px}.inspector{border:1px solid #3b493d;border-radius:10px;background:#1c241f;padding:16px}.inspector input,.inspector textarea{width:100%;background:#11191a;color:var(--text);border:1px solid #3b4747;border-radius:6px;padding:8px;margin:4px 0 10px;font:inherit}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.muted{color:var(--muted);font-size:12px}
 .history-row{border-bottom:1px solid var(--line);padding:12px 4px;display:flex;gap:12px;align-items:center}.history-row div{flex:1}.history-row p{margin:2px 0;font-size:12px;color:var(--muted)}
@@ -60,7 +60,7 @@ const h=(tag,attrs={},...kids)=>{const e=document.createElement(tag);for(const [
 const link=(href,text,attrs={})=>h('a',{href,...attrs},text);
 // Routes are the navigation contract in README.md. Every link below is a real, shareable hash URL.
 const R={home:'#/home',lib:(id,view,q='')=>`#/library/${id}/${view}${q}`,history:q=>'#/history'+q,config:p=>'#/configuration/'+p};
-function tabs(){const t=document.getElementById('tabs');const items=[['home','Home',R.home],['library','Library Manager',R.lib('films','files'),h('span',{class:'count',title:'Ready to review: 3 results to publish, 2 metadata suggestions, 1 artwork change'},'6')],['history','History',R.history('')],['config','Configuration',R.config('standards/movie')]];
+function tabs(){const t=document.getElementById('tabs');const items=[['home','Home',R.home],['library','Library Manager',R.lib('films','files'),h('span',{class:'count',title:'Ready to review: 3 results to publish, 2 metadata suggestions, 2 artwork changes'},'7')],['history','History',R.history('')],['config','Configuration',R.config('standards/movie')]];
  t.replaceChildren(...items.map(([key,label,href,badge])=>h('a',{href,'aria-current':route===key?'page':null,class:S==='focus'&&key==='library'?'force-focus':null},label,badge||null)));}
 function status(){const s=document.getElementById('status');s.replaceChildren(
  S==='error'?h('span',{class:'bad'},'Connection interrupted. Showing the update from 14:02; reconnecting automatically.'):h('span',{},'● 1 processing · 1 publishing · 14 waiting'),
@@ -77,7 +77,8 @@ function home(){
   ...(loading?sk(3):[
    decision('3','Results are ready to publish','Upscales, encodes and joins wait for your comparison before publishing',R.lib('all','review','?kind=all'),'Review results'),
    decision('2','Metadata suggestions to review','Preview each change, then save it to Plex yourself',R.lib('all','queue','?status=review&lane=metadata'),'Review metadata'),
-   decision('1','Artwork change to approve','Compare the current and proposed artwork before it is queued',R.lib('films','artwork','?status=review'),'Review artwork'),
+   // Artwork review lives in each library's Artwork workspace, so a count spanning libraries links to each one.
+   decision('2','Artwork changes to approve','In 2 libraries · compare the current and proposed artwork before it is queued',[[R.lib('films','artwork','?status=review'),'Synthetic Films (1)'],[R.lib('family','artwork','?status=review'),'Example Family Videos (1)']],''),
    decision('2','Jobs need attention','One failed, one interrupted · History shows the safe next step',R.lib('all','queue','?status=attention'),'Open in Queue','bad'),
    decision('9','Family videos are missing dates','Other Videos standard · Metadata',R.lib('family','files','?view=attention&dimension=metadata'),'Open in Library Manager','warm'),
    decision('1','Standards question','An Other Videos setting needs your confirmation',R.config('standards/other_videos'),'Open Configuration','warm')])));
@@ -98,7 +99,7 @@ function home(){
  m.append(grid);m.append(h('p',{class:'note'},'Prototype note (not product copy): synthetic libraries, titles and counts. Health and arrival status need standards evaluation; Requests and Worth watching show their not-connected states.'));
  return m;
 }
-function decision(n,title,detail,href,action,tone=''){return h('div',{class:'decision'},h('span',{class:'n '+tone},n),h('p',{},title,h('small',{},detail)),link(href,action));}
+function decision(n,title,detail,href,action,tone=''){return h('div',{class:'decision'},h('span',{class:'n '+tone},n),h('p',{},title,h('small',{},detail)),Array.isArray(href)?h('div',{class:'per-lib'},...href.map(([u,t])=>link(u,t))):link(href,action));}
 // ---- Library Manager: existing workbench, entered with a filtered deep link ----
 function library(){
  const wrap=h('div',{class:'workbench'});

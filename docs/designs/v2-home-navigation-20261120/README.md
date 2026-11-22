@@ -67,9 +67,11 @@ There is no single combined review screen. Each kind of review keeps the flow it
 | --- | --- | --- |
 | Upscale, encode and join results | `#/library/<id\|all>/review` | Source/output comparison, accept, reject or skip, then publication through the File operations queue |
 | Metadata suggestions | `#/library/<id\|all>/queue?status=review&lane=metadata` | The Metadata lane and its inspector: preview, explicit save/apply, Plex readback |
-| Artwork changes and generated artwork | `#/library/<id>/artwork?status=review` | The Artwork workspace: compare current and proposed, approve and queue; paid generation keeps its quote and Generate approval |
+| Artwork changes and generated artwork | `#/library/<id>/artwork?status=review`, one link per library | The Artwork workspace: compare current and proposed, approve and queue; paid generation keeps its quote and Generate approval |
 
-The badge total is the sum of the three counts. Results to publish are not shown inside the queue lanes, as today; they are reached from Ready to review.
+**Artwork is per library.** The Artwork workspace belongs to one library, so a global artwork count never opens a single, arbitrarily chosen library. Home shows the total and one link per library that has artwork waiting, with its own count ("Synthetic Films (1)", "Example Family Videos (1)" in `home.png`). With exactly one library waiting, the row shows that library's single link. No combined artwork review screen is added.
+
+The badge total is the sum of the three counts. Results to publish are not shown inside the queue lanes, as today; they are reached from Ready to review. The badge counts reviews, while the queue's own Ready to review count covers queue jobs only: an artwork change made in the Artwork workspace awaits approval there before it is a queue job, so it counts on Home and in the badge (7 in the example) but not in the queue toolbar (6).
 
 Rules:
 
