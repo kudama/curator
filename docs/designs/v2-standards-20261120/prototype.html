@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Curator v2 — Standards configuration prototype</title>
+<!-- Design prototype for issue #105. Synthetic data only; not served by Curator and not wired to any API. -->
+<style>
+:root{color-scheme:dark;--bg:#101415;--panel:#181e20;--panel2:#1c2426;--line:#2b3436;--text:#eceee8;--muted:#9ba8a8;--accent:#c8df9b;--warm:#d2a776;--bad:#e5a49b;--info:#9ec3df}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,select{font:inherit}button{border:1px solid var(--line);background:#20282a;color:var(--text);padding:8px 14px;border-radius:7px;cursor:pointer}button:disabled{opacity:.4;cursor:default}
+.primary{background:var(--accent);border-color:var(--accent);color:#1a2516;font-weight:600}.subtle{background:transparent;color:var(--muted)}.link{border:0;background:none;color:var(--accent);padding:2px 0;font-size:12px}
+header{height:72px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:#141a1b}
+.brand{display:flex;align-items:center;gap:12px}.brand strong{letter-spacing:4px;font-size:15px}.mark{border:1px solid #789479;color:var(--accent);width:34px;height:36px;display:grid;place-items:center;font:27px Georgia,serif;border-radius:11px 2px 11px 2px}
+.tabs{display:flex;gap:4px}.tabs button{background:none;border-color:transparent;color:var(--muted);font-size:13px}.tabs button.active{color:var(--accent);background:#253026}
+.proto{font-size:10px;letter-spacing:1.5px;color:var(--warm);border:1px dashed #6b5a45;padding:4px 8px;border-radius:5px}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 72px)}
+aside{border-right:1px solid var(--line);padding:24px 14px}.eyebrow{font-size:10px;color:var(--muted);letter-spacing:2px;font-weight:600;margin:18px 10px 8px}
+aside button{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;border-color:transparent;background:none;color:var(--muted);margin:2px 0;padding:9px 10px}
+aside button.selected{background:#26312b;color:var(--accent);border-left:2px solid var(--accent)}aside small{font-size:10px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--warm);display:inline-block;margin-left:6px}
+main{padding:26px 34px 60px;max-width:1180px;min-width:0}
+h1{font-family:Georgia,serif;font-weight:400;font-size:32px;margin:4px 0 6px}h2{font-size:16px;font-weight:600;margin:0}h3{font-size:13px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 14px}.meta{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:16px}.meta b{color:var(--text);font-weight:500}
+.banner{border:1px solid var(--line);border-radius:9px;padding:12px 16px;margin:0 0 16px;font-size:13px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}.banner p{margin:0;flex:1 1 320px}
+.banner.info{border-color:#3e5566;background:#18232b}.banner.warn{border-color:#6b5a45;background:#2a2219}.banner.bad{border-color:#7a4c45;background:#2b1c1a}.banner.ok{border-color:#536344;background:#1f291e}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.card{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}.card.off .body{opacity:.55}
+.card .head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.card .body{padding:12px 16px 14px}.explain{font-size:12px;color:var(--muted);margin:0 0 10px}
+.switch{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.switch input{accent-color:var(--accent);width:16px;height:16px}
+.field{padding:9px 0;border-top:1px solid #222b2d}.field:first-of-type{border-top:0}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.chips label{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:14px;padding:3px 10px;font-size:12px;color:var(--text);margin:0 6px 6px 0}.chips input{accent-color:var(--accent)}
+select,input[type=number]{background:#11191a;color:var(--text);border:1px solid #3b4747;border-radius:6px;padding:6px 8px;min-width:120px}
+input[type=number]{width:110px;min-width:0}.invalid{border-color:var(--bad)!important}.err{color:var(--bad);font-size:12px;margin-top:4px}
+.tag{font-size:10px;letter-spacing:.5px;border-radius:4px;padding:2px 6px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}.tag.override{color:var(--warm);border-color:#6b5a45}.tag.changed{color:var(--info);border-color:#3e5566}.tag.inherit{color:var(--muted)}
+.effective{font-size:11px;color:var(--muted);margin-top:5px}.effective b{color:var(--text);font-weight:500}
+.actions{position:sticky;bottom:0;display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;padding:14px 0 6px;margin-top:18px;background:linear-gradient(transparent,var(--bg) 30%)}.actions .status{margin-right:auto;font-size:12px;color:var(--muted)}
+.panel{border:1px solid #536344;border-radius:10px;background:#1b241d;padding:16px 18px;margin:16px 0}.panel h2{margin-bottom:8px}
+table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500}
+.old{color:var(--muted);text-decoration:line-through}.new{color:var(--accent)}
+dialog{background:#1b2324;color:var(--text);border:1px solid #42504d;border-radius:12px;padding:22px;width:min(480px,92vw)}dialog::backdrop{background:#050909b8}
+.note{font-size:11px;color:#7d8b88;margin-top:26px;border-top:1px solid var(--line);padding-top:12px}
+@media(max-width:760px){header{padding:0 14px;height:auto;min-height:60px;flex-wrap:wrap;gap:6px;padding:10px 14px}.tabs{overflow-x:auto;max-width:100%}.proto{display:none}.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--line);padding:10px 12px;display:flex;gap:6px;overflow-x:auto}aside .eyebrow{display:none}aside button{width:auto;white-space:nowrap;flex:none}main{padding:18px 16px 50px}h1{font-size:26px}.grid{grid-template-columns:1fr}}
+</style></head>
+<body>
+<header><div class="brand"><div class="mark">C</div><strong>CURATOR</strong></div>
+<nav class="tabs" aria-label="Main"><button>Home</button><button>Library Manager</button><button>History</button><button class="active">Configuration</button></nav>
+<span class="proto">PROTOTYPE · SYNTHETIC DATA</span></header>
+<div class="layout"><aside id="nav" aria-label="Configuration sections"></aside><main id="main"></main></div>
+<dialog id="leave"><h2>Discard unsaved changes?</h2><p class="sub" id="leave-text"></p><div class="row" style="justify-content:flex-end"><button class="subtle" onclick="leave.close()">Keep editing</button><button onclick="discard()">Discard changes</button></div></dialog>
+<script>
+'use strict';
+// ---- Synthetic data shaped like GET /api/standards (curator/standards.py) ----
+const LABELS={movie:'Movies',show:'TV Shows',other_videos:'Other Videos'};
+const META={summary:'Description',year:'Year',originally_available_at:'Date (originally available)',genres:'Genres',studio:'Studio',content_rating:'Content rating',collections:'Collections'};
+const ART={poster:'Poster',background:'Background',logo:'Logo'};
+const catalog=()=>({metadata:{enabled:true,required:['summary','year','genres'],local_ai_suggestions:false},cast:{enabled:false,mode:'credits'},artwork:{enabled:false,required:['poster'],poster_ratio:'2:3'},upscaling:{enabled:true,target:'1080',suggest_when_met:true},encoding:{enabled:true,max_mbps_1080:null,max_mbps_4k:null,preserve_originals:false}});
+const DEFAULTS={movie:catalog(),show:catalog(),other_videos:{metadata:{enabled:true,required:['summary','originally_available_at'],local_ai_suggestions:true},cast:{enabled:true,mode:'known_people'},artwork:{enabled:true,required:['poster'],poster_ratio:'2:3'},upscaling:{enabled:true,target:'1080',suggest_when_met:true},encoding:{enabled:true,max_mbps_1080:null,max_mbps_4k:null,preserve_originals:true}}};
+const GLOBAL={max_mbps_1080:18,max_mbps_4k:55};
+const clone=v=>JSON.parse(JSON.stringify(v));
+const server={
+ types:{movie:{revision:3,values:(()=>{const v=catalog();v.encoding.max_mbps_1080=14;return v;})()},show:{revision:0,values:catalog()},other_videos:{revision:1,values:clone(DEFAULTS.other_videos)}},
+ libraries:[
+  {id:'lib-films',title:'Synthetic Films',kind:'movie',revision:2,overrides:{artwork:{enabled:true}}},
+  {id:'lib-kids',title:'Sample Kids Films',kind:'movie',revision:0,overrides:{}},
+  {id:'lib-series',title:'Demo Series',kind:'show',revision:0,overrides:{}},
+  {id:'lib-family',title:'Example Family Videos',kind:'other_videos',revision:4,overrides:{encoding:{preserve_originals:false,max_mbps_1080:25}}},
+ ]};
+// ---- Field descriptions: the UI <-> API mapping recorded in docs/curator-v2-standards.md ----
+const DIMS={
+ metadata:{title:'Metadata',explain:'Fields every item needs before metadata counts as done.',fields:{required:{label:'Required fields',type:'multi',options:META},local_ai_suggestions:{label:'Offer local AI suggestions for missing fields',type:'bool'}}},
+ cast:{title:'Cast',explain:'Credits: Plex credits are present. Known people: credits are matched to people saved in Curator, with portraits.',fields:{mode:{label:'Cast is done when',type:'choice',options:{credits:'Credits are present',known_people:'Credits match saved people'}}}},
+ artwork:{title:'Artwork',explain:'Artwork Curator should find or create. Posters are 2:3 for every library type; backgrounds stay 16:9.',fields:{required:{label:'Required artwork',type:'multi',options:ART},poster_ratio:{label:'Poster shape',type:'choice',options:{'2:3':'2:3 portrait'},fixed:true}}},
+ upscaling:{title:'Upscaling',explain:'The target is a resolution a finished file should reach. It is not a scale: how much the Topaz filter enlarges the source (1×, 2× or 4×, relative to the source) is a processing default for each library, and the 4096 × 2160 output ceiling still applies.',fields:{target:{label:'Resolution target',type:'choice',options:{'1080':'1080p (1920 long edge)','2160':'2160p (3840 long edge)'}},suggest_when_met:{label:'Still suggest optional upscales for files that already meet the target',type:'bool'}}},
+ encoding:{title:'Re-encoding',explain:'A file is suggested for re-encoding when its bitrate is above the threshold. Empty uses the global threshold in Connections & tools.',fields:{max_mbps_1080:{label:'Threshold up to 1080p (Mbps)',type:'mbps',global:'max_mbps_1080'},max_mbps_4k:{label:'Threshold for 4K (Mbps)',type:'mbps',global:'max_mbps_4k'},preserve_originals:{label:'Skip space-saving re-encoding suggestions',type:'bool',help:'Only stops Curator suggesting re-encodes to save space. When any re-encoded or upscaled file is published, the original is still kept, whether this is on or off.'}}},
+};
+// ---- Prototype state ----
+let view={page:'type',kind:'movie'},draft=null,base=null,phase='edit',message=null,errors={},pendingNav=null;
+const scenario=new URLSearchParams(location.hash.slice(1)).get('s')||'type';
+function libsOf(kind){return server.libraries.filter(l=>l.kind===kind);}
+function typeValues(kind){return server.types[kind].values;}
+function effective(lib,values=typeValues(lib.kind),overrides=lib.overrides){const v=clone(values);for(const [d,f] of Object.entries(overrides))Object.assign(v[d],f);return v;}
+function show(value,spec){if(spec.type==='bool')return value?'On':'Off';if(spec.type==='multi')return value.length?value.map(x=>spec.options[x]).join(', '):'None';if(spec.type==='mbps')return value==null?'Global ('+GLOBAL[spec.global]+')':value+' Mbps';if(spec.type==='choice')return spec.options[value];return String(value);}
+function load(){if(view.page==='type'){base=clone(typeValues(view.kind));}else{const lib=server.libraries.find(l=>l.id===view.lib);base=clone(lib.overrides);}draft=clone(base);phase='edit';message=null;errors={};}
+function dirty(){return JSON.stringify(draft)!==JSON.stringify(base);}
+function changes(){ // [{dim, field, before, after}]
+ const out=[];
+ if(view.page==='type'){for(const d in DIMS){if(draft[d].enabled!==base[d].enabled)out.push({d,f:'enabled',before:base[d].enabled,after:draft[d].enabled});for(const f in DIMS[d].fields)if(JSON.stringify(draft[d][f])!==JSON.stringify(base[d][f]))out.push({d,f,before:base[d][f],after:draft[d][f]});}}
+ else{const lib=currentLib(),before=effective(lib,typeValues(lib.kind),base),after=effective(lib,typeValues(lib.kind),draft);for(const d in DIMS)for(const f of ['enabled',...Object.keys(DIMS[d].fields)])if(JSON.stringify(before[d][f])!==JSON.stringify(after[d][f])||JSON.stringify(base[d]?.[f])!==JSON.stringify(draft[d]?.[f]))out.push({d,f,before:before[d][f],after:after[d][f],inherit:!(draft[d]&&f in draft[d])});}
+ return out;
+}
+function specOf(d,f){return f==='enabled'?{type:'bool'}:DIMS[d].fields[f];}
+function label(d,f){return DIMS[d].title+' · '+(f==='enabled'?'Counts toward completion':DIMS[d].fields[f].label);}
+function currentLib(){return server.libraries.find(l=>l.id===view.lib);}
+function validate(){errors={};const vals=view.page==='type'?draft:effective(currentLib(),typeValues(currentLib().kind),draft);for(const f of ['max_mbps_1080','max_mbps_4k']){const v=vals.encoding[f];if(v!=null&&!(v>=1&&v<=400))errors['encoding.'+f]='Must be between 1 and 400 Mbps, or empty to use the global threshold';}return !Object.keys(errors).length;}
+// ---- Rendering ----
+const h=(tag,attrs={},...kids)=>{const e=document.createElement(tag);for(const [k,v] of Object.entries(attrs)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else if(v!==false&&v!=null)e.setAttribute(k,v===true?'':v);}for(const k of kids.flat())if(k!=null&&k!==false)e.append(k instanceof Node?k:document.createTextNode(k));return e;};
+function renderNav(){const nav=document.getElementById('nav');nav.replaceChildren(
+ h('div',{class:'eyebrow'},'CONFIGURATION'),h('button',{},'Connections & tools'),h('button',{},'Processing defaults'),
+ h('div',{class:'eyebrow'},'STANDARDS BY PLEX TYPE'),...Object.keys(LABELS).map(k=>h('button',{class:view.page==='type'&&view.kind===k?'selected':'',onclick:()=>go({page:'type',kind:k})},h('span',{},LABELS[k],view.page==='type'&&view.kind===k&&dirty()?h('span',{class:'dot',title:'Unsaved changes'}):null),h('small',{},libsOf(k).length+' lib'))),
+ h('div',{class:'eyebrow'},'LIBRARY OVERRIDES'),...server.libraries.map(l=>h('button',{class:view.page==='lib'&&view.lib===l.id?'selected':'',onclick:()=>go({page:'lib',lib:l.id})},h('span',{},l.title,view.page==='lib'&&view.lib===l.id&&dirty()?h('span',{class:'dot',title:'Unsaved changes'}):null),h('small',{},Object.values(l.overrides).reduce((n,f)=>n+Object.keys(f).length,0)||'—'))));}
+function go(target){if(dirty()){pendingNav=target;document.getElementById('leave-text').textContent='Your changes to '+(view.page==='type'?'the '+LABELS[view.kind]+' standard':currentLib().title)+' have not been saved.';document.getElementById('leave').showModal();return;}view=target;load();render();}
+function discard(){document.getElementById('leave').close();view=pendingNav;pendingNav=null;load();render();}
+function control(d,f,spec,value,onChange,disabled){
+ const id=d+'.'+f,bad=errors[id];
+ if(spec.type==='bool')return h('label',{class:'switch'},h('input',{type:'checkbox',checked:!!value,disabled,onchange:e=>onChange(e.target.checked)}),spec.label);
+ if(spec.type==='multi')return h('div',{class:'chips'},...Object.entries(spec.options).map(([k,t])=>h('label',{},h('input',{type:'checkbox',checked:value.includes(k),disabled,onchange:e=>onChange(e.target.checked?Object.keys(spec.options).filter(x=>x===k||value.includes(x)):value.filter(x=>x!==k))}),t)));
+ if(spec.type==='choice')return h('select',{disabled:disabled||spec.fixed,onchange:e=>onChange(e.target.value)},...Object.entries(spec.options).map(([k,t])=>h('option',{value:k,selected:k===value},t)));
+ if(spec.type==='mbps')return h('div',{},h('div',{class:'row'},h('input',{type:'number',class:bad?'invalid':'',value:value??'',placeholder:'Global '+GLOBAL[spec.global],disabled,'aria-invalid':bad?'true':null,oninput:e=>onChange(e.target.value===''?null:Number(e.target.value))}),h('span',{class:'muted',style:'font-size:12px'},value==null?'Uses global '+GLOBAL[spec.global]+' Mbps':'')),bad?h('div',{class:'err'},bad):null);
+}
+function typePage(main){
+ const kind=view.kind,rec=server.types[kind],libs=libsOf(kind),overriding=libs.filter(l=>Object.keys(l.overrides).length);
+ main.append(h('div',{class:'sub'},'STANDARD FOR PLEX ',LABELS[kind].toUpperCase(),' LIBRARIES'),h('h1',{},LABELS[kind]),
+  h('div',{class:'meta'},h('span',{},'Revision ',h('b',{},String(rec.revision))),h('span',{},JSON.stringify(rec.values)===JSON.stringify(DEFAULTS[kind])?'Curator defaults':'Customized'),h('span',{},'Used by ',h('b',{},libs.map(l=>l.title).join(', ')||'no libraries')),overriding.length?h('span',{},overriding.length+' with overrides'):null),
+  h('p',{class:'sub'},'What done means for every '+LABELS[kind]+' library. A standard describes the result you want; it never starts processing, publishing or paid work on its own.'));
+ banners(main);
+ const grid=h('div',{class:'grid'});
+ for(const [d,dim] of Object.entries(DIMS)){
+  const on=draft[d].enabled,changed=f=>JSON.stringify(draft[d][f])!==JSON.stringify(base[d][f]);
+  const card=h('section',{class:'card'+(on?'':' off')},h('div',{class:'head'},h('h2',{},dim.title),h('div',{class:'row'},changed('enabled')?h('span',{class:'tag changed'},'Changed'):null,h('label',{class:'switch'},h('input',{type:'checkbox',checked:on,disabled:phase!=='edit',onchange:e=>{draft[d].enabled=e.target.checked;render();}}),on?'Counts toward completion':'Not part of done'))));
+  const body=h('div',{class:'body'},h('p',{class:'explain'},dim.explain));
+  for(const [f,spec] of Object.entries(dim.fields)){
+   const overriders=libs.filter(l=>l.overrides[d]&&f in l.overrides[d]);
+   body.append(h('div',{class:'field'},spec.type==='bool'?null:h('label',{},spec.label),h('div',{class:'row'},control(d,f,spec,draft[d][f],v=>{draft[d][f]=v;validate();render();},phase!=='edit'),changed(f)?h('span',{class:'tag changed'},'Changed'):null),
+    spec.help?h('div',{class:'effective'},spec.help):null,
+    overriders.length?h('div',{class:'effective'},'Overridden by ',h('b',{},overriders.map(l=>l.title).join(', ')),'; changes here do not reach them for this field.'):null));
+  }
+  card.append(body);grid.append(card);
+ }
+ main.append(grid);
+ actions(main,h('button',{class:'subtle',disabled:phase!=='edit'||JSON.stringify(draft)===JSON.stringify(DEFAULTS[kind]),onclick:()=>{draft=clone(DEFAULTS[kind]);validate();render();}},'Reset form to Curator defaults'));
+}
+function libPage(main){
+ const lib=currentLib(),kind=lib.kind,typeVals=typeValues(kind),eff=effective(lib,typeVals,draft),count=Object.values(draft).reduce((n,f)=>n+Object.keys(f).length,0);
+ main.append(h('div',{class:'sub'},'LIBRARY OVERRIDES · PLEX ',LABELS[kind].toUpperCase()),h('h1',{},lib.title),
+  h('div',{class:'meta'},h('span',{},'Inherits from ',h('button',{class:'link',onclick:()=>go({page:'type',kind})},LABELS[kind]+' standard'),' (revision '+server.types[kind].revision+')'),h('span',{},'Overrides revision ',h('b',{},String(lib.revision))),h('span',{},h('b',{},String(count)),count===1?' field overridden':' fields overridden')),
+  h('p',{class:'sub'},'Each field inherits the '+LABELS[kind]+' value unless you override it here. Overrides keep only real differences, so later changes to the type standard still reach every inherited field.'));
+ banners(main);
+ const grid=h('div',{class:'grid'});
+ for(const [d,dim] of Object.entries(DIMS)){
+  const own=f=>!!(draft[d]&&f in draft[d]);
+  const setOwn=(f,v)=>{draft[d]=draft[d]||{};if(JSON.stringify(v)===JSON.stringify(typeVals[d][f]))delete draft[d][f];else draft[d][f]=v;if(!Object.keys(draft[d]).length)delete draft[d];validate();render();};
+  const reset=f=>{if(draft[d]){delete draft[d][f];if(!Object.keys(draft[d]).length)delete draft[d];}validate();render();};
+  const tag=f=>own(f)?h('span',{class:'tag override'},'Override'):h('span',{class:'tag inherit'},'Inherited');
+  const card=h('section',{class:'card'+(eff[d].enabled?'':' off')},h('div',{class:'head'},h('h2',{},dim.title),h('div',{class:'row'},tag('enabled'),h('label',{class:'switch'},h('input',{type:'checkbox',checked:eff[d].enabled,disabled:phase!=='edit',onchange:e=>setOwn('enabled',e.target.checked)}),eff[d].enabled?'Counts toward completion':'Not part of done'))));
+  const body=h('div',{class:'body'});
+  if(own('enabled'))body.append(h('div',{class:'effective'},LABELS[kind]+' value: '+(typeVals[d].enabled?'counts toward completion':'not part of done')+' · ',h('button',{class:'link',disabled:phase!=='edit',onclick:()=>reset('enabled')},'Use '+LABELS[kind]+' value')));
+  for(const [f,spec] of Object.entries(dim.fields)){
+   body.append(h('div',{class:'field'},spec.type==='bool'?null:h('label',{},spec.label),h('div',{class:'row'},control(d,f,spec,eff[d][f],v=>setOwn(f,v),phase!=='edit'),tag(f)),
+    spec.help?h('div',{class:'effective'},spec.help):null,
+    own(f)?h('div',{class:'effective'},LABELS[kind]+' value: ',h('b',{},show(typeVals[d][f],spec)),' · ',h('button',{class:'link',disabled:phase!=='edit',onclick:()=>reset(f)},'Use '+LABELS[kind]+' value')):h('div',{class:'effective'},'Effective: ',h('b',{},show(eff[d][f],spec)),' from '+LABELS[kind])));
+  }
+  card.append(body);grid.append(card);
+ }
+ main.append(grid);
+ actions(main,h('button',{class:'subtle',disabled:phase!=='edit'||!Object.keys(draft).length,onclick:()=>{draft={};validate();render();}},'Use '+LABELS[kind]+' values for everything'));
+}
+function banners(main){
+ if(message)main.append(message());
+ if(phase==='review'){const rows=changes(),lib=view.page==='lib'?currentLib():null,reach=view.page==='type'?libsOf(view.kind):[];
+  main.append(h('section',{class:'panel'},h('h2',{},'Review changes before saving'),h('p',{class:'sub'},view.page==='type'?'Saving creates revision '+(server.types[view.kind].revision+1)+'. It applies to '+reach.length+' librar'+(reach.length===1?'y':'ies')+' except where a library overrides that field. Nothing is processed or published by saving.':'Saving creates override revision '+(lib.revision+1)+' for '+lib.title+' only, reviewed against the '+LABELS[lib.kind]+' standard at revision '+server.types[lib.kind].revision+'. If that standard changes before you save, nothing is saved and you review again. Nothing is processed or published by saving.'),
+   h('table',{},h('thead',{},h('tr',{},h('th',{},'Field'),h('th',{},'Before'),h('th',{},'After'),view.page==='type'?h('th',{},'Libraries affected'):h('th',{},'Source'))),h('tbody',{},...rows.map(r=>h('tr',{},h('td',{},label(r.d,r.f)),h('td',{class:'old'},show(r.before,specOf(r.d,r.f))),h('td',{class:'new'},show(r.after,specOf(r.d,r.f))),
+    view.page==='type'?h('td',{},(()=>{const hit=reach.filter(l=>!(l.overrides[r.d]&&r.f in l.overrides[r.d]));const skip=reach.length-hit.length;return (hit.map(l=>l.title).join(', ')||'None')+(skip?' · '+skip+' keep their override':'');})()):h('td',{},r.inherit?'Inherited from '+LABELS[lib.kind]:'Override')))))));}
+}
+function actions(main,extra){
+ const d=dirty(),valid=!Object.keys(errors).length;
+ const status=phase==='review'?'Check the changes, then save.':!d?'No unsaved changes.':!valid?'Fix the highlighted field before reviewing.':changes().length+' unsaved change'+(changes().length===1?'':'s');
+ main.append(h('div',{class:'actions'},h('span',{class:'status'},status),extra,
+  phase==='review'?h('button',{onclick:()=>{phase='edit';render();}},'Back to editing'):h('button',{class:'subtle',disabled:!d,onclick:()=>{draft=clone(base);errors={};message=null;render();}},'Discard changes'),
+  phase==='review'?h('button',{class:'primary',onclick:save},'Save '+(view.page==='type'?LABELS[view.kind]+' standard':'overrides')):h('button',{class:'primary',disabled:!valid,onclick:review},'Review changes')));
+ main.append(h('p',{class:'note'},'Prototype for issue #105 with synthetic libraries and values. Saving maps to POST /api/standards with the current revision, or POST /api/library/standard with the override revision and the reviewed type revision and digest. Scans, completion and processing do not read standards yet; that is #107.'));
+}
+function review(){if(!validate()){render();return;}if(!changes().length){message=()=>h('div',{class:'banner info'},h('p',{},'Nothing changed, so there is nothing to save. The standard stays at revision '+(view.page==='type'?server.types[view.kind].revision:currentLib().revision)+'.'));render();return;}phase='review';message=null;render();}
+function save(){
+ if(scenario==='libconflict'){const lib=currentLib(),k=lib.kind,next=server.types[k].revision+1;message=()=>h('div',{class:'banner warn'},h('p',{},h('b',{},'The '+LABELS[k]+' standard changed while you were reviewing.'),' Revision '+next+' was saved after you reviewed against revision '+server.types[k].revision+', so the inherited values you checked may be different now. Nothing was saved and your overrides are still here. Reload to see the new inherited values, then review again.'),h('button',{onclick:()=>{server.types[k]={revision:next,values:(()=>{const v=clone(server.types[k].values);v.metadata.required=[...v.metadata.required,'studio'];return v;})()};message=null;phase='review';render();}},'Reload '+LABELS[k]+' revision '+next));phase='edit';render();return;}
+ if(scenario==='conflict'){message=()=>h('div',{class:'banner warn'},h('p',{},h('b',{},'This standard changed in another window.'),' Revision 4 was saved after you opened revision 3. Your edits are still here and nothing was saved. Reload revision 4 to see what changed, then reapply your edits and review again.'),h('button',{onclick:()=>{message=null;phase='edit';render();}},'Reload revision 4'));phase='edit';render();return;}
+ if(view.page==='type'){server.types[view.kind]={revision:server.types[view.kind].revision+1,values:clone(draft)};}else{const lib=currentLib();lib.overrides=clone(draft);lib.revision++;}
+ load();message=()=>h('div',{class:'banner ok'},h('p',{},'Saved. '+(view.page==='type'?LABELS[view.kind]+' standard is now revision '+server.types[view.kind].revision+'.':currentLib().title+' overrides are now revision '+currentLib().revision+'.')+' No processing was started.'));render();
+}
+function render(){renderNav();const main=document.getElementById('main');main.replaceChildren();(view.page==='type'?typePage:libPage)(main);}
+// ---- Scenarios for the recorded renders (#s=...) ----
+const S={
+ type:()=>{view={page:'type',kind:'movie'};load();},
+ library:()=>{view={page:'lib',lib:'lib-family'};load();},
+ unsaved:()=>{view={page:'type',kind:'movie'};load();draft.cast.enabled=true;draft.upscaling.target='2160';},
+ review:()=>{view={page:'type',kind:'movie'};load();draft.cast.enabled=true;draft.upscaling.target='2160';draft.encoding.max_mbps_1080=null;phase='review';},
+ libreview:()=>{view={page:'lib',lib:'lib-films'};load();delete draft.artwork;draft.metadata={required:['summary','year','genres','content_rating']};phase='review';},
+ noop:()=>{view={page:'type',kind:'show'};load();review();},
+ error:()=>{view={page:'lib',lib:'lib-family'};load();draft.encoding.max_mbps_1080=0;validate();},
+ libconflict:()=>{view={page:'lib',lib:'lib-films'};load();delete draft.artwork;phase='review';save();},
+ conflict:()=>{view={page:'type',kind:'movie'};load();draft.metadata.required=['summary','year','genres','studio'];phase='review';save();},
+ leave:()=>{view={page:'type',kind:'movie'};load();draft.cast.enabled=true;},
+};
+(S[scenario]||S.type)();render();
+if(scenario==='leave')go({page:'lib',lib:'lib-kids'});
+</script></body></html>

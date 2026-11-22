@@ -21,6 +21,8 @@ The current application is the working screen. A new Home provides context and d
 | History | Job history and Curator history, as described below. |
 | Configuration | Existing Settings, service connections, and the standards/rules that define desired encoding, upscaling, metadata and artwork treatment. Shared defaults with library-specific settings where needed. |
 
+The proposed Home and navigation design, with its navigation contract, is in [designs/v2-home-navigation-20261120](designs/v2-home-navigation-20261120/README.md) (#104). It awaits operator approval.
+
 Homebase remains the overall dashboard, with a compact Curator summary and links into Curator. Library health is a section of Curator Home, not an additional standalone destination or separate page for every library. Home summaries link directly to relevant work or filtered history. Exact placement and screens require prototype review.
 
 ## Library standards
