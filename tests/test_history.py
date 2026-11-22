@@ -210,6 +210,7 @@ class ServiceHistory(Base):
         service.save_library('srv:1', dict(profile='home', mappings=[], themes=[]))
         service.save_library_overrides('srv:1', 0, {'cast': {'enabled': True}})
         values = service.standards()['types']['show']['values']
+        values['cast']['enabled'] = True  # A real change, not a no-op save.
         service.save_type_standard('show', 0, values)
         messages = [e['message'] for e in self.curator(library='srv:1')]
         self.assertEqual(messages, ['Films standard overrides changed', 'Films settings changed: profile'])

@@ -11,7 +11,7 @@ const NAV_ARTWORK_KINDS=new Set(['artwork','mage_generation','portrait']);
 const NAV_METADATA_KINDS=new Set(['metadata','home','folder_metadata']);
 const NAV_STATUS_TEXT={all:'all jobs',running:'processing jobs',queued:'waiting jobs',review:'jobs ready to review',attention:'jobs needing attention'};
 const NAV_VIEW_TEXT={attention:'items needing attention',files:'all files',completed:'completed items'};
-const navMemory={};let navApplying=false,navCurrent=null,navNotice='';
+const navMemory={},navContext={};let navApplying=false,navCurrent=null,navNotice='';
 
 function navParse(hash){
  const raw=String(hash||'').replace(/^#\/?/,''),[pathPart,queryPart='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean).map(p=>{try{return decodeURIComponent(p);}catch(error){return p;}});
@@ -46,6 +46,22 @@ function navCarry(route){
  if(route.view==='queue'&&query.status&&NAV_QUEUE_STATUS[query.status]!==queueStatus)delete query.status;
  return {...route,query};
 }
+function navSaveContext(tab){
+ if(tab!=='library'&&tab!=='history')return;
+ const pane=document.querySelector('.file-pane');
+ navContext[tab]={screen,search:searchText,selected:[...selected],waiting:[...waitingSelection],scroll:pane?pane.scrollTop:0,asset:selectedAssetId};
+}
+function navRestoreContext(tab){
+ const saved=navContext[tab];if(!saved||saved.screen!==screen)return;
+ // Only ids that still exist come back; inspector drafts are never revived.
+ const tasks=new Set(state.tasks.map(t=>t.id));
+ searchText=saved.search;if($('file-search'))$('file-search').value=saved.search;
+ selected.clear();for(const id of saved.selected)if(tasks.has(id))selected.add(id);
+ waitingSelection.clear();for(const id of saved.waiting)if(tasks.has(id))waitingSelection.add(id);
+ if(saved.asset&&state.assets.some(a=>a.id===saved.asset))selectedAssetId=saved.asset;
+ render();
+ const pane=document.querySelector('.file-pane');if(pane)requestAnimationFrame(()=>{pane.scrollTop=saved.scroll;});
+}
 function navSetTab(tab){
  document.body.dataset.tab=tab;
  for(const link of document.querySelectorAll('#main-tabs [data-tab]')){const on=link.dataset.tab===tab;if(on)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
@@ -62,25 +78,45 @@ function navFocus(tab){
 }
 function navLibraryExists(id){return state.libraries.some(l=>l.id===id);}
 function navPendingArtwork(library){return state.tasks.filter(t=>t.status==='awaiting_review'&&!t.deleted&&NAV_ARTWORK_KINDS.has(t.kind)&&(!library||t.library===library));}
-function navReviewCount(){return state.tasks.filter(t=>t.status==='awaiting_review'&&!t.deleted).length;}
+const NAV_RESULT_KINDS=new Set(['upscale','optimize','join','preview_render']);
+function navReviewFamilies(){
+ const waiting=state.tasks.filter(t=>t.status==='awaiting_review'&&!t.deleted),artwork={};
+ for(const t of waiting)if(NAV_ARTWORK_KINDS.has(t.kind))artwork[t.library]=(artwork[t.library]||0)+1;
+ return {results:waiting.filter(t=>NAV_RESULT_KINDS.has(t.kind)).length,metadata:waiting.filter(t=>NAV_METADATA_KINDS.has(t.kind)).length,artwork};
+}
+function navReviewCount(){const f=navReviewFamilies();return f.results+f.metadata+Object.values(f.artwork).reduce((a,b)=>a+b,0);}
 
 // Apply a route to the existing workspaces. Returns false when the user kept unsaved work.
+// The existing checks decide whether the current view may be left: an open inspector (unsaved or
+// mid-save) and the standards editor. Nothing about navigation changes until they agree.
+function navGuard(route){
+ if(navCurrent&&navFormat(route)===navFormat(navCurrent))return true;
+ const open=typeof inspectorOpen==='function'?inspectorOpen():Boolean(openedTask);
+ if(open){if(!prepareInspector())return false;closeInspector(true);}
+ if(typeof standardsEditor!=='undefined'&&standardsEditor?.dialog?.open){
+  const standards=route.tab==='configuration'&&/^(standards|library)\//.test(route.section||'');
+  if(!standards){if(!standardsEditor.canLeave())return false;standardsEditor.dialog.close();}
+ }
+ return true;
+}
 function navApply(route,{fromLink=true}={}){
- const leaving=(document.body.dataset.tab||'library')!==route.tab||route.tab==='library'||route.tab==='history';
- if(leaving&&inspectorDirty&&!prepareInspector())return false;
+ const current=document.body.dataset.tab||'library';if(current!==route.tab)navSaveContext(current);
+ if(!navGuard(route))return false;
  navApplying=true;let notice=route.unknown?'That link is not available any more; showing the nearest view.':'';
  try{
-  if(route.tab==='home'){if(openedTask)closeInspector(true);navSetTab('home');renderHome();navBanner('');}
-  else if(route.tab==='configuration'){if(openedTask)closeInspector(true);navSetTab('configuration');renderConfiguration(route);navBanner('');}
+  if(route.tab==='home'){navSetTab('home');renderHome();navBanner('');}
+  else if(route.tab==='configuration'){navSetTab('configuration');renderConfiguration(route);navBanner('');}
   else if(route.tab==='history'){
-   navSetTab('history');const q=route.query||{};
+   const q=route.query||{};
    if(q.library&&q.library!=='all'){if(navLibraryExists(q.library)){if(q.library!==libraryId&&!chooseLibrary(q.library))return false;historyScope='library';}else notice='That library is no longer connected; showing all libraries.';}
    if(q.library==='all'||notice)historyScope='all';
    historyView=['jobs','curator'].includes(q.view)?q.view:'jobs';historyPeriod=['all','1','7','30'].includes(q.period)?q.period:'all';historyStatus=q.status||'all';historyLevel=q.level||'all';
-   if(!setScreen('history'))return false;
+   if(!setScreen('history'))return false;navSetTab('history');
    const filtered=Object.keys(q).some(k=>k!=='library'&&q[k]&&q[k]!=='all');navBanner(fromLink&&filtered?'Opened from a link: History is filtered by the address. Filters only change what you see.':'',{tab:'history'});
   }else{
    navSetTab('library');const q=route.query||{};let id=route.library;
+   // A new link defines the view on its own; returning by tab restores the saved context instead.
+   if(fromLink){searchText='';if($('file-search'))$('file-search').value='';}
    if(id&&id!=='all'&&!navLibraryExists(id)){notice='That library is no longer connected; showing all libraries.';id='all';}
    const scoped=id&&id!=='all';
    if(scoped&&id!==libraryId&&!chooseLibrary(id))return false;
@@ -90,7 +126,8 @@ function navApply(route,{fromLink=true}={}){
     libraryView=['attention','files','completed'].includes(q.view)?q.view:'attention';activeGrouping=['folder','task','movie'].includes(q.group)?q.group:'folder';
     if($('group-by'))$('group-by').value=activeGrouping;if(!setScreen('library'))return false;
     if(q.asset&&state.assets.some(a=>a.id===q.asset&&a.library===libraryId)){selectedAssetId=q.asset;render();}
-    navBanner(fromLink&&(q.view||q.dimension||q.asset)?'Opened from a link: showing '+(NAV_VIEW_TEXT[libraryView]||'items')+(q.dimension?' for '+q.dimension:'')+'. Filters only change what you see.':'',{tab:'library',library:id||'all',view:'files'});
+    if(q.dimension)notice='Filtering by standard dimension is not available yet; showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'.';
+    navBanner(fromLink&&(q.view||q.asset)?'Opened from a link: showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'. Filters only change what you see.':'',{tab:'library',library:id||'all',view:'files'});
    }else if(view==='queue'){
     queueLibrary=scoped?id:'all';queueStatus=NAV_QUEUE_STATUS[q.status]||'all';waitingSelection.clear();
     const lane=Object.hasOwn(NAV_LANES,q.lane||'')?q.lane:null;if(lane)expandedWaitingQueues.add(lane);
@@ -112,6 +149,7 @@ function navApply(route,{fromLink=true}={}){
   // A fallback shows a different view than the link asked for: make the address say what is shown.
   if(notice){const shown=route.tab==='home'?{tab:'home'}:navCurrentRoute();navCurrent=navParse(navFormat(shown));history.replaceState(null,'',navFormat(shown));}
   navMemory[route.tab==='home'||route.tab==='configuration'?route.tab:document.body.dataset.tab]=location.hash||navFormat(navCurrent);
+  if(!fromLink&&(route.tab==='library'||route.tab==='history'))navRestoreContext(route.tab);
   navUpdateBadges();navFocus(route.tab);
   return true;
  }finally{navApplying=false;}
@@ -136,7 +174,11 @@ function navUpdateBadges(){
 }
 function renderHome(){
  const page=$('home-page');if(!page)return;
- const links=[['Library Manager','Browse and fix items in a library',navFormat({tab:'library',library:libraryId||'all',view:'files'})],['Ready to review',navReviewCount()+' waiting for your decision',navFormat({tab:'library',library:'all',view:'review'})],['Queue','Everything waiting or running, across all libraries',navFormat({tab:'library',library:'all',view:'queue'})],['History','What Curator and you have done',navFormat({tab:'history'})],['Configuration','Connections, processing defaults and standards',navFormat({tab:'configuration'})]];
+ const f=navReviewFamilies(),plural=(n,one,many)=>n+' '+(n===1?one:many);
+ const links=[['Library Manager','Browse and fix items in a library',navFormat({tab:'library',library:libraryId||'all',view:'files'})],
+  ['Results to publish',plural(f.results,'result waits','results wait')+' for your comparison',navFormat({tab:'library',library:'all',view:'review'})],
+  ['Metadata suggestions',plural(f.metadata,'suggestion waits','suggestions wait')+' in the Metadata lane',navFormat({tab:'library',library:'all',view:'queue',query:{status:'review',lane:'metadata'}})],
+  ...Object.entries(f.artwork).map(([lib,n])=>['Artwork · '+(state.libraries.find(l=>l.id===lib)?.title||'Library'),plural(n,'change waits','changes wait')+' for approval',navFormat({tab:'library',library:lib,view:'artwork',query:{status:'review'}})]),['Queue','Everything waiting or running, across all libraries',navFormat({tab:'library',library:'all',view:'queue'})],['History','What Curator and you have done',navFormat({tab:'history'})],['Configuration','Connections, processing defaults and standards',navFormat({tab:'configuration'})]];
  const grid=node('div',undefined,'home-links');for(const [title,detail,href] of links){const a=node('a',undefined,'home-link');a.href=href;a.append(node('strong',title),node('span',detail,'muted'));grid.append(a);}
  const heading=node('h1','Home');heading.id='home-heading';
  page.replaceChildren(node('div','HOME','eyebrow'),heading,node('p','Nothing on Home starts a job or publishes media; every item opens the matching work.','muted'),grid,node('p','Library health, new arrivals and work accomplished will appear here.','muted'));

@@ -2,13 +2,13 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 class El{constructor(id){this.id=id;this.hidden=false;this.textContent='';this.children=[];this.dataset={};this.attrs={};this.value='';}
  replaceChildren(...k){this.children=k;}append(...k){this.children.push(...k);}setAttribute(k,v){this.attrs[k]=v;}removeAttribute(k){delete this.attrs[k];}focus(){this.focused=true;}get innerText(){return [this.textContent,...this.children.map(c=>c.innerText??c.textContent??'')].join(' ');}}
-function setup({dirty=false,confirmLeave=false}={}){
+function setup({dirty=false,confirmLeave=false,open=false}={}){
  const els={},calls=[],tabs=['home','library','history','configuration'].map(t=>{const e=new El('tab-'+t);e.dataset.tab=t;return e;});
  const $=id=>els[id]||(els[id]=new El(id));
  const location={hash:''},replaced=[];
  const context=vm.createContext({URLSearchParams,requestAnimationFrame:f=>f(),calls,replaced,location,
   history:{replaceState:(a,b,h)=>{replaced.push(h);location.hash=h;}},window:{addEventListener(){}},
-  document:{body:{dataset:{}},querySelectorAll:s=>s.includes('main-tabs')?tabs:s.includes('queue-lane')?[]:[],querySelector:()=>null},
+  document:{body:{dataset:{}},activeElement:null,querySelectorAll:s=>s.includes('main-tabs')?tabs:s.includes('queue-lane')?[]:[],querySelector:()=>null},
   $,node:(tag,text,cls)=>{const e=new El();e.tag=tag;if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;},
   state:{libraries:[{id:'films',title:'Films'},{id:'home',title:'Home movies'}],assets:[{id:'a1',library:'films'}],tasks:[
    {id:'t1',library:'films',kind:'artwork',status:'awaiting_review'},{id:'t2',library:'home',kind:'artwork',status:'awaiting_review'},
@@ -16,9 +16,10 @@ function setup({dirty=false,confirmLeave=false}={}){
    {id:'t5',library:'films',kind:'upscale',status:'queued'},{id:'t6',library:'films',kind:'upscale',status:'running'}]},
   screen:'library',libraryId:'films',libraryView:'attention',activeGrouping:'folder',queueLibrary:'all',queueStatus:'all',reviewKind:'all',
   historyView:'jobs',historyScope:'library',historyPeriod:'all',historyStatus:'all',historyLevel:'all',selectedAssetId:null,
-  openedTask:null,inspectorDirty:dirty,expandedWaitingQueues:new Set(),waitingSelection:new Set(),
-  prepareInspector:()=>{calls.push('prepareInspector');return confirmLeave;},closeInspector:()=>calls.push('closeInspector'),
-  setScreen:v=>{calls.push('setScreen:'+v);context.screen=v;return true;},chooseLibrary:id=>{calls.push('chooseLibrary:'+id);context.libraryId=id;context.screen='library';return true;},
+  openedTask:open||dirty?'t4':null,inspectorDirty:dirty,selected:new Set(),searchText:'',expandedWaitingQueues:new Set(),waitingSelection:new Set(),
+  prepareInspector:()=>{calls.push('prepareInspector');return confirmLeave;},closeInspector:()=>{calls.push('closeInspector');context.openedTask=null;context.inspectorDirty=false;},
+  // Like the real setScreen: changing screen clears search and selection.
+  setScreen:v=>{calls.push('setScreen:'+v);if(context.screen!==v){context.searchText='';context.selected.clear();}context.screen=v;return true;},chooseLibrary:id=>{calls.push('chooseLibrary:'+id);context.libraryId=id;context.screen='library';return true;},
   render:()=>calls.push('render'),openConfig:()=>calls.push('openConfig'),openTask:(id,w)=>calls.push('openTask:'+id+':'+w),
   api:()=>{throw Error('navigation must not call the API');}});
  vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/navigation.js'),'utf8'),context);
@@ -64,5 +65,47 @@ test('configuration routes open the existing settings and standards editors only
 test('the address follows in-app history filters, and the badge counts every review kind',()=>{
  const h=setup();h.run("navApply(navParse('#/history'))");h.context.historyPeriod='30';h.context.historyStatus='failed';h.context.historyScope='all';
  h.run('navAfterRender()');assert.equal(h.location.hash,'#/history?library=all&period=30&status=failed');
- assert.equal(h.els['tab-review-count'].textContent,'4');assert.match(h.els['global-status'].innerText,/1 processing · 0 publishing · 1 waiting/);
+ assert.equal(h.els['tab-review-count'].textContent,'4');// 3 artwork + 1 metadataassert.match(h.els['global-status'].innerText,/1 processing · 0 publishing · 1 waiting/);
+});
+test('a busy or unsaved inspector blocks every departure before anything changes',()=>{
+ for(const route of ['#/home','#/history?period=7','#/configuration','#/library/all/queue']){
+  const h=setup({open:true,confirmLeave:false});h.context.historyPeriod='all';
+  assert.equal(h.run(`navApply(navParse('${route}'))`),false,route);
+  assert.equal(h.context.document.body.dataset.tab,undefined,route);assert.equal(h.context.historyPeriod,'all',route);
+  assert.ok(!h.calls.includes('closeInspector'),route);assert.ok(!h.calls.some(c=>String(c).startsWith('setScreen')),route);
+ }
+ const ok=setup({open:true,confirmLeave:true});assert.equal(ok.run("navApply(navParse('#/home'))"),true);
+ assert.deepEqual(ok.calls.slice(0,2),['prepareInspector','closeInspector']);
+});
+test('an unsaved standards editor must agree before any other route; a standards route switches its target',()=>{
+ const h=setup(),chosen=[];let leave=false;
+ h.context.standardsEditor={dialog:{open:true,close(){this.open=false;}},canLeave:()=>leave,choose:p=>chosen.push(p)};
+ h.context.openStandardsEditor=t=>chosen.push(JSON.stringify(t));
+ assert.equal(h.run("navApply(navParse('#/home'))"),false);assert.equal(h.context.standardsEditor.dialog.open,true);
+ assert.equal(h.run("navApply(navParse('#/configuration/library/films'))"),true);assert.deepEqual(chosen,['{"library":"films"}']);
+ leave=true;assert.equal(h.run("navApply(navParse('#/home'))"),true);assert.equal(h.context.standardsEditor.dialog.open,false);
+});
+test('returning by tab restores search, selections and the item, dropping work that has gone',()=>{
+ const h=setup();h.run("navApply(navParse('#/library/films/files?view=files'))");
+ h.context.searchText='sample';h.context.selected.add('t4');h.context.selected.add('gone');h.context.selectedAssetId='a1';
+ h.run("navApply(navParse('#/home'),{fromLink:false})");h.context.screen='history';h.context.searchText='';h.context.selected.clear();
+ h.run("navApply(navParse('#/library/films/files?view=files'),{fromLink:false})");
+ assert.equal(h.context.searchText,'sample');assert.equal(h.els['file-search'].value,'sample');
+ assert.deepEqual([...h.context.selected],['t4']);assert.equal(h.context.selectedAssetId,'a1');
+ // A new link replaces the context instead of reviving it.
+ h.run("navApply(navParse('#/home'),{fromLink:false})");h.run("navApply(navParse('#/library/films/files?view=completed'))");
+ assert.equal(h.context.searchText,'');
+});
+test('Home sends each review family to its own destination, artwork per library',()=>{
+ const h=setup();h.run("navApply(navParse('#/home'))");
+ const links=h.els['home-page'].children.find(c=>c.className==='home-links').children.map(a=>[a.children[0].textContent,a.children[1].textContent,a.href]);
+ assert.deepEqual(links.slice(1,5),[
+  ['Results to publish','0 results wait for your comparison','#/library/all/review'],
+  ['Metadata suggestions','1 suggestion waits in the Metadata lane','#/library/all/queue?status=review&lane=metadata'],
+  ['Artwork · Films','1 change waits for approval','#/library/films/artwork?status=review'],
+  ['Artwork · Home movies','2 changes wait for approval','#/library/home/artwork?status=review']]);
+});
+test('a standard-dimension link says the filter is not available instead of pretending',()=>{
+ const h=setup();h.run("navApply(navParse('#/library/films/files?dimension=metadata'))");
+ assert.match(h.els['route-notice'].textContent,/not available yet/);assert.equal(h.els['route-banner'].hidden,true);
 });
