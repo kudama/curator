@@ -225,6 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             '/workbench.js': ('workbench.js', 'application/javascript'),
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
+            '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
@@ -487,7 +488,17 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
-            if path == '/api/folders/defaults':
+            if path == '/api/nfo/preview':
+                result = service.create_nfo_preview(data)
+            elif path == '/api/nfo/status':
+                result = service.nfo_manifest(data['id'])
+            elif path == '/api/nfo/list':
+                result = service.nfo_exports(data['library'])
+            elif path == '/api/nfo/cancel':
+                result = service.cancel_nfo_preview(data['id'])
+            elif path == '/api/nfo/queue':
+                result = service.queue_nfo_export(data)
+            elif path == '/api/folders/defaults':
                 result = service.save_folder_defaults(
                     data['id'], data['settings'], data.get('revision'), data.get('branding_revision')
                 )
