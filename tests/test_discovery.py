@@ -250,7 +250,8 @@ class Discovery(unittest.TestCase):
         self.assertEqual(saved['revision'], 2)
         self.service.save_discovery_settings(2, {'enabled': True})
         library = self.service.library('movies')
-        library['kind'] = 'other_videos'
+        library['kind'] = 'movie'
+        library['standard_kind'] = 'other_videos'
         with self.store.transaction():
             self.store.put('libraries', 'movies', library)
         self.assertEqual(self.service.discovery()['items'], [])

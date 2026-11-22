@@ -88,7 +88,7 @@ def movie_catalogue(assets, libraries):
             not library
             or not library.get('server')
             or not library.get('key')
-            or (library.get('kind') or library_kind(library)) != 'movie'
+            or (library.get('standard_kind') or library.get('kind') or library_kind(library)) != 'movie'
             or library.get('profile') == 'home'
             or item.get('type') != 'movie'
             or not asset.get('present')
