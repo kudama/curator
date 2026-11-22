@@ -121,30 +121,29 @@ function navApply(route,{fromLink=true}={}){
    if(fromLink){searchText='';if($('file-search'))$('file-search').value='';}
    if(id&&id!=='all'&&!navLibraryExists(id)){notice='That library is no longer connected; showing all libraries.';id='all';}
    const scoped=id&&id!=='all';
-   if(scoped&&id!==libraryId&&!chooseLibrary(id))return false;
    const view=route.view||'files';
+   // #110's helper stores the validated dimension; set it before anything below renders, so the
+   // first render already uses it (other workspaces clear it).
+   if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(view==='files'?q.dimension||null:null);
+   if(scoped&&id!==libraryId&&!chooseLibrary(id))return false;
    if(view==='files'){
     if(!scoped&&!libraryId&&state.libraries.length&&!chooseLibrary(state.libraries[0].id))return false;
     libraryView=['attention','files','completed'].includes(q.view)?q.view:'attention';activeGrouping=['folder','task','movie'].includes(q.group)?q.group:'folder';
     if($('group-by'))$('group-by').value=activeGrouping;if(!setScreen('library'))return false;
     if(q.asset&&state.assets.some(a=>a.id===q.asset&&a.library===libraryId)){selectedAssetId=q.asset;render();}
-    // Dimension filtering belongs to #110's helper; without it, say so rather than pretend.
-    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(q.dimension||null);
-    else if(q.dimension)notice='Filtering by standard dimension is not available yet; showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'.';
+    // Without #110's helper, say dimension filtering is unavailable rather than pretend.
+    if(typeof setStandardDimensionFilter!=='function'&&q.dimension)notice='Filtering by standard dimension is not available yet; showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'.';
     navBanner(fromLink&&(q.view||q.asset)?'Opened from a link: showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'. Filters only change what you see.':'',{tab:'library',library:id||'all',view:'files'});
    }else if(view==='queue'){
-    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(null);
     queueLibrary=scoped?id:'all';queueStatus=NAV_QUEUE_STATUS[q.status]||'all';waitingSelection.clear();
     const lane=Object.hasOwn(NAV_LANES,q.lane||'')?q.lane:null;if(lane)expandedWaitingQueues.add(lane);
     if(!setScreen('processing'))return false;
     if(lane)requestAnimationFrame(()=>[...document.querySelectorAll('.queue-lane')].find(l=>l.getAttribute('aria-label')===NAV_LANES[lane])?.scrollIntoView({block:'nearest'}));
     navBanner(fromLink&&(q.status||q.lane)?'Opened from a link: showing '+(NAV_STATUS_TEXT[q.status]||'all jobs')+(lane?' in '+NAV_LANES[lane]:'')+(scoped?' in this library':' across all libraries')+'. The filter only changes what you see; it does not change or start any job.':'',{tab:'library',library:scoped?id:'all',view:'queue'});
    }else if(view==='review'){
-    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(null);
     queueLibrary=scoped?id:'all';reviewKind=NAV_REVIEW_KINDS.includes(q.kind)?q.kind:'all';
     if(!setScreen('review'))return false;navBanner('');
    }else{
-    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(null);
     if(!scoped){notice='Choose a library first; '+(view==='artwork'?'artwork':'file management')+' belongs to one library.';if(!libraryId&&state.libraries.length&&!chooseLibrary(state.libraries[0].id))return false;}
     if(!setScreen(view))return false;
     const pending=view==='artwork'&&q.status==='review'?navPendingArtwork(libraryId):[];

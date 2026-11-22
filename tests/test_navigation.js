@@ -108,6 +108,17 @@ test('accepting a dirty standards switch asks exactly once and commits the route
  assert.equal(h.run("navApply(navParse('#/configuration/library/films'))"),true);
  assert.equal(e.page,'library:films');assert.equal(e.prompts,1);assert.equal(h.run('navFormat(navCurrent)'),'#/configuration/library/films');
 });
+test('the dimension filter is set before the first files render, and cleared before other workspaces render',()=>{
+ const h=setup(),order=[];let filter='old';
+ h.context.setStandardDimensionFilter=d=>{filter=d;order.push('set:'+d);};
+ const real=h.context.setScreen,choose=h.context.chooseLibrary;
+ h.context.setScreen=v=>{order.push('render:'+v+':'+filter);return real(v);};
+ h.context.chooseLibrary=id=>{order.push('render:choose:'+filter);return choose(id);};
+ h.run("navApply(navParse('#/library/home/files?dimension=cast'))");
+ assert.equal(order[0],'set:cast');assert.ok(order.slice(1).every(e=>!e.startsWith('render')||e.endsWith(':cast')),order.join());
+ order.length=0;h.run("navApply(navParse('#/library/films/queue'))");
+ assert.equal(order[0],'set:null');assert.ok(order.slice(1).every(e=>!e.startsWith('render')||e.endsWith(':null')),order.join());
+});
 test('Home and dimension links use #110 helpers when present',()=>{
  const h=setup(),filters=[];h.context.renderHomeSummary=()=>{h.calls.push('summary');};h.context.setStandardDimensionFilter=d=>filters.push(d);
  h.run("navApply(navParse('#/home'))");assert.ok(h.calls.includes('summary'));
