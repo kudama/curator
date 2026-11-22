@@ -1,0 +1,51 @@
+{
+ "_note": "Local feedback only. Each record keeps the media type with its external ids.",
+ "feedback": [
+  {
+   "asset": "105",
+   "feedback": "more",
+   "at": "2026-11-18T10:00:00Z",
+   "identity": {
+    "media_type": "movie",
+    "guids": [
+     "tmdb://900005"
+    ]
+   }
+  },
+  {
+   "asset": "102",
+   "feedback": "not_for_me",
+   "at": "2026-11-19T10:00:00Z",
+   "identity": {
+    "media_type": "movie",
+    "guids": [
+     "tmdb://900002"
+    ]
+   }
+  },
+  {
+   "asset": "199",
+   "identity": {
+    "media_type": "show",
+    "guids": [
+     "tmdb://900005"
+    ]
+   },
+   "feedback": "not_for_me",
+   "at": "2026-11-10T10:00:00Z",
+   "_note": "Series feedback whose item left the library. Movie 105 shares the number but not the type: never reattached to it."
+  },
+  {
+   "asset": "198",
+   "identity": {
+    "media_type": "movie",
+    "guids": [
+     "tmdb://900008"
+    ]
+   },
+   "feedback": "hide",
+   "at": "2026-11-11T10:00:00Z",
+   "_note": "Movie feedback whose item left; two current copies (108, 109) share the identity, so reattachment is ambiguous and refused."
+  }
+ ]
+}

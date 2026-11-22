@@ -1,0 +1,50 @@
+{
+ "_note": "GATED: not acceptance for the first slice. Series-level items need #115/#113's read-only series index (type=2, includeGuids=1); Curator's TV assets today are episodes. Used only once D4 includes TV and the series index is verified. 202 shares the numeric TMDB id 900005 with movie 105 to test namespaces.",
+ "items": [
+  {
+   "ratingKey": "201",
+   "title": "Demo Series",
+   "type": "show",
+   "library": "lib-series",
+   "addedAt": 1794700800,
+   "Genre": [
+    {
+     "tag": "Drama"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tvdb://800001"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 7.0,
+   "ratingImage": "rottentomatoes://image.rating.ripe",
+   "audienceRating": 7.2,
+   "audienceRatingImage": "rottentomatoes://image.rating.upright"
+  },
+  {
+   "ratingKey": "202",
+   "title": "Demo Series Two",
+   "type": "show",
+   "library": "lib-series",
+   "addedAt": 1780000000,
+   "Genre": [
+    {
+     "tag": "Drama"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900005"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "rating": 6.0,
+   "audienceRating": 6.0
+  }
+ ]
+}

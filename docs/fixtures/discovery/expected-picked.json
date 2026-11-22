@@ -1,0 +1,127 @@
+{
+ "row": "picked",
+ "generated_at": "2026-11-20T21:00:00Z",
+ "stale": false,
+ "items": [
+  {
+   "asset": "106",
+   "title": "Sample Film 36",
+   "kind": "in_library",
+   "score": 93,
+   "why": [
+    {
+     "signal": "added",
+     "text": "Added 40 days ago",
+     "source": "plex.added"
+    },
+    {
+     "signal": "rating",
+     "text": "Critics 95%, audience 91%",
+     "source": "plex.rating"
+    },
+    {
+     "signal": "unwatched",
+     "text": "Not watched yet",
+     "source": "plex.view"
+    }
+   ]
+  },
+  {
+   "asset": "105",
+   "title": "Sample Film 35",
+   "kind": "in_library",
+   "score": 88,
+   "why": [
+    {
+     "signal": "added",
+     "text": "Added 200 days ago",
+     "source": "plex.added"
+    },
+    {
+     "signal": "rating",
+     "text": "Critics 75%, audience 80%",
+     "source": "plex.rating"
+    },
+    {
+     "signal": "in_progress",
+     "text": "Half-finished",
+     "source": "plex.view"
+    },
+    {
+     "signal": "feedback",
+     "text": "Like something you marked “More like this”",
+     "source": "curator.feedback"
+    }
+   ]
+  },
+  {
+   "asset": "101",
+   "title": "Sample Film 31",
+   "kind": "in_library",
+   "score": 86,
+   "why": [
+    {
+     "signal": "added",
+     "text": "Added 3 days ago",
+     "source": "plex.added"
+    },
+    {
+     "signal": "rating",
+     "text": "Critics 82%, audience 70%",
+     "source": "plex.rating"
+    },
+    {
+     "signal": "unwatched",
+     "text": "Not watched yet",
+     "source": "plex.view"
+    },
+    {
+     "signal": "feedback",
+     "text": "Like something you marked “More like this”",
+     "source": "curator.feedback"
+    }
+   ]
+  },
+  {
+   "asset": "107",
+   "title": "Sample Film 37",
+   "kind": "in_library",
+   "score": 85,
+   "why": [
+    {
+     "signal": "added",
+     "text": "Added 10 days ago",
+     "source": "plex.added"
+    },
+    {
+     "signal": "rating",
+     "text": "Critics 90%, audience 80%",
+     "source": "plex.rating"
+    },
+    {
+     "signal": "unwatched",
+     "text": "Not watched yet",
+     "source": "plex.view"
+    }
+   ]
+  },
+  {
+   "asset": "103",
+   "title": "Sample Film 33",
+   "kind": "in_library",
+   "score": null,
+   "why": [
+    {
+     "signal": "added",
+     "text": "Added 5 days ago",
+     "source": "plex.added"
+    },
+    {
+     "signal": "unwatched",
+     "text": "Not watched yet",
+     "source": "plex.view"
+    }
+   ]
+  }
+ ]
+}
