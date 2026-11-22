@@ -256,6 +256,8 @@ def write_sidecar(planned, data, verify_source=lambda: None):
         if not observed or observed[0]['sha256'] != planned['sha256']:
             raise UserError('Sidecar readback changed; inspect files before retrying')
         os.fsync(fd)
+        if directory_identity(folder) != planned['parent']:
+            raise UserError('Media folder pathname changed during commit; inspect retained files before retrying')
         return dict(
             state='updated' if retained else 'created', sha256=planned['sha256'], bytes=len(data), retention=retained
         )

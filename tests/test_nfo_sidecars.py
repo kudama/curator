@@ -88,6 +88,23 @@ class Sidecars(unittest.TestCase):
                 write_sidecar(plan, b'new')
         self.assertEqual(list(self.folder.iterdir()), [])
 
+    def test_directory_swap_inside_install_refuses_success_and_leaves_new_folder_untouched(self):
+        sub = self.folder / 'title'
+        sub.mkdir()
+        plan = plan_sidecar(sub, 'movie.nfo', b'new')
+        retained = self.folder / 'previous'
+
+        def swap(fd, source, destination):
+            sub.rename(retained)
+            sub.mkdir()
+            return install_exclusive_at(fd, source, destination)
+
+        with patch('curator.nfo_sidecars.install_exclusive_at', side_effect=swap):
+            with self.assertRaisesRegex(UserError, 'pathname changed'):
+                write_sidecar(plan, b'new')
+        self.assertEqual(list(sub.iterdir()), [])
+        self.assertEqual((retained / 'movie.nfo').read_bytes(), b'new')
+
     def test_symlinks_case_collisions_and_traversal_rejected(self):
         external = self.folder / 'other'
         external.write_bytes(b'untouched')
