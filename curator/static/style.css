@@ -162,7 +162,7 @@
 :is(#history-view,#history-scope,#history-period,#history-level,#history-status){height:40px;margin:6px 0 0;padding:8px 12px;font-size:14px}
 .view-options:has(#history-view-control:not([hidden]))>button{height:40px;display:inline-flex;align-items:center;justify-content:center}
 .history-timeline,.history-details{margin-top:6px;font-size:11px}.history-timeline summary,.history-details summary{cursor:pointer;color:var(--muted)}.history-timeline ol{margin:6px 0 0;padding-left:18px}.history-details dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:6px 0 0}.history-details dt{color:var(--muted)}.history-details dd{margin:0;overflow-wrap:anywhere}
-.curator-event.warning strong{color:#e4c38f}.curator-event.error strong{color:var(--bad)}
+.history-recovery{color:#d8c79c!important}.history-row{flex-wrap:wrap}.history-row>div:first-child{flex:1 1 260px}.curator-event.warning strong{color:#e4c38f}.curator-event.error strong{color:var(--bad)}
 
 /* Feedback participates in layout; messages never cover the work controls. */
 .inline-feedback{flex-shrink:0;min-width:0;max-height:24vh;overflow:auto;margin:0 0 12px}
@@ -298,3 +298,39 @@
 
 .artwork-downloads{display:flex;flex-wrap:wrap;gap:12px 20px;margin:16px 0 24px}
 .artwork-downloads>a{min-width:0;max-width:100%;overflow-wrap:anywhere}
+
+.development-banner{background:#ffdb70;color:#172036;padding:.65rem 1rem;text-align:center;font-weight:800;letter-spacing:.03em}
+
+.preview-card-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);padding:12px;margin:10px 0;border-radius:8px}.preview-card-row img{width:150px;height:85px;object-fit:contain;background:#000}.preview-card-row input{max-width:260px}.preview-card-library{max-height:35vh;overflow:auto}
+
+.preview-player{margin:12px 0}.preview-player video{display:block;width:100%;max-height:340px;background:#000}.preview-player figcaption{margin-top:6px}.preview-source-frame{display:block;max-width:100%;max-height:220px;object-fit:contain;background:#000;margin:12px auto}.preview-quick-picks{display:flex;gap:8px;flex-wrap:wrap}.preview-card-options{display:grid;grid-template-columns:1fr 1fr;gap:12px}.preview-primary{flex:0 0 140px!important;width:140px;min-width:140px;max-width:140px;white-space:nowrap}@media(max-width:650px){.preview-card-options{grid-template-columns:1fr}.preview-player video{max-height:220px}}
+
+@media(min-width:801px){body.development-profile{display:flex;flex-direction:column}.development-profile>.development-banner,.development-profile>header{flex-shrink:0}.development-profile>.layout{height:auto;min-height:0;flex:1}}
+/* Library standards reuse the Settings dialog and retain its unsaved form below. */
+.standards-dialog{width:min(1180px,96vw);max-width:96vw;max-height:94dvh;padding:0;overflow:hidden}
+.standards-dialog[open]{display:flex;flex-direction:column;height:min(900px,94dvh)}
+.standards-dialog .dialog-head,.standards-dialog>.inline-feedback{padding:18px 22px;margin:0}
+.standards-dialog>.dialog-head,.standards-dialog>.inline-feedback,.standards-dialog>.dialog-actions{flex-shrink:0}
+.standards-layout{display:grid;grid-template-columns:220px minmax(0,1fr);flex:1;min-height:0}
+.standards-sections{border-right:1px solid var(--line);padding:16px;overflow:auto;display:flex;flex-direction:column;flex-wrap:nowrap;gap:8px}
+.standards-sections h3{font-size:.85rem;margin:12px 0 4px}
+.standards-sections button{text-align:left;white-space:normal}
+.standards-sections button[aria-current="page"]{border-color:var(--accent);color:var(--accent)}
+.standards-body{padding:20px;overflow:auto;min-width:0;min-height:0}
+.standard-dimension{border:1px solid var(--line);border-radius:12px;margin:16px 0;padding:16px}
+.standard-dimension.standard-disabled{border-style:dashed;background:var(--bg)}
+.standard-field{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.standard-field input[type="checkbox"]{width:auto;min-height:0;margin:0 8px 0 0}
+.standard-field label:has(>input[type="checkbox"]){display:flex;flex-direction:row;align-items:center;gap:8px}
+.standard-field fieldset{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 8px}
+.standard-field .standard-check{display:flex;flex-direction:row;align-items:center;gap:5px;margin:0}
+.standard-origin,.standard-changed{font-size:.8rem;margin-right:12px;color:var(--accent)}
+.standard-review{width:100%;border-collapse:collapse;table-layout:fixed;overflow-wrap:anywhere}
+.standard-review th,.standard-review td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.standards-dialog>.dialog-actions{display:flex;justify-content:space-between;gap:16px;padding:16px 22px;border-top:1px solid var(--line);flex-wrap:wrap}
+.standards-actions{display:flex;gap:10px;flex-wrap:wrap}
+@media(max-width:700px){.standards-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}.standards-sections{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);align-items:center;max-height:100px}.standards-sections h3{display:none}.standards-sections button{flex:0 0 auto;max-width:190px}.standards-body{padding:12px}.standards-dialog>.dialog-actions{padding:10px}.standard-review{font-size:.8rem}}
+
+/* Rename recovery (#154) */
+.rename-section{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}.rename-section h3{margin:0 0 8px}.rename-field{padding:8px 0;border-bottom:1px solid var(--line)}.rename-field p{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere}.rename-lost{color:#e4c38f}.rename-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:8px 0 12px}.rename-card{border:1px solid var(--line);border-radius:9px;padding:12px;min-width:0}.rename-card p{margin:6px 0}.rename-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.rename-pair figure{margin:0;min-width:0}.rename-pair figcaption{font-size:11px;color:var(--muted);margin-top:4px}.rename-image{display:block;width:100%;max-height:180px;object-fit:contain;border-radius:6px;background:#241d2d}.rename-card.person .rename-image{max-width:120px;margin-top:8px}.rename-choice{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px}
+@media(max-width:500px){.rename-grid{grid-template-columns:minmax(0,1fr)}}

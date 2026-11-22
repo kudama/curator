@@ -1,5 +1,7 @@
 """Local app server with explicit private-network opt-in; no frontend dependencies."""
 
+from . import development
+
 import argparse
 import base64
 import json
@@ -25,6 +27,7 @@ from .history import HistoryHandler, acting
 from .migrations import LATEST as SCHEMA_VERSION
 from .plex import PlexError
 from .errors import UserError
+from .preview_review import video_range
 
 
 def listener_settings(host, expected_hosts=()):
@@ -64,8 +67,10 @@ class App(ThreadingHTTPServer):
         self.service = service
         self.runtime = ServiceRuntime(service, managed=managed_service)
         self.session = secrets.token_urlsafe(32)
+        self.development = bool(development.root())
         self.state_updates = StateUpdates()
         super().__init__((host, address[1]), Handler)
+        self.session_cookie = f'curator_dev_session_{self.server_port}' if self.development else 'curator_session'
         self.allowed_authorities = {name + ':' + str(self.server_port) for name in expected_hosts}
         self.allowed_authorities.add(host + ':' + str(self.server_port))
         if host == '127.0.0.1':
@@ -92,7 +97,11 @@ class Handler(BaseHTTPRequestHandler):
             )
             if cookie:
                 self.send_header(
-                    'Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/'
+                    'Set-Cookie',
+                    getattr(self.server, 'session_cookie', 'curator_session')
+                    + '='
+                    + self.server.session
+                    + '; HttpOnly; SameSite=Strict; Path=/',
                 )
             if download:
                 self.send_header('Content-Disposition', 'attachment; filename="' + download + '"')
@@ -100,6 +109,46 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(raw)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return  # Only response writes: provider/operation errors keep normal handling.
+
+    def stream_video(self, path):
+        size = path.stat().st_size
+        try:
+            start, end, partial = video_range(self.headers.get('Range'), size)
+        except UserError:
+            self.send_response(416)
+            self.send_header('Content-Range', f'bytes */{size}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        with path.open('rb') as source:
+            source.seek(start)
+            self.send_response(206 if partial else 200)
+            self.send_header(
+                'Content-Type',
+                'video/mp4'
+                if path.suffix.lower() in {'.mp4', '.m4v'}
+                else 'video/quicktime'
+                if path.suffix.lower() == '.mov'
+                else 'video/x-matroska',
+            )
+            self.send_header('Content-Length', str(end - start + 1))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+            if partial:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            remaining = end - start + 1
+            try:
+                while remaining:
+                    chunk = source.read(min(512 * 1024, remaining))
+                    if not chunk:
+                        return
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return
 
     def request_host(self):
         hosts = self.headers.get_all('Host', [])
@@ -114,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             cookie.load(self.headers.get('Cookie', ''))
         except Exception:
             return False
-        session = cookie.get('curator_session')
+        session = cookie.get(getattr(self.server, 'session_cookie', 'curator_session'))
         if not session or not secrets.compare_digest(session.value, self.server.session):
             return False
         if mutate:
@@ -176,13 +225,22 @@ class Handler(BaseHTTPRequestHandler):
             '/workbench.js': ('workbench.js', 'application/javascript'),
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
+            '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
+            '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
+            '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
+            '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
         if path in static:
             name, kind = static[path]
-            return self.reply(
-                (Path(__file__).parent / 'static' / name).read_bytes(), content_type=kind, cookie=path == '/'
-            )
+            data = (Path(__file__).parent / 'static' / name).read_bytes()
+            if path == '/' and getattr(self.server, 'development', False):
+                data = data.replace(b'<title>Curator</title>', b'<title>Curator DEV / TEST</title>')
+                data = data.replace(
+                    b'<body>',
+                    b'<body class="development-profile"><div class="development-banner" role="status">DEV / TEST &middot; Isolated data &middot; External integrations disabled</div>',
+                )
+            return self.reply(data, content_type=kind, cookie=path == '/')
         if not self.allowed():
             return self.reply({'error': 'Open Curator in this browser first'}, 403)
         try:
@@ -195,6 +253,49 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.artwork_target_image(query['asset'][0], query['kind'][0])
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/rename/receipts':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.rename_receipts(query.get('library', ['all'])[0]))
+            if path == '/api/rename/receipt':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.rename_receipt_view(query['id'][0]))
+            if path == '/api/rename/receipt/image':
+                query = parse_qs(urlsplit(self.path).query)
+                kind = query.get('kind', [None])[0]
+                person = int(query['person'][0]) if 'person' in query and kind is None else None
+                image = self.server.service.rename_receipt_image(query['id'][0], kind=kind, person=person)
+                return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/preview/job':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.preview_job(query['id'][0]))
+            if path == '/api/preview/video':
+                query = parse_qs(urlsplit(self.path).query)
+                _, output = self.server.service.preview_candidate(query['job'][0])
+                return self.stream_video(output)
+            if path == '/api/preview/source':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.stream_video(
+                    self.server.service.preview_source_video(query['asset'][0], query['version'][0])
+                )
+            if path == '/api/preview/frame':
+                query = parse_qs(urlsplit(self.path).query)
+                image = self.server.service.preview_source_frame(
+                    query['asset'][0], query['version'][0], int(query.get('start_ms', ['0'])[0])
+                )
+                return self.reply(image, content_type='image/jpeg')
+            if path == '/api/preview/info':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.preview_info(query['asset'][0]))
+            if path == '/api/preview/cards':
+                return self.reply(self.server.service.preview_cards())
+            if path == '/api/preview/defaults':
+                return self.reply(self.server.service.preview_defaults())
+            if path == '/api/preview/cards/image':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.preview_card_image(query['id'][0], int(query['version'][0])),
+                    content_type='image/png',
+                )
             if path == '/api/artwork/collections':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.artwork_collections(query['library'][0]))
@@ -402,6 +503,28 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_presence(data['library'])
             elif path == '/api/files/comparison':
                 result = service.join_comparison(data['id'])
+            elif path == '/api/rename/receipt/restore-artwork':
+                result = service.restore_rename_artwork(data['id'], data['version'], data['kinds'])
+            elif path == '/api/rename/receipt/restore-portraits':
+                result = service.restore_rename_portraits(
+                    data['id'], data['version'], data['people'], data['cast_digest']
+                )
+            elif path == '/api/preview/select':
+                result = service.select_preview(data['id'], data['version'], data['selection_revision'])
+            elif path == '/api/preview/discard':
+                result = service.discard_preview(data['id'], data['version'])
+            elif path == '/api/preview/plan':
+                result = service.create_preview_plan(data)
+            elif path == '/api/preview/boundaries':
+                result = service.preview_boundaries(data)
+            elif path == '/api/preview/generate':
+                result = service.generate_preview(data['plan'], data['request_id'])
+            elif path == '/api/preview/cards/import':
+                result = service.import_preview_card(data)
+            elif path == '/api/preview/cards/hide':
+                result = service.hide_preview_card(data['id'], data['revision'])
+            elif path == '/api/preview/defaults':
+                result = service.save_preview_defaults(data['revision'], data['changes'])
             elif path == '/api/config':
                 service.save_config(data)
                 result = {'saved': True}
@@ -413,7 +536,20 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/standards':
                 result = service.save_type_standard(data['kind'], data['revision'], data['values'])
             elif path == '/api/library/standard':
-                result = service.save_library_overrides(data['library'], data['revision'], data['overrides'])
+                if (
+                    set(data) != {'library', 'revision', 'kind', 'type_revision', 'type_digest', 'overrides'}
+                    or any(data[k] is None for k in ('kind', 'type_revision', 'type_digest'))
+                    or not isinstance(data['overrides'], dict)
+                ):
+                    raise UserError('Reload and review the inherited standard before saving')
+                result = service.save_library_overrides(
+                    data['library'],
+                    data['revision'],
+                    data['overrides'],
+                    kind=data['kind'],
+                    type_revision=data['type_revision'],
+                    type_digest=data['type_digest'],
+                )
             elif path == '/api/scan':
                 service.scan(data['library'])
                 result = {'started': True}
@@ -502,6 +638,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.apply_metadata(data['id'], data['version'], data['changes'])
             elif path == '/api/cast/apply':
                 result = service.apply_cast(data['id'], data['version'], data['cast'])
+            elif path == '/api/upscale/recovery-preview':
+                result = service.upscale_recovery_preview(data['id'], data['version'])
+            elif path == '/api/upscale/recovery':
+                result = service.upscale_recover(data['id'], data['version'], data['action'], data['token'])
             elif path == '/api/task/action':
                 result = service.action(data['id'], data['action'], data['version'], data.get('handbrake_preset'))
             elif path == '/api/queue/change':
@@ -591,6 +731,7 @@ def main():
         help='Additional bare browser hostname, such as foundry; repeat as needed',
     )
     parser.add_argument('--state', default='~/Library/Application Support/Curator')
+    parser.add_argument('--development-root', help='Isolated test sandbox; disables external integrations')
     parser.add_argument('--open', action='store_true', help='Open the local app in your default browser')
     parser.add_argument('--managed-service', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -601,6 +742,10 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     try:
+        if args.development_root:
+            development.configure(args.development_root, args.state)
+        elif development.root():
+            development.configure(str(development.root()), args.state)
         store = Store(args.state)
     except (OSError, ValueError) as error:
         parser.exit(2, f'Curator could not open its local state: {error}\n')

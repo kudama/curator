@@ -46,4 +46,51 @@ Media already at 4K class stops receiving automatic optional-upscale recommendat
 
 For a single dynamic Topaz filter with reviewed 1×, 2× or 4× scaling and automatic width/height, Curator predicts displayed output dimensions before queue approval and again before processing. A plan exceeding the existing 4096-pixel long-edge / 2160-pixel short-edge ceiling is refused with the predicted dimensions. For example, 3840×2160 at 2× would produce 7680×4320. Change and review the settings before retrying; Curator preserves the selected model/filter and retained outputs.
 
-Explicit output sizing and complex filter chains retain their existing post-processing validation; this guard does not invent their geometry. The separately planned recovery feature in issue #97 will offer resolution-only output acceptance or a reviewed 4× attempt from the original. That recovery feature is not implemented by this prevention fix.
+Explicit output sizing and complex filter chains retain their existing post-processing validation; this guard does not invent their geometry. The recovery controls described below separately offer resolution-only output review or a reviewed 4× attempt from the original.
+
+## Below-target upscale recovery
+
+A retained upscale whose only failed check is the existing 1080-class resolution
+floor offers **Review below-target output**. Curator independently probes and decodes
+it, verifies source/output hashes and records an operator exception for that exact
+output and task revision. The strict validation result stays visible. Comparison
+review and separate **Accept & publish** are still required; originals are retained.
+Duration, aspect, tracks, color, decode and ceiling failures cannot be waived.
+
+**Prepare 4× redo** previews source-relative dimensions, the preserved model/filter
+and encoding settings, then prepares a new plan from the original. It does not
+queue or start processing. Approve that plan separately. Earlier outputs and attempt
+history are retained. Known below-floor or above-ceiling plans are refused before
+queue approval or launch; unknown/explicit/chained filters require supported settings
+rather than guessed 4× geometry. A 4× scale is not a 4K resolution promise.
+
+These controls use the current processing validator's 1080-class floor and 4K
+ceiling. Wiring configurable v2 standards into scans/processing remains #107;
+accepting an exception does not change a saved type standard or library override.
+
+## Metadata or artwork after a rename (#70)
+
+Before a rename moves any file, Curator reads the item from Plex again and keeps a private recovery receipt: the current metadata (title, description, studio, tagline, genres, collections, labels, cast with roles and order) and the bytes of each selected artwork kind. Receipts live in the state folder under `rename-receipts/` (folder 0700, files 0600) and are never changed afterwards. If Plex cannot be read, or a selected image cannot be saved, the rename does not start and nothing moves.
+
+Curator still does not force a Plex refresh after renaming. When a later library scan finds the renamed file, Curator compares Plex with the receipt, and only for an exact match: the same Curator asset and library, the destination path, the same item type and an unchanged file fingerprint. Anything else is marked blocked for manual review.
+
+- Fields Plex kept need nothing. The receipt is marked reconciled.
+- Fields that now differ become a **proposed restore** on the item's metadata task. Review it in the metadata editor and apply it there; nothing is written to Plex automatically.
+- Fields Curator itself changed after the rename are never proposed. Open metadata work on the same item is reported as a conflict and left untouched.
+- Replaced or missing artwork is reported, and the original bytes stay in the receipt.
+- Cast pictures uploaded into Plex (which a rematch can lose) are kept in the receipt as Plex serves them. Pictures supplied by the Plex agent are kept as references only, because Plex can fetch them again. A picture that cannot be read is recorded and never stops the rename.
+- A rename that fully rolls back marks its receipt void. Curator history records each check, with a warning when something needs review.
+
+### Reviewing a rename and restoring what Plex lost (#154)
+
+Open **Rename recovery** from the rename job in History, or **Review rename** on a rename check in Curator history. It shows, for that item, each changed field (before the rename and now), each kept image beside what Plex shows now, and each kept cast picture, with whether the kept copy still verifies. "Now" means the last library scan. Opening a receipt never writes anything.
+
+- **Metadata** opens the proposed restore in the metadata editor, as before.
+- **Artwork:** tick the images to put back and choose **Create restore review**. Each becomes an ordinary artwork review waiting in Artwork; nothing is published until you approve it there, and publication again checks the destination and that Plex still shows the image you saw.
+- **Cast pictures:** tick the people and choose **Restore selected pictures**, then confirm. Only those pictures change; every other credit, role, order and picture stays as Plex has it. It is refused if the person is no longer credited or the cast changed since the last scan.
+
+Every restore first rechecks the receipt, the item, its library and file fingerprint, and that Plex still matches the renamed file. If Plex has not matched the file yet (not found), the restore waits for Plex's next scan: Curator never forces a refresh or rematches on its own. Failures are shown with what to do next, and the kept copies stay in the receipt.
+
+Renders with synthetic data: [desktop](designs/v2-rename-recovery-20261122/desktop.jpg), [phone](designs/v2-rename-recovery-20261122/phone.jpg).
+
+Rename and shared file-operation queues stay paused until the operator resumes them; this change does not resume them.

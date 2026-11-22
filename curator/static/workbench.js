@@ -1,4 +1,5 @@
 'use strict';
+function schedulingKind(kind){return kind==='preview_render'?'optimize':kind;}
 // Navigation and presentation only. Editors continue to use the existing approved workflows.
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
 let queueLibrary='all';
@@ -60,7 +61,7 @@ function prepareInspector(){
  const close=$('task-dialog').querySelector('[data-close]');
  if(close.disabled){toast('Wait for the current save to finish.',true);return false;}
  if(inspectorDirty&&!confirm('Discard unsaved changes in the review panel?'))return false;
- inspectorDirty=false;overviewSignature='';inspectorBack=null;return true;
+ if(typeof pausePreviewMedia==='function')pausePreviewMedia();inspectorDirty=false;overviewSignature='';inspectorBack=null;return true;
 }
 let inspectorReturnFocus=null,inspectorReturnQueueFocus=null,queueScrollPosition=0,inspectorBack=null;
 function queueFocusIdentity(element){
@@ -84,7 +85,7 @@ function updateQueueLayout(){
  for(const card of document.querySelectorAll('[data-task-id]')){const selected=queue&&open&&card.dataset.taskId===openedTask;card.classList.toggle('inspected',selected);if(selected)card.setAttribute('aria-current','true');else card.removeAttribute('aria-current');}
 }
 function showInspector(){if(!inspectorOpen()){inspectorReturnFocus=document.activeElement;inspectorReturnQueueFocus=queueFocusIdentity(inspectorReturnFocus);queueScrollPosition=document.querySelector('.file-pane').scrollTop;}$('task-dialog').hidden=false;updateQueueLayout();const body=$('task-dialog').querySelector('.task-scroll');if(body)body.scrollTop=0;$('task-title').tabIndex=-1;$('task-title').focus({preventScroll:true});}
-function closeInspector(force=false){if(!force&&inspectorBack){const back=inspectorBack;inspectorBack=null;back();return;}if(!force&&!prepareInspector())return;inspectorBack=null;inspectorDirty=false;openedTask=null;inspectorMode=null;$('task-dialog').hidden=true;updateQueueLayout();document.querySelector('.workbench').classList.remove('review-wide');$('inspector-expand').setAttribute('aria-label','Expand review panel');$('inspector-expand').title='Expand review panel';if(['processing','review','filemanagement'].includes(screen))document.querySelector('.file-pane').scrollTop=queueScrollPosition;if(inspectorReturnFocus?.isConnected&&inspectorReturnFocus!==document.body)inspectorReturnFocus.focus({preventScroll:true});else if(!restoreQueueFocus(inspectorReturnQueueFocus)){const fallback=document.querySelector('.file-tool-row.selected button,.file-entry[aria-pressed="true"],#queue-status-links button.active');fallback?.focus({preventScroll:true});}}
+function closeInspector(force=false){if(!force&&inspectorBack){const back=inspectorBack;inspectorBack=null;back();return;}if(!force&&!prepareInspector())return;if(typeof pausePreviewMedia==='function')pausePreviewMedia();inspectorBack=null;inspectorDirty=false;openedTask=null;inspectorMode=null;$('task-dialog').hidden=true;updateQueueLayout();document.querySelector('.workbench').classList.remove('review-wide');$('inspector-expand').setAttribute('aria-label','Expand review panel');$('inspector-expand').title='Expand review panel';if(['processing','review','filemanagement','history'].includes(screen))document.querySelector('.file-pane').scrollTop=queueScrollPosition;if(inspectorReturnFocus?.isConnected&&inspectorReturnFocus!==document.body)inspectorReturnFocus.focus({preventScroll:true});else if(!restoreQueueFocus(inspectorReturnQueueFocus)){const fallback=document.querySelector('.file-tool-row.selected button,.file-entry[aria-pressed="true"],#queue-status-links button.active');fallback?.focus({preventScroll:true});}}
 function fileName(asset){return (asset.plex_path||asset.local_path||'').split('/').pop()||asset.title;}
 function matchesSearch(asset){return !searchText||[fileName(asset),asset.title,asset.plex_path].join(' ').toLocaleLowerCase().includes(searchText);}
 function fileTasks(asset){if(!asset)return [];return (catalogIndex().byAsset.get(asset.id)||[]).filter(t=>t.library===libraryId);}
@@ -133,6 +134,7 @@ function initWorkbench(){
  $('history-status').onchange=e=>{historyStatus=e.target.value;render();};
  for(const [id,set] of [['history-view',v=>{historyView=v;if(v==='curator')historyScope='all';}],['history-scope',v=>{historyScope=v;}],['history-period',v=>{historyPeriod=v;}],['history-level',v=>{historyLevel=v;}]]){const control=$(id);if(control)control.onchange=e=>{set(e.target.value);render();};}
  const fileLibrary=$('file-management-library');if(fileLibrary)fileLibrary.onchange=e=>{if(!chooseFileManagementLibrary(e.target.value))e.target.value=libraryId;};
+ const standardsButton=$('manage-library-standards');if(standardsButton)standardsButton.onclick=()=>run(()=>openStandardsEditor());
  setupMageSettings();$('settings-style-guides').onclick=()=>{$('config-dialog').close();openStyleGuideManager();};
  const notifications=$('enable-run-notifications');if(notifications)notifications.onclick=()=>run(enableRunNotifications);
  const restart=$('restart-curator');if(restart)restart.onclick=restartCurator;
@@ -187,7 +189,7 @@ function processingTaskCard(task){
  if(task.kind==='mage_generation'||task.kind==='artwork'&&task.provider){const plan=task.plan||{},option=task.evidence?.candidate_index||1,total=task.evidence?.candidate_count||1;text.append(node('p',(ARTWORK_LABELS[plan.kind]||'Artwork')+' · '+(plan.settings?.model||'Saved model')+' · Option '+option+' of '+total,'muted'));if(task.provider?.request_id)text.append(node('p','Mage request '+task.provider.request_id.slice(0,8),'muted'));}
  if(Array.isArray(state.global_queue))text.append(node('p',state.libraries.find(lib=>lib.id===task.library)?.title||task.library,'muted'));if(task.error)text.append(node('p',task.error,'task-error'));if(task.recovery_hint)text.append(node('p',task.recovery_hint,'muted'));if(['running','publishing'].includes(task.status))text.append(progressView(task));
  if(task.status==='awaiting_review'&&task.result?.size_bytes)text.append(node('p',formatBytes(task.source?.size??asset?.fingerprint?.size)+' → '+formatBytes(task.result.size_bytes),'muted'));
- main.append(text);const actions=node('div',undefined,'processing-card-actions');actions.append(button(task.status==='awaiting_review'?(['upscale','optimize','join'].includes(task.kind)?'Compare & publish':'Review suggestions'):['blocked','failed'].includes(task.status)?'Inspect':'Details',()=>openTask(task.id),task.status==='awaiting_review'?'primary':'subtle'),taskControls(task));main.append(actions);card.append(main);return card;
+ main.append(text);const actions=node('div',undefined,'processing-card-actions');actions.append(button(task.status==='awaiting_review'?(task.kind==='preview_render'?'Review preview':['upscale','optimize','join'].includes(task.kind)?'Compare & publish':'Review suggestions'):['blocked','failed'].includes(task.status)?'Inspect':'Details',()=>openTask(task.id),task.status==='awaiting_review'?'primary':'subtle'),taskControls(task));main.append(actions);card.append(main);return card;
 }
 function renderLegacyProcessing(){
  const snapshot=waitingSnapshot(),positions=new Map(snapshot.map((r,i)=>[r.id,i])),byId=new Map(state.tasks.map(t=>[t.id,t])),typeCounts=new Map();taskQueuePositions=new Map();for(const row of snapshot){const kind=byId.get(row.id)?.kind,index=(typeCounts.get(kind)||0)+1;typeCounts.set(kind,index);taskQueuePositions.set(row.id,index);}
@@ -355,7 +357,46 @@ async function enableRunNotifications(){
 }
 function renderHistory(){
  if(historyView==='curator')return renderCuratorHistory();
- return [...reviewBatchCards(true),...cleanupJobCards(true),...state.tasks.filter(t=>historyLibraryMatches(t.library)&&historyStatusMatches(t)&&historyInPeriod(t.updated||t.created)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',historyMeta([TASK_LABELS[task.kind]||task.kind,taskStatusLabel(task.status),new Date(task.updated||task.created).toLocaleString(),task.queued_by?'Queued by '+(HISTORY_INITIATORS[task.queued_by]||task.queued_by):'',historyScope==='all'?historyLibraryTitle(task.library):'']),'muted'),jobTimeline(task));row.append(text,button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
+ return [...reviewBatchCards(true),...cleanupJobCards(true),...state.tasks.filter(t=>historyLibraryMatches(t.library)&&historyStatusMatches(t)&&historyInPeriod(t.updated||t.created)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',historyMeta([TASK_LABELS[task.kind]||task.kind,taskStatusLabel(task.status),new Date(task.updated||task.created).toLocaleString(),task.queued_by?'Queued by '+(HISTORY_INITIATORS[task.queued_by]||task.queued_by):'',historyScope==='all'?historyLibraryTitle(task.library):'']),'muted'));
+  if(task.error&&['failed','blocked'].includes(task.status))text.append(node('p',task.error,'task-error'));
+  const recovery=historyRecovery(task);if(recovery)text.append(node('p',recovery.text,'history-recovery muted'));text.append(jobTimeline(task));
+  row.append(text);if(recovery?.action)row.append(button(recovery.action.label,()=>historyRecoveryAction(task,recovery.action),'primary'));if(task.kind==='rename'&&task.rename_receipt)row.append(button('Rename recovery',()=>openRenameReceipt(task.rename_receipt),'subtle'));row.append(button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
+}
+// A resolution-only exception the operator recorded for this exact output (PR #129). The server
+// re-checks it; this only decides whether History offers the existing resume_review.
+function historyResolutionException(task){const e=task.resolution_exception;return task.kind==='upscale'&&(task.validation||[]).length===1&&task.validation[0]==='Output is below 1080-class target'&&e?.operator==='operator'&&e.version===task.version&&e.source_hash===task.source_hash&&e.output_hash===task.output_hash&&Boolean(e.binding&&e.reason);}
+// Recovery from History reuses existing actions only. Opening a job never acts;
+// buttons that act re-read the job first, and the server checks version and source again.
+function historyRecovery(task){
+ const status=task.status,kind=task.kind,validated=!(task.validation||[]).length;
+ if(task.cleanup_pending)return {text:'Cleanup of the retained original did not finish. View the job to inspect it; any restore happens there.'};
+ if(['applied','resolved'].includes(status))return null;
+ if(status==='rejected')return {text:'Rejected results stay closed. History has no supported way to reopen them.'};
+ if(task.published)return {text:'Publication may be incomplete. View the job to check its publication log and Plex verification. Do not process it again.'};
+ if(kind==='rename'&&task.rename_started)return {text:'The rename started but did not finish. View the job to check its receipt and restore the original filenames.'};
+ if(kind==='join'&&task.output&&validated)return {text:'A joined output is retained. View the job to refresh its metadata preview and return it to review.'};
+ if(status==='blocked'&&['optimize','upscale'].includes(kind)&&task.output&&task.source_hash&&task.output_hash&&(validated||historyResolutionException(task)))return {text:(validated?'A validated output is retained.':'An output you accepted below the resolution target is retained.')+' It can return to review without processing again; publishing still needs your review.',action:{label:'Return output to review',call:'resume_review'}};
+ if(task.output)return {text:'An output is retained but did not pass validation. View the job to inspect it before choosing to process again.'};
+ if(['artwork','mage_generation','portrait'].includes(kind))return {text:'Recover artwork from artwork review. Paid generation needs a fresh quote.'};
+ if(kind==='folder_metadata')return {text:'Folder changes need a fresh preview before they can be queued again.'};
+ if(kind==='inspect')return {text:'Scan the library again to recheck this file.'};
+ if(!['failed','blocked','cancelled'].includes(status))return null;
+ if(!taskAvailable(task))return {text:'The source file is missing from the catalog, so this job cannot be queued again. Scan the library first.'};
+ if(status!=='cancelled'&&safeFailedRetry(task))return {text:'Nothing was written. Retry checks the source and settings again and queues the job; the queue does not start.',action:{label:'Retry',call:'retry'}};
+ return {text:status==='cancelled'?'Cancelled before completion. View the job to check its settings and queue it again.':'View the job to inspect the cause, then queue it again with a fresh source and settings check.'};
+}
+async function historyRecoveryAction(snapshot,action){
+ const pane=document.querySelector('.file-pane'),top=pane?pane.scrollTop:0;
+ try{
+  await refresh();
+  const current=state.tasks.find(t=>t.id===snapshot.id);
+  if(!current||current.version!==snapshot.version||current.status!==snapshot.status||historyRecovery(current)?.action?.call!==action.call)throw Error('This job changed since History was shown. Check its current state before acting.');
+  try{
+   if(action.call==='retry'){const result=await api('recovery/retry-failed',{tasks:[{id:current.id,version:current.version}]});const item=result.items[0];if(item?.status!=='queued')throw Error(item?.error||'The job could not be queued again');toast('Queued again. The queue has not been started.');}
+   else if(action.call==='resume_review'){await api('task/action',{id:current.id,version:current.version,action:'resume_review'});toast('Output returned to review. Publishing still needs your review.');}
+   else throw Error('Unsupported recovery action');
+  }finally{await refresh();}
+ }finally{if(pane)(document.querySelector('.file-pane')||pane).scrollTop=top;}
 }
 const HISTORY_INITIATORS={operator:'You',rule:'Rule',ai:'AI-assisted',curator:'Curator'};
 function historyMeta(parts){return parts.filter(Boolean).join(' · ');}
@@ -389,7 +430,7 @@ function renderCuratorHistory(){
   const row=node('article',undefined,'history-row curator-event '+(e.level||'info')),text=node('div');
   text.append(node('strong',e.message),node('p',historyMeta([new Date(e.at).toLocaleString(),e.level==='error'?'Error':e.level==='warning'?'Warning':'',HISTORY_INITIATORS[e.initiator]||'',e.library?historyLibraryTitle(e.library):'']),'muted'));
   const keys=Object.keys(e.details||{});if(keys.length){const box=node('details',undefined,'history-details'),list=node('dl');box.append(node('summary','Technical details'),list);for(const key of keys)list.append(node('dt',key.replaceAll('_',' ')),node('dd',String(e.details[key])));text.append(box);}
-  row.append(text);return row;});
+  row.append(text);if(e.action==='rename preservation'&&e.details?.receipt)row.append(button('Review rename',()=>openRenameReceipt(e.details.receipt),'subtle'));return row;});
  if(curatorHistory.error)rows.unshift(node('p',curatorHistory.error,'error'));
  if(curatorHistory.loading)rows.push(node('p','Loading Curator history…','muted'));
  else if(curatorHistory.next)rows.push(button('Load older events',()=>loadCuratorHistory(true),'subtle'));
@@ -414,7 +455,7 @@ function showQueueLimits(){
  if(!prepareInspector())return;inspectorMode='queue-limits';openedTask=null;$('task-kind').textContent='PROCESSING';$('task-title').textContent='Shared processing limits';$('task-reason').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  detail.append(node('p','Limits apply across all libraries. Lowering a limit lets current jobs finish. Run or Resume fills additional slots after an increase.','muted'));
- const inputs=new Map(),kinds=new Set(['upscale','optimize','file_operations','mage_generation','metadata','home','folder_metadata',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>t.kind)]);
+ const inputs=new Map(),kinds=new Set(['upscale','optimize','file_operations','mage_generation','metadata','home','folder_metadata',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>schedulingKind(t.kind))]);
  for(const kind of kinds){const label=node('label',kind==='file_operations'?'File copy / delete':TASK_LABELS[kind]||kind),input=node('input');input.type='number';input.min=1;input.max=kind==='file_operations'?4:8;input.step=1;input.value=state.queue_limits?.[kind]||(kind==='file_operations'?4:1);label.append(input);detail.append(label);inputs.set(kind,input);}
  actions.append(button('Save limits',()=>run(async()=>{const limits=Object.fromEntries([...inputs].map(([kind,input])=>[kind,Number(input.value)]));await api('queue/limits',{limits});closeInspector(true);await refresh();toast('Shared processing limits saved.');}),'primary'));showInspector();
 }
@@ -478,7 +519,7 @@ function renderAssetOverview(asset,signature=''){
  const history=fileTasks(asset).filter(t=>HISTORY_TASK_STATES.has(t.status));if(history.length){const box=node('details',undefined,'inspector-history');box.append(node('summary','Task history ('+history.length+')'));for(const task of history)box.append(button((TASK_LABELS[task.kind]||task.kind)+' · '+task.status,()=>openTask(task.id),'text-button'));detail.append(box);}
  const queue=button('Queue selected tasks',async()=>{const currentTasks=fileTasks(catalogIndex().byId.get(asset.id)),chosen=currentTasks.filter(t=>selected.has(t.id)&&canQueue(t));if(!chosen.length){const next=currentTasks.find(t=>['recommendation','blocked','failed','awaiting_review'].includes(t.status));if(next)return openTask(next.id);const active=currentTasks.find(t=>['queued','running','publishing'].includes(t.status));if(active){setScreen('processing');return openTask(active.id);}return;}let count=0;const errors=[];for(const task of chosen){try{await api('task/action',{id:task.id,version:task.version,action:'queue'});selected.delete(task.id);count++;}catch(error){errors.push(error.message);}}await refresh();toast(count+' queued'+(errors.length?' · '+errors.join('; '):''),Boolean(errors.length));},'primary');
  function updateQueueButton(){const count=fileTasks(asset).filter(t=>selected.has(t.id)&&canQueue(t)).length;queue.textContent=count?'Queue '+count+' selected '+(count===1?'task':'tasks'):tasks.some(t=>['recommendation','blocked','failed','awaiting_review'].includes(t.status))?'Review next suggestion':'View in Processing';queue.disabled=!tasks.length;queue.hidden=!tasks.length;}
- actions.append(queue);updateQueueButton();
+ actions.append(queue);if(featureAvailable('preview_review'))actions.append(button('Create preview',()=>run(()=>openPreviewEditor(asset.id)),'subtle'));updateQueueButton();
 }
 
 function editorTabs(container,groups){

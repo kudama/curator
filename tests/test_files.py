@@ -219,8 +219,18 @@ class Plans(unittest.TestCase):
     def test_rename_completes_when_plex_still_has_old_path(self):
         task = self.plan()
         self.plex.follow = False
+        real_item, reads = self.plex.item, []
+
+        def item_after_capture(key):
+            # The pre-move preservation capture (#70) reads Plex once; afterwards Plex
+            # only knows the old path, which must not gate completion.
+            reads.append(key)
+            if len(reads) == 1:
+                return real_item(key)
+            raise PlexError('HTTP 404')
+
         with (
-            patch.object(self.plex, 'item', side_effect=PlexError('HTTP 404')),
+            patch.object(self.plex, 'item', side_effect=item_after_capture),
             patch.object(self.plex, 'scan_folder', side_effect=AssertionError('No forced refresh')),
         ):
             result = self.run_task(task)

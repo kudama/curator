@@ -34,3 +34,8 @@ def library_kind(library):
     if library.get('agent') in OTHER_VIDEO_AGENTS:
         return 'other_videos'
     return 'movie'
+
+
+def scheduling_kind(kind):
+    """Previews share Encoding capacity without becoming optimization tasks."""
+    return 'optimize' if kind == 'preview_render' else kind
