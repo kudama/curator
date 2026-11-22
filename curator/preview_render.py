@@ -231,6 +231,7 @@ class PreviewRendering:
             duration_ms=int(media['duration_seconds'] * 1000),
             audio_tracks=tracks,
             default_audio=next((s['index'] for s in tracks if s['default']), tracks[0]['index'] if tracks else None),
+            selection=self.preview_selection(identity),
             defaults=self.preview_defaults(),
             cards=self.preview_cards()['cards'],
         )

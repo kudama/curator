@@ -78,6 +78,7 @@ class ServiceRuntime:
                 'capabilities': [
                     'preview_cards',
                     'preview_render',
+                    'preview_review',
                     'bulk_review',
                     'backup_cleanup',
                     'encoding_controls',

@@ -47,6 +47,7 @@ from .standards import LibraryStandards
 from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
+from .preview_review import PreviewReview
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
@@ -58,6 +59,7 @@ identifier = stable_id
 class Service(
     PreviewCards,
     PreviewRendering,
+    PreviewReview,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
@@ -733,6 +735,10 @@ class Service(
         return task
 
     def action(self, key, action, version, handbrake_preset=None):
+        if action in {'delete', 'reject'}:
+            preview = self.get_task(key)
+            if preview['kind'] == 'preview_render' and self.preview_selection(preview['asset'])['job'] == key:
+                raise UserError('Select a replacement before removing the saved Curator preview')
         if action == 'refresh_join_metadata':
             return self.refresh_join_metadata(key, version)
         if action == 'restore_rename':

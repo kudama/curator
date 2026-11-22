@@ -15,7 +15,7 @@ function toast(text,error=false){
  feedback.hidden=false;feedback.append(message);return message;
 }
 let mutationEpoch=0;
-async function api(path,data){if(data)mutationEpoch++;try{const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value;}finally{if(data)mutationEpoch++;}}
+async function api(path,data){if(data)mutationEpoch++;try{const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-Curator-Request':'1'}:{},body:data?JSON.stringify(data):undefined});const value=await r.json();if(!r.ok){const error=Error(value.error||'Request failed');error.status=r.status;throw error;}return value;}finally{if(data)mutationEpoch++;}}
 async function run(fn){try{return await fn();}catch(e){toast(e.message,true);}}
 
 function current(){return state.libraries.find(x=>x.id===libraryId);}
@@ -90,7 +90,7 @@ function portraitVideo(asset){
  const rotation=Number((video.side_data_list||[]).find(r=>r.rotation!==undefined)?.rotation??video.tags?.rotate??0);
  if(Math.abs(rotation)%180===90)[width,height]=[height,width];return height>width;
 }
-function canQueue(t){return taskAvailable(t)&&!catalogIndex().byId.get(t.asset)?.availability_error&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','folder_metadata','artwork','mage_generation','portrait'].includes(t.kind)&&(t.kind!=='metadata'||Object.keys(t.plan.changes||{}).length>0)&&(t.kind!=='optimize'||Boolean(t.plan.handbrake_preset))&&(t.kind!=='upscale'||Boolean((state.processing_defaults?.[t.library]?.upscale?.topaz_filter??state.config.topaz_filter)))&&!catalogIndex().byId.get(t.asset)?.blocked;}
+function canQueue(t){return taskAvailable(t)&&!catalogIndex().byId.get(t.asset)?.availability_error&&['recommendation','failed','blocked','cancelled'].includes(t.status)&&!['inspect','folder_metadata','artwork','mage_generation','portrait','preview_render'].includes(t.kind)&&(t.kind!=='metadata'||Object.keys(t.plan.changes||{}).length>0)&&(t.kind!=='optimize'||Boolean(t.plan.handbrake_preset))&&(t.kind!=='upscale'||Boolean((state.processing_defaults?.[t.library]?.upscale?.topaz_filter??state.config.topaz_filter)))&&!catalogIndex().byId.get(t.asset)?.blocked;}
 function selectionVisible(){return ['all','recommendation'].includes(filter)||$('library-tools').open;}
 function renderSelection(){
  const rows=visible(),chosen=rows.filter(t=>selected.has(t.id)),eligible=chosen.filter(canQueue);
@@ -359,6 +359,7 @@ function renderUpscaleRecovery(detail,actions,task,queueApproval){
  }).catch(error=>{if(current())status.textContent='Recovery choices unavailable: '+error.message;});
 }
 async function openTask(id,workspace='metadata'){
+ if(state.tasks.find(t=>t.id===id)?.kind==='preview_render')return openPreviewJob(id);
  if(!prepareInspector())return;inspectorMode='task';
  openedTask=id;$('task-feedback').hidden=true;$('task-reason').hidden=false;const t=state.tasks.find(t=>t.id===id),asset=state.assets.find(a=>a.id===t.asset);$('task-kind').textContent=(TASK_LABELS[t.kind]||t.kind).toUpperCase()+' · '+taskStatusLabel(t.status);$('task-title').textContent=t.title;$('task-reason').textContent=t.error||t.reason;selectedAssetId=t.asset;
  if(t.kind==='folder_metadata')return openFolderTask(t);
