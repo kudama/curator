@@ -1,5 +1,6 @@
 """Translate native Ubuntu Plex paths to explicitly mapped Mac storage roots."""
 
+from . import development
 from pathlib import Path, PurePosixPath
 from .errors import UserError
 
@@ -43,6 +44,7 @@ def map_path(source: str, mappings: list[dict], require_exists: bool = True) -> 
         raise UserError('Mapped file escapes configured storage')
     if require_exists and not target.is_file():
         raise UserError('Mapped media file is unavailable')
+    development.check_path(target)
     return target
 
 

@@ -1,5 +1,7 @@
 """Local app server with explicit private-network opt-in; no frontend dependencies."""
 
+from . import development
+
 import argparse
 import base64
 import json
@@ -64,8 +66,10 @@ class App(ThreadingHTTPServer):
         self.service = service
         self.runtime = ServiceRuntime(service, managed=managed_service)
         self.session = secrets.token_urlsafe(32)
+        self.development = bool(development.root())
         self.state_updates = StateUpdates()
         super().__init__((host, address[1]), Handler)
+        self.session_cookie = f'curator_dev_session_{self.server_port}' if self.development else 'curator_session'
         self.allowed_authorities = {name + ':' + str(self.server_port) for name in expected_hosts}
         self.allowed_authorities.add(host + ':' + str(self.server_port))
         if host == '127.0.0.1':
@@ -92,7 +96,11 @@ class Handler(BaseHTTPRequestHandler):
             )
             if cookie:
                 self.send_header(
-                    'Set-Cookie', 'curator_session=' + self.server.session + '; HttpOnly; SameSite=Strict; Path=/'
+                    'Set-Cookie',
+                    getattr(self.server, 'session_cookie', 'curator_session')
+                    + '='
+                    + self.server.session
+                    + '; HttpOnly; SameSite=Strict; Path=/',
                 )
             if download:
                 self.send_header('Content-Disposition', 'attachment; filename="' + download + '"')
@@ -114,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
             cookie.load(self.headers.get('Cookie', ''))
         except Exception:
             return False
-        session = cookie.get('curator_session')
+        session = cookie.get(getattr(self.server, 'session_cookie', 'curator_session'))
         if not session or not secrets.compare_digest(session.value, self.server.session):
             return False
         if mutate:
@@ -180,9 +188,14 @@ class Handler(BaseHTTPRequestHandler):
         }
         if path in static:
             name, kind = static[path]
-            return self.reply(
-                (Path(__file__).parent / 'static' / name).read_bytes(), content_type=kind, cookie=path == '/'
-            )
+            data = (Path(__file__).parent / 'static' / name).read_bytes()
+            if path == '/' and getattr(self.server, 'development', False):
+                data = data.replace(b'<title>Curator</title>', b'<title>Curator DEV / TEST</title>')
+                data = data.replace(
+                    b'<body>',
+                    b'<body><div class="development-banner" role="status">DEV / TEST &middot; Isolated data &middot; External integrations disabled</div>',
+                )
+            return self.reply(data, content_type=kind, cookie=path == '/')
         if not self.allowed():
             return self.reply({'error': 'Open Curator in this browser first'}, 403)
         try:
@@ -595,6 +608,7 @@ def main():
         help='Additional bare browser hostname, such as foundry; repeat as needed',
     )
     parser.add_argument('--state', default='~/Library/Application Support/Curator')
+    parser.add_argument('--development-root', help='Isolated test sandbox; disables external integrations')
     parser.add_argument('--open', action='store_true', help='Open the local app in your default browser')
     parser.add_argument('--managed-service', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -605,6 +619,10 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     try:
+        if args.development_root:
+            development.configure(args.development_root, args.state)
+        elif development.root():
+            development.configure(str(development.root()), args.state)
         store = Store(args.state)
     except (OSError, ValueError) as error:
         parser.exit(2, f'Curator could not open its local state: {error}\n')

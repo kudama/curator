@@ -1,5 +1,7 @@
 """Application workflows. Scans propose work; mutations always require review."""
 
+from . import development
+
 import json
 import hashlib
 import os
@@ -116,6 +118,12 @@ class Service(
         return client
 
     def save_config(self, data):
+        if development.root():
+            if data.get('plex_url') or data.get('plex_token'):
+                development.block_external()
+            for key in ('archive_root', 'artwork_archive_path'):
+                if data.get(key):
+                    development.check_path(data[key])
         allowed = {
             'plex_url',
             'plex_token',
@@ -1447,6 +1455,7 @@ class Service(
         )
 
     def _home(self, task, asset):
+        development.block_external()
         folder = self.store.root / 'frames' / asset['id']
         marker = folder / 'source.json'
         if marker.exists() and json.loads(marker.read_text()) != asset['fingerprint']:

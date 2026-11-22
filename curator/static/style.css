@@ -298,3 +298,5 @@
 
 .artwork-downloads{display:flex;flex-wrap:wrap;gap:12px 20px;margin:16px 0 24px}
 .artwork-downloads>a{min-width:0;max-width:100%;overflow-wrap:anywhere}
+
+.development-banner{background:#ffdb70;color:#172036;padding:.65rem 1rem;text-align:center;font-weight:800;letter-spacing:.03em}
