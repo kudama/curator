@@ -50,10 +50,12 @@ class TaskQueues:
                 for worker in workers.values():
                     worker['wake'].set()
                 if workers and not self.store.get('settings', self.pause_key(None, kind), False):
-                    threads.extend(self._fill_queue_workers(kind, next(iter(workers.values()))['library']))
+                    if any(not worker.get('maintenance_only') for worker in workers.values()):
+                        threads.extend(self._fill_queue_workers(kind, next(iter(workers.values()))['library']))
             for wake in self.file_workers:
                 wake.set()
         self._launch_queue_workers(threads)
+        self.start_pending_maintenance()
         return self.queue_limits()
 
     def task_queues(self, tasks, libraries):
@@ -124,6 +126,7 @@ class TaskQueues:
                         continue
                     self.store.put('settings', self.pause_key(None, task_kind), False)
                     for worker in workers.values():
+                        worker['maintenance_only'] = False
                         worker['wake'].set()
                     threads.extend(self._fill_queue_workers(task_kind, library))
                     self.active.add('queue:' + task_kind)
@@ -136,13 +139,16 @@ class TaskQueues:
             started.append('file_operations')
         return dict(started=started, busy=busy)
 
-    def _fill_queue_workers(self, kind, library):
+    def _fill_queue_workers(self, kind, library, maintenance_only=False, count=None):
         """Called under self.lock; register slots before threads can claim work."""
         workers = self.queue_workers.setdefault(kind, {})
         threads = []
-        for _ in range(max(0, self.queue_limit(kind) - len(workers))):
+        slots = max(0, self.queue_limit(kind) - len(workers))
+        if count is not None:
+            slots = min(slots, count)
+        for _ in range(slots):
             wake = threading.Event()
-            workers[wake] = dict(library=library, wake=wake)
+            workers[wake] = dict(library=library, wake=wake, maintenance_only=maintenance_only)
             threads.append((library, kind, wake))
         return threads
 
@@ -172,8 +178,10 @@ class TaskQueues:
                 wake.set()
         return dict(pausing=sorted(kinds))
 
-    def next_waiting(self, library, kind):
+    def next_waiting(self, library, kind, maintenance_only=False):
         for task in self.waiting_tasks(library, kind=kind):
+            if maintenance_only and not task.get('maintenance') or self.maintenance_holds(task):
+                continue
             if (task.get('retry_at') or 0) > time.time():
                 continue
             try:
@@ -202,13 +210,26 @@ class TaskQueues:
                     if not waiting and not (kind is not None and any(w.get('executing') for w in workers.values())):
                         self._release_queue_worker(library, kind, wake)
                         return
-                    task = self.next_waiting(library, kind) if kind is not None else waiting[0]
+                    maintenance_only = bool(worker.get('maintenance_only')) if kind is not None else False
+                    candidates = [task for task in waiting if not maintenance_only or task.get('maintenance')]
+                    if (
+                        (maintenance_only and not candidates)
+                        or candidates
+                        and all(task.get('maintenance') and self.maintenance_holds(task) for task in candidates)
+                    ):
+                        self._release_queue_worker(library, kind, wake)
+                        return
+                    task = (
+                        self.next_waiting(library, kind, maintenance_only=maintenance_only)
+                        if kind is not None
+                        else waiting[0]
+                    )
                     if kind is not None:
                         worker['waiting_for_retry'] = task is None and any(
-                            (t.get('retry_at') or 0) > time.time() for t in waiting
+                            (t.get('retry_at') or 0) > time.time() for t in candidates
                         )
                         worker['waiting_for_source'] = (
-                            bool(waiting) and task is None and not worker['waiting_for_retry']
+                            bool(candidates) and task is None and not worker['waiting_for_retry']
                         )
                         worker['executing'] = task is not None
                 if task is None:
@@ -216,11 +237,16 @@ class TaskQueues:
                     wake.clear()
                     continue
                 try:
-                    result = self._execute(
+                    result = self.execute_queued_with_maintenance(
                         task['id'],
                         queue_head=True,
                         **(
-                            {'queue_kind': kind, 'queue_library': library, 'queue_wake': wake}
+                            {
+                                'queue_kind': kind,
+                                'queue_library': library,
+                                'queue_wake': wake,
+                                'queue_maintenance_only': maintenance_only,
+                            }
                             if kind is not None
                             else {}
                         ),
@@ -251,3 +277,4 @@ class TaskQueues:
                 self.active.discard('queue:' + kind)
                 with self.store.transaction():
                     self.refresh_run_receipts()
+        self.start_pending_maintenance(kind)

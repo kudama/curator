@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .errors import UserError
 
 POLICY_VERSION = 1
+SCAN_CADENCES = (15, 30, 60, 180, 360, 1440)
 ACTIONS = frozenset({'scan', 'local_ai', 'prepare_upscale', 'prepare_encode', 'process_upscale', 'process_encode'})
 PROCESSING = frozenset({'process_upscale', 'process_encode'})
 PREPARATION = frozenset({'prepare_upscale', 'prepare_encode'})
@@ -112,9 +113,39 @@ def options(action, value):
     if not isinstance(value, dict):
         raise UserError('Choose explicit maintenance action options')
     if action == 'scan':
-        if value:
-            raise UserError('Arrival assessment accepts no mutation options')
-        return {}
+        required = {
+            'cadence_minutes',
+            'inventory_limit',
+            'page_size',
+            'request_timeout_seconds',
+            'scan_timeout_seconds',
+            'probe_timeout_seconds',
+            'response_limit_bytes',
+            'probe_output_bytes',
+        }
+        if (
+            set(value) != required
+            or type(value['cadence_minutes']) is not int
+            or value['cadence_minutes'] not in SCAN_CADENCES
+        ):
+            raise UserError('Choose an explicit bounded scan cadence (15, 30, 60, 180, 360 or 1440 minutes)')
+        cleaned = dict(
+            cadence_minutes=value['cadence_minutes'],
+            inventory_limit=finite_int(value['inventory_limit'], 100, 10000, 'catalogue record cap'),
+            page_size=finite_int(value['page_size'], 1, 200, 'inventory page size'),
+            request_timeout_seconds=finite_int(value['request_timeout_seconds'], 1, 20, 'Plex request timeout'),
+            scan_timeout_seconds=finite_int(value['scan_timeout_seconds'], 10, 600, 'overall scan deadline'),
+            probe_timeout_seconds=finite_int(value['probe_timeout_seconds'], 1, 60, 'new-media probe timeout'),
+            response_limit_bytes=finite_int(
+                value['response_limit_bytes'], 1024, 8 * 1024 * 1024, 'inventory response bound'
+            ),
+            probe_output_bytes=finite_int(
+                value['probe_output_bytes'], 65536, 4 * 1024 * 1024, 'probe output-file bound'
+            ),
+        )
+        if cleaned['page_size'] > cleaned['inventory_limit']:
+            raise UserError('The page size cannot exceed the complete-inventory cap')
+        return cleaned
     if action == 'local_ai':
         if (
             set(value) != {'model', 'model_digest', 'max_frames', 'max_input_bytes'}

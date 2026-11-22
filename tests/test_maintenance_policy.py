@@ -20,12 +20,25 @@ def rule(**changes):
         excluded_paths=['/synthetic/excluded'],
         excluded_assets=['excluded-id'],
         limits=dict(
-            items_per_run=2, items_per_day=5, output_bytes_per_day=4096, output_bytes_per_item=2048, min_free_bytes=1024
+            items_per_run=2,
+            items_per_day=5,
+            output_bytes_per_day=32 * 1024 * 1024,
+            output_bytes_per_item=8 * 1024 * 1024,
+            min_free_bytes=1024,
         ),
         timezone='America/Los_Angeles',
         windows=[dict(days=list(range(7)), start='00:00', end='24:00')],
         quiet=[],
-        options={},
+        options=dict(
+            cadence_minutes=60,
+            inventory_limit=1000,
+            page_size=100,
+            request_timeout_seconds=10,
+            scan_timeout_seconds=120,
+            probe_timeout_seconds=30,
+            response_limit_bytes=4 * 1024 * 1024,
+            probe_output_bytes=4 * 1024 * 1024,
+        ),
     )
     base.update(changes)
     return rule_values(base)

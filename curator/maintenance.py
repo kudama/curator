@@ -7,12 +7,13 @@ Accepting this engineering implementation never enables a live rule.
 import copy
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+import socket
 import uuid
 from zoneinfo import ZoneInfo
 
 from .errors import UserError
 from .history import current_initiator
-from .maintenance_policy import POLICY_VERSION, digest, limits, rule_values
+from .maintenance_policy import POLICY_VERSION, PROCESSING, digest, limits, rule_values
 from .maintenance_facts import standard_identity
 from .store import now
 
@@ -137,13 +138,13 @@ class MaintenanceRules:
         }
 
     def maintenance_contract(self):
-        files = ('maintenance_policy.py', 'maintenance_facts.py', 'limited_exec.py')
+        files = [path.name for path in sorted(Path(__file__).parent.glob('maintenance*.py'))] + ['limited_exec.py']
         return dict(
             policy=POLICY_VERSION,
             implementation=digest({name: Path(__file__).with_name(name).read_text() for name in files}),
         )
 
-    def maintenance_enable_snapshot(self, rule):
+    def maintenance_enable_snapshot(self, rule, captured=None):
         if not POLICY_ACCEPTED:
             raise UserError('Maintenance policy/configuration review is pending; every rule remains disabled')
         library = self.library(rule['values']['library'])
@@ -166,7 +167,17 @@ class MaintenanceRules:
             watermark=baseline['sequence'],
             baseline=baseline['generation'],
             connection=digest(self.config().get('plex_url')),
-            tools=self.maintenance_tool_snapshot(rule['values']),
+            tools=self.maintenance_tool_snapshot(rule['values'], captured=captured),
+            output_bound=self.maintenance_output_bound(rule),
+            queue_limit=self.queue_limit('upscale' if rule['values']['action'].endswith('upscale') else 'optimize')
+            if rule['values']['action'] in PROCESSING
+            else None,
+            execution_host=dict(
+                host=socket.gethostname(),
+                state=str(self.store.root),
+                device=self.store.root.stat().st_dev,
+                inode=self.store.root.stat().st_ino,
+            ),
         )
 
     def preview_maintenance_enable(self, identity, revision):
@@ -212,7 +223,20 @@ class MaintenanceRules:
             ):
                 raise UserError('Review a current maintenance enable preview')
             rule = self.maintenance_rule(preview['snapshot']['rule'])
-            if action != rule['values']['action'] or self.maintenance_enable_snapshot(rule) != preview['snapshot']:
+            if rule['values']['action'] == 'scan' and any(
+                other['id'] != rule['id']
+                and other.get('enabled')
+                and other['values']['library'] == rule['values']['library']
+                and other['values']['action'] == 'scan'
+                for other in self.maintenance_rules()
+            ):
+                raise UserError(
+                    'This library already has an enabled Scan rule; edit/review that single schedule instead'
+                )
+            if (
+                action != rule['values']['action']
+                or self.maintenance_enable_snapshot(rule, captured=preview['snapshot']['tools']) != preview['snapshot']
+            ):
                 raise UserError('Rule/scope/standard/caps/baseline changed; prepare a fresh enable preview')
             stamp = now()
             rule.update(

@@ -65,9 +65,26 @@ class Plex:
         self.transport = transport or build_opener(NoPlexRedirect()).open
         self.image_transport = transport or build_opener(NoImageRedirect()).open
 
-    def request(self, path, method='GET', params=None, data=None, content_type=None, ignore_body=False):
+    def request(
+        self,
+        path,
+        method='GET',
+        params=None,
+        data=None,
+        content_type=None,
+        ignore_body=False,
+        timeout=20,
+        max_bytes=32 * 1024 * 1024,
+    ):
         if not path.startswith('/') or path.startswith('//') or '?' in path:
             raise PlexError('Invalid Plex API path')
+        if (
+            type(timeout) not in {int, float}
+            or not 0 < timeout <= 20
+            or type(max_bytes) is not int
+            or not 1 <= max_bytes <= 32 * 1024 * 1024
+        ):
+            raise PlexError('Invalid bounded Plex request limits')
         query = '?' + urlencode(params, doseq=True) if params else ''
         headers = {
             'X-Plex-Token': self.token,
@@ -79,10 +96,10 @@ class Plex:
             headers['Content-Type'] = content_type
         try:
             with self.transport(
-                Request(self.url + path + query, data=data, headers=headers, method=method), timeout=20
+                Request(self.url + path + query, data=data, headers=headers, method=method), timeout=timeout
             ) as r:
-                raw = r.read(32 * 1024 * 1024 + 1)
-            if len(raw) > 32 * 1024 * 1024:
+                raw = r.read(max_bytes + 1)
+            if len(raw) > max_bytes:
                 raise PlexError('Plex response is too large')
             if ignore_body:
                 return {}

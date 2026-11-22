@@ -14,8 +14,8 @@ from curator.service import Service
 from curator.tools import fingerprint
 
 
-class Harness(MaintenanceRules, MaintenanceArrivals, Service):
-    def maintenance_tool_snapshot(self, values):
+class Harness(Service):
+    def maintenance_tool_snapshot(self, values, captured=None):
         return {'fixture': 'verified'}
 
     def validate_maintenance_permission(self, record):
