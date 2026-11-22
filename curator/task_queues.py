@@ -4,18 +4,19 @@ import threading
 import time
 from .queue_workflows import SourceBusy
 from .errors import UserError
+from .rules import scheduling_kind
 
 
 class TaskQueues:
     @staticmethod
     def pause_key(library, kind):
-        return 'queue-paused:global:' + kind
+        return 'queue-paused:global:' + scheduling_kind(kind)
 
     def queue_limits(self):
         return self.store.get('settings', 'queue-limits', {})
 
     def queue_limit(self, kind):
-        return self.queue_limits().get(kind, 4 if kind == 'file_operations' else 1)
+        return self.queue_limits().get(scheduling_kind(kind), 4 if kind == 'file_operations' else 1)
 
     def set_queue_limits(self, limits):
         kinds = {
@@ -57,9 +58,11 @@ class TaskQueues:
 
     def task_queues(self, tasks, libraries):
         with self.lock:
-            kinds = {t['kind'] for t in tasks if t['status'] in {'queued', 'running'} and not t.get('deleted')} | set(
-                self.queue_workers
-            )
+            kinds = {
+                scheduling_kind(t['kind'])
+                for t in tasks
+                if t['status'] in {'queued', 'running'} and not t.get('deleted')
+            } | set(self.queue_workers)
             return [
                 dict(
                     library=None,
@@ -68,8 +71,14 @@ class TaskQueues:
                     busy_elsewhere=False,
                     paused=bool(self.store.get('settings', self.pause_key(None, kind), False)),
                     limit=self.queue_limit(kind),
-                    waiting=sum(t['kind'] == kind and t['status'] == 'queued' and not t.get('deleted') for t in tasks),
-                    running=sum(t['kind'] == kind and t['status'] == 'running' and not t.get('deleted') for t in tasks),
+                    waiting=sum(
+                        scheduling_kind(t['kind']) == kind and t['status'] == 'queued' and not t.get('deleted')
+                        for t in tasks
+                    ),
+                    running=sum(
+                        scheduling_kind(t['kind']) == kind and t['status'] == 'running' and not t.get('deleted')
+                        for t in tasks
+                    ),
                     waiting_for_source=any(
                         w.get('waiting_for_source') for w in self.queue_workers.get(kind, {}).values()
                     ),
@@ -81,6 +90,7 @@ class TaskQueues:
             ]
 
     def start(self, library=None, kind=None):
+        kind = scheduling_kind(kind)
         if library is not None:
             self.library(library)
         files = (
@@ -96,7 +106,7 @@ class TaskQueues:
         started = []
         busy = []
         with self.lock:
-            kinds = {t['kind'] for t in self.waiting_tasks(library)}
+            kinds = {scheduling_kind(t['kind']) for t in self.waiting_tasks(library)}
             if kind is not None:
                 if not isinstance(kind, str) or kind not in kinds:
                     raise UserError('No waiting jobs in this task-type queue')
@@ -141,10 +151,11 @@ class TaskQueues:
             threading.Thread(target=self._run, args=(library, kind, wake), daemon=True).start()
 
     def pause_queues(self, library=None, kind=None):
+        kind = scheduling_kind(kind)
         if library is not None:
             self.library(library)
         with self.lock:
-            kinds = {t['kind'] for t in self.waiting_tasks(library)} | set(self.queue_workers)
+            kinds = {scheduling_kind(t['kind']) for t in self.waiting_tasks(library)} | set(self.queue_workers)
             if library is None and any(j['phase'] in {'waiting', 'running'} for j in self.file_jobs()):
                 kinds.add('file_operations')
             if kind is not None:

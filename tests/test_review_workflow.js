@@ -25,7 +25,7 @@ function setup(kind='optimize'){
   refresh:async()=>{},toast:()=>{},confirm:()=>{throw Error('Unexpected confirmation');},portraitVideo:()=>false,
   fileName:()=> 'Synthetic video',metaLine:()=> '1920 × 1080',TASK_LABELS:{upscale:'Upscale video',optimize:'Optimize encoding'},HISTORY_TASK_STATES:new Set(['applied','rejected','cancelled']),
   fileTasks:()=>context.state.tasks,canQueue:t=>t.status==='recommendation',document:{createTextNode:text=>text},thumbnail:()=>node('div')});
- vm.runInContext(app.slice(app.indexOf('async function openTask('),app.indexOf('function renderFilePlan(')),context);
+ vm.runInContext(app.slice(app.indexOf('function validResolutionException('),app.indexOf('function renderFilePlan(')),context);
  return {context,task,asset,calls,images,elements,run:code=>vm.runInContext(code,context),all:()=>descendants(elements.get('task-detail')),buttons:()=>descendants(elements.get('task-buttons')),publish:()=>descendants(elements.get('task-buttons')).find(e=>e.textContent==='Accept & publish'),loadImages:()=>{for(const image of images)image.onload();}};
 }
 test('review loads comparison automatically and waits for all images before one-click publish',async()=>{
@@ -60,4 +60,11 @@ test('ready file overview labels the result without preselecting unrelated work'
  const h=setup();h.context.state.tasks.push({...h.task,id:'suggestion',kind:'upscale',status:'recommendation'});
  vm.runInContext(workbench.slice(workbench.indexOf('function renderAssetOverview('),workbench.indexOf('function editorTabs(')),h.context);
  h.run('renderAssetOverview(state.assets[0])');assert.equal(h.elements.get('task-kind').textContent,'READY TO PUBLISH');assert.equal(h.context.selected.size,0);assert.ok(h.all().some(e=>e.textContent==='Review & Publish'));assert.ok(h.all().some(e=>e.textContent==='Ready to publish'));
+});
+
+test('a below-target exception still requires the normal comparison before publication',async()=>{
+ const h=setup('upscale');h.task.validation=['Output is below 1080-class target'];h.task.source_hash='s';h.task.output_hash='o';
+ h.task.resolution_exception={operator:'operator',version:1,source_hash:'s',output_hash:'o',binding:'b',reason:'explicit'};
+ const opening=h.run("openTask('one')");await tick();assert.equal(h.publish().disabled,true);
+ assert.ok(h.all().some(e=>e.textContent.startsWith('Resolution exception:')));h.loadImages();await opening;assert.equal(h.publish().disabled,false);
 });
