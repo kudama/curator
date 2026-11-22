@@ -227,6 +227,7 @@ class Handler(BaseHTTPRequestHandler):
             '/file-management.js': ('file-management.js', 'application/javascript'),
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
+            '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
             '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
@@ -252,6 +253,18 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/artwork/target-image':
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.artwork_target_image(query['asset'][0], query['kind'][0])
+                return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/rename/receipts':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.rename_receipts(query.get('library', ['all'])[0]))
+            if path == '/api/rename/receipt':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.rename_receipt_view(query['id'][0]))
+            if path == '/api/rename/receipt/image':
+                query = parse_qs(urlsplit(self.path).query)
+                kind = query.get('kind', [None])[0]
+                person = int(query['person'][0]) if 'person' in query and kind is None else None
+                image = self.server.service.rename_receipt_image(query['id'][0], kind=kind, person=person)
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
             if path == '/api/preview/job':
                 query = parse_qs(urlsplit(self.path).query)
@@ -501,6 +514,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_presence(data['library'])
             elif path == '/api/files/comparison':
                 result = service.join_comparison(data['id'])
+            elif path == '/api/rename/receipt/restore-artwork':
+                result = service.restore_rename_artwork(data['id'], data['version'], data['kinds'])
+            elif path == '/api/rename/receipt/restore-portraits':
+                result = service.restore_rename_portraits(
+                    data['id'], data['version'], data['people'], data['cast_digest']
+                )
             elif path == '/api/preview/select':
                 result = service.select_preview(data['id'], data['version'], data['selection_revision'])
             elif path == '/api/preview/discard':
