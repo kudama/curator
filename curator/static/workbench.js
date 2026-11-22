@@ -1,4 +1,5 @@
 'use strict';
+function schedulingKind(kind){return kind==='preview_render'?'optimize':kind;}
 // Navigation and presentation only. Editors continue to use the existing approved workflows.
 const collapsedGroups=new Set(),fileRowCache=new Map();let overviewSignature='';
 let queueLibrary='all';
@@ -453,7 +454,7 @@ function showQueueLimits(){
  if(!prepareInspector())return;inspectorMode='queue-limits';openedTask=null;$('task-kind').textContent='PROCESSING';$('task-title').textContent='Shared processing limits';$('task-reason').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren();actions.replaceChildren();
  detail.append(node('p','Limits apply across all libraries. Lowering a limit lets current jobs finish. Run or Resume fills additional slots after an increase.','muted'));
- const inputs=new Map(),kinds=new Set(['upscale','optimize','file_operations','mage_generation','metadata','home','folder_metadata',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>t.kind)]);
+ const inputs=new Map(),kinds=new Set(['upscale','optimize','file_operations','mage_generation','metadata','home','folder_metadata',...state.tasks.filter(t=>t.status==='queued'||t.status==='running').map(t=>schedulingKind(t.kind))]);
  for(const kind of kinds){const label=node('label',kind==='file_operations'?'File copy / delete':TASK_LABELS[kind]||kind),input=node('input');input.type='number';input.min=1;input.max=kind==='file_operations'?4:8;input.step=1;input.value=state.queue_limits?.[kind]||(kind==='file_operations'?4:1);label.append(input);detail.append(label);inputs.set(kind,input);}
  actions.append(button('Save limits',()=>run(async()=>{const limits=Object.fromEntries([...inputs].map(([kind,input])=>[kind,Number(input.value)]));await api('queue/limits',{limits});closeInspector(true);await refresh();toast('Shared processing limits saved.');}),'primary'));showInspector();
 }

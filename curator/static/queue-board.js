@@ -2,7 +2,6 @@
 // Keep the approved board stable; file preparation and other work never replace it.
 const queueFileSelection=new Set();
 const expandedWaitingQueues=new Set();
-function schedulingKind(kind){return kind==='preview_render'?'optimize':kind;}
 const QUEUE_FILE_KINDS=new Set(['join','rename','group']);
 function foldWaitingQueue(lane,kind){
  const waiting=[...lane.children].filter(card=>card.dataset.queueWaiting==='true');

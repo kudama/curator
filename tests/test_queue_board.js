@@ -200,3 +200,16 @@ test('preview renders share Encoding lane order and positions without another qu
  assert.equal(board.children.length,1);assert.equal(board.children[0].attrs['aria-label'],'Encoding');
  assert.equal(h.run("taskQueuePositions.get('preview')"),2);
 });
+
+test('shared limits editor sends only one Encoding limit for preview and optimize',async()=>{
+ const h=setup();h.add('encode','optimize');h.add('preview','preview_render');
+ h.context.inspectorMode=null;h.context.prepareInspector=()=>true;h.context.showInspector=()=>{};h.context.closeInspector=()=>{};
+ h.run('showQueueLimits()');
+ const detail=h.elements.get('task-detail');
+ assert.equal(detail.children.filter(e=>e.tag==='label'&&e.textContent==='Encoding').length,1);
+ assert.equal(detail.children.some(e=>e.textContent==='preview_render'),false);
+ await h.elements.get('task-buttons').children[0].onclick();
+ assert.equal(h.calls[0].endpoint,'queue/limits');
+ assert.equal(h.calls[0].data.limits.optimize,2);
+ assert.equal(Object.hasOwn(h.calls[0].data.limits,'preview_render'),false);
+});
