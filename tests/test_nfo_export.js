@@ -9,7 +9,7 @@ class Element{
 const all=root=>[root,...root.children.filter(n=>n instanceof Element).flatMap(all)];
 function setup(){
  const ids=Object.fromEntries(['task-detail','task-buttons','task-title','task-kind','task-reason'].map(k=>[k,new Element('div')])),calls=[],timers=[];
- const asset={id:'one',library:'lib',plex_path:'/media/Title/film.mp4'},context=vm.createContext({Set,JSON,state:{libraries:[{id:'lib',title:'Synthetic library'}]},libraryId:'lib',openedTask:null,inspectorMode:null,inspectorDirty:false,
+ const asset={id:'one',library:'lib',plex_path:'/media/Title/film.mp4'},context=vm.createContext({Set,JSON,state:{libraries:[{id:'lib',title:'Synthetic library'}],assets:[asset]},libraryId:'lib',openedTask:null,inspectorMode:null,inspectorDirty:false,
   node:(...a)=>new Element(...a),$:id=>ids[id],button:(title,fn,cls)=>{const e=new Element('button',title,cls);e.onclick=fn;return e;},clientId:()=> 'fixture',prepareInspector:()=>true,showInspector(){},closeInspector(){context.openedTask=null;},selectedManagementFiles:()=>[asset],libraryFiles:()=>[asset],setTimeout:fn=>timers.push(fn),refresh:async()=>{},toast(){},api:async(endpoint,data)=>{calls.push({endpoint,data});return {};}});
  vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/nfo-export.js'),'utf8'),context);
  return {context,ids,calls,timers,run:code=>vm.runInContext(code,context),find:title=>[...all(ids['task-detail']),...all(ids['task-buttons'])].find(n=>n.textContent===title),nodes:()=>[...all(ids['task-detail']),...all(ids['task-buttons'])]};
@@ -32,5 +32,5 @@ test('late preparation result cannot replace another opened panel',async()=>{
  const h=setup();h.context.record={...manifest(),phase:'preparing',items:[]};h.context.panel=h.run("nfoPanel('Review')");await h.run('showNfoManifest(panel,record)');assert.equal(h.timers.length,1);h.context.openedTask='another';await h.timers[0]();assert.equal(h.calls.length,0);
 });
 test('partial receipt shows verified outcomes, omissions and fresh retry only',async()=>{
- const h=setup(),record=manifest();record.phase='partial';record.items[0].phase='failed';record.items[0].error='Source changed';record.items[0].files[0].outcome={state:'created',sha256:'new-hash'};h.context.record=record;h.context.panel=h.run("nfoPanel('Results')");await h.run('showNfoManifest(panel,record)');assert.ok(h.find('Prepare failed / partial items again'));assert.ok(h.find('Source changed'));assert.ok(h.find('NFO · created'));assert.equal(h.find('Approve & queue export'),undefined);
+ const h=setup(),record=manifest();record.phase='partial';record.items[0].phase='failed';record.items[0].error='Source changed';record.items[0].files[0].outcome={state:'created',sha256:'new-hash'};h.context.record=record;h.context.panel=h.run("nfoPanel('Results')");await h.run('showNfoManifest(panel,record)');assert.ok(h.find('Prepare retry'));assert.ok(h.find('Source changed'));assert.ok(h.find('NFO · created'));assert.equal(h.find('Approve & queue export'),undefined);
 });

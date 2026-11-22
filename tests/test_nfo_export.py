@@ -10,6 +10,7 @@ from test_artwork_managers import png
 from curator.errors import UserError
 from curator.nfo_export import movie_xml, parse_nfo
 from curator.service import Service
+from curator.tools import fingerprint
 
 
 class NfoPackage(unittest.TestCase):
@@ -150,6 +151,52 @@ class NfoPackage(unittest.TestCase):
         with self.assertRaises(UserError):
             service.execute_nfo_export(queued['id'])
 
+    def test_pause_between_items_keeps_one_job_and_resumes_only_remaining_items(self):
+        other = self.media / 'second.mp4'
+        other.write_bytes(b'second-synthetic-video')
+        item = dict(ratingKey='11', type='movie', title='Second', Media=[{'Part': [{'file': '/plex/second.mp4'}]}])
+        asset = dict(
+            self.asset,
+            id='b' * 24,
+            rating_key='11',
+            title='Second',
+            plex_path='/plex/second.mp4',
+            local_path=str(other.resolve()),
+            fingerprint=fingerprint(other),
+            item=item,
+        )
+        with self.store.transaction():
+            self.store.put('assets', asset['id'], asset)
+        self.plex.item = lambda key: copy.deepcopy(item if key == '11' else self.plex.rows[0])
+        plan = self.service.create_nfo_preview(dict(library=self.lib['id'], scope='library'), background=False)
+        queued = self.service.queue_nfo_export(
+            dict(id=plan['id'], revision=plan['review_revision'], assets=[self.asset['id'], asset['id']])
+        )
+        with patch.object(self.service, 'file_queue_paused', side_effect=[False, True]):
+            result = self.service.execute_nfo_export(queued['id'])
+        self.assertEqual(result['phase'], 'paused')
+        self.assertTrue((self.media / 'film.nfo').exists())
+        self.assertFalse((self.media / 'second.nfo').exists())
+        first_stat = (self.media / 'film.nfo').stat()
+        self.service.execute_nfo_export(queued['id'])
+        self.assertEqual((self.media / 'film.nfo').stat().st_mtime_ns, first_stat.st_mtime_ns)
+        self.assertTrue((self.media / 'second.nfo').exists())
+        self.assertEqual(len([j for j in self.service.file_jobs() if j['operation'] == 'nfo_export']), 1)
+
+    def test_destination_change_is_rejected_before_queue_admission(self):
+        plan = self.preview()
+        (self.media / 'film.nfo').write_bytes(b'foreign')
+        with self.assertRaisesRegex(UserError, 'Sidecar changed'):
+            self.queue(plan)
+        self.assertFalse(self.service.file_jobs())
+
+    def test_preview_size_limit_blocks_large_item_without_writing_destinations(self):
+        with patch('curator.nfo_export.MAX_ITEM_PREVIEW', 100):
+            plan = self.preview()
+        self.assertEqual(plan['items'][0]['phase'], 'blocked')
+        self.assertIn('bounded preview budget', plan['items'][0]['reason'])
+        self.assertFalse((self.media / 'film.nfo').exists())
+
     def test_tv_multipart_wrong_identity_missing_mount_are_visible_blocks(self):
         for change in [
             dict(type='episode'),
@@ -192,6 +239,19 @@ class NfoPackage(unittest.TestCase):
 
 
 class XmlSafety(unittest.TestCase):
+    def test_nested_unknown_xml_refuses_update_instead_of_dropping_extensions(self):
+        for previous in [
+            b'<movie><title lang="fr">Title</title></movie>',
+            b'<movie><actor><name>Person</name><custom>keep</custom></actor></movie>',
+        ]:
+            with self.assertRaisesRegex(UserError, 'unknown XML'):
+                movie_xml(dict(title='New title'), previous)
+
+    def test_identifiers_require_provider_specific_format(self):
+        item = dict(title='Title', Guid=[dict(id='imdb://123'), dict(id='tmdb://tt123'), dict(id='imdb://tt123')])
+        root = ET.fromstring(movie_xml(item))
+        self.assertEqual([(e.get('type'), e.text) for e in root.findall('uniqueid')], [('imdb', 'tt123')])
+
     def test_deterministic_utf8_escaping_unknown_xml_and_identifiers_preserved(self):
         item = dict(
             title='Café <&>', summary='Saved', Role=[dict(tag='Person', role='Self')], Guid=[dict(id='imdb://tt123')]

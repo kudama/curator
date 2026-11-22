@@ -190,7 +190,8 @@ class FileQueueWorkflows:
                     continue
                 try:
                     self._execute_file_operation(job)
-                    job.update(phase='complete', updated=now())
+                    if job['phase'] == 'running':
+                        job.update(phase='complete', updated=now())
                 except Exception as error:
                     log.exception('File operation %s failed', job['operation'])
                     job.update(
@@ -241,6 +242,8 @@ class FileQueueWorkflows:
             job['result'] = self.render_local_artwork(payload)
         elif operation == 'nfo_export':
             job['result'] = self.execute_nfo_export(payload['plan'])
+            if job['result']['phase'] == 'paused':
+                job.update(phase='waiting', updated=now())
         elif operation == 'publish':
             task = self.get_task(payload['task'])
             if task['version'] != payload['version'] or task['status'] != 'publishing':

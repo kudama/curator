@@ -17,15 +17,28 @@ import xml.etree.ElementTree as ET
 from . import development, tools
 from .errors import UserError
 from .history import acting, current_initiator
-from .nfo_sidecars import image_info, image_name, plan_sidecar, sha256, write_sidecar, inspect_sidecar, _read_at, verify_destination
+from .nfo_sidecars import (
+    image_info,
+    image_name,
+    plan_sidecar,
+    sha256,
+    write_sidecar,
+    inspect_sidecar,
+    _read_at,
+    verify_destination,
+)
 from .paths import map_path, media_presence
 from .plex import Plex
 from .store import now
 
 VERSION = 1
 MAX_ITEMS = 2000
+MAX_ITEM_PREVIEW = 256 * 1024
+MAX_PREVIEW = 8 * 1024 * 1024
 MOVIES = {'.mkv', '.mp4', '.m4v', '.mov', '.avi', '.mpg', '.mpeg', '.wmv', '.webm', '.ts', '.m2ts'}
 FIELDS = (
+    'guid',
+    'editionTitle',
     'title',
     'originalTitle',
     'summary',
@@ -76,6 +89,14 @@ def metadata(item):
     return {key: copy.deepcopy(item[key]) for key in FIELDS if key in item}
 
 
+def catalog_id(value):
+    match = re.fullmatch(r'(imdb|tmdb|tvdb)://(.+)', str(value))
+    if not match:
+        return None
+    kind, identity = match.groups()
+    return (kind, identity) if re.fullmatch(r'tt\d+' if kind == 'imdb' else r'\d+', identity) else None
+
+
 def parse_nfo(raw):
     if len(raw) > 2 * 1024 * 1024 or re.search(rb'<!\s*(?:DOCTYPE|ENTITY)', raw, re.I):
         raise UserError('Existing NFO contains unsupported XML declarations or exceeds 2 MiB')
@@ -99,6 +120,22 @@ def text(value):
 def movie_xml(item, previous=None):
     """Deterministic UTF-8 movie XML; existing unknown elements/IDs survive updates."""
     root = parse_nfo(previous) if previous else ET.Element('movie')
+    for child in root:
+        if child.tag not in KNOWN_TAGS:
+            continue
+        if child.attrib or child.tag not in {'actor', 'ratings'} and list(child):
+            raise UserError('Existing NFO extends a generated field; keep it unchanged rather than losing unknown XML')
+        if child.tag == 'actor' and any(
+            row.tag not in {'name', 'role', 'order'} or row.attrib or list(row) for row in child
+        ):
+            raise UserError('Existing NFO has additional actor data; keep it unchanged rather than losing unknown XML')
+        if child.tag == 'ratings' and any(
+            row.tag != 'rating'
+            or set(row.attrib) != {'name', 'max'}
+            or any(value.tag != 'value' or value.attrib or list(value) for value in row)
+            for row in child
+        ):
+            raise UserError('Existing NFO has additional rating data; keep it unchanged rather than losing unknown XML')
     for child in list(root):
         if child.tag in KNOWN_TAGS:
             root.remove(child)
@@ -145,10 +182,10 @@ def movie_xml(item, previous=None):
         # by copying the URL. Keep working portraits unchanged in Plex/Curator.
     existing_ids = {row.get('type'): row.text for row in root.findall('uniqueid')}
     for row in item.get('Guid', []):
-        match = re.fullmatch(r'(imdb|tmdb|tvdb)://(tt\d+|\d+)', str(row.get('id', '')))
-        if not match:
+        pair = catalog_id(row.get('id', ''))
+        if not pair:
             continue
-        kind, value = match.groups()
+        kind, value = pair
         if kind in existing_ids:
             if existing_ids[kind] != value:
                 raise UserError('An existing NFO catalog identifier conflicts with current metadata')
@@ -178,6 +215,25 @@ def _add(parent, tag, value):
     return element
 
 
+def xml_differences(previous, proposed):
+    def values(raw):
+        result = {}
+        if raw is not None:
+            for child in parse_nfo(raw):
+                if child.tag in KNOWN_TAGS or child.tag == 'uniqueid':
+                    result.setdefault(child.tag, []).append(
+                        ' · '.join(value.strip() for value in child.itertext() if value.strip())
+                    )
+        return result
+
+    before, after = values(previous), values(proposed)
+    return [
+        dict(field=key, before=before.get(key, []), after=after.get(key, []))
+        for key in sorted(set(before) | set(after))
+        if before.get(key) != after.get(key)
+    ]
+
+
 class NfoExports:
     def nfo_exports(self, library):
         self.library(library)
@@ -197,6 +253,13 @@ class NfoExports:
         record = self.store.get('settings', identity)
         if not isinstance(record, dict) or record.get('record_type') != 'nfo_export':
             raise UserError('NFO export preview was not found')
+        if record.get('job') and record.get('phase') == 'queued':
+            job = self.store.get('settings', record['job'], {})
+            if job.get('phase') == 'cancelled':
+                record.update(
+                    phase='cancelled',
+                    error='Remaining export work was cancelled. Existing verified files and outcomes are retained.',
+                )
         return record
 
     def _save_nfo(self, record):
@@ -255,6 +318,7 @@ class NfoExports:
             phase='preparing',
             assets=[a['id'] for a in sorted(rows, key=lambda a: (a['plex_path'], a['id']))],
             items=[],
+            preview_bytes=0,
             created=now(),
             initiator=current_initiator(),
         )
@@ -327,6 +391,8 @@ class NfoExports:
             raise UserError(
                 'Saved Curator metadata differs from current Plex metadata; refresh and review before exporting'
             )
+        if not isinstance(item.get('title'), str) or not item['title'].strip():
+            raise UserError('Save a title in metadata before exporting this item')
         selected = {kind: Plex.artwork_path(item, kind) for kind in Plex.ARTWORK}
         source = dict(
             asset=asset['id'],
@@ -406,10 +472,16 @@ class NfoExports:
             warnings.append('Labels/tags are retained in Curator and omitted from this NFO.')
         if item.get('userRating') is not None:
             warnings.append('Personal Plex ratings are retained in Curator/Plex and omitted from this NFO.')
-        if any(not re.fullmatch(r'(imdb|tmdb|tvdb)://(tt\d+|\d+)', str(row.get('id', ''))) for row in item.get('Guid', [])):
-            warnings.append('Unverified/custom identifiers are omitted; stable Curator identity remains in the export receipt.')
+        if any(not catalog_id(row.get('id', '')) for row in item.get('Guid', [])):
+            warnings.append(
+                'Unverified/custom identifiers are omitted; stable Curator identity remains in the export receipt.'
+            )
         for key, provider in [('rating', 'ratingImage'), ('audienceRating', 'audienceRatingImage')]:
-            if item.get(key) is not None and str(item.get(provider, '')).split('://')[0] not in {'imdb', 'rottentomatoes', 'themoviedb'}:
+            if item.get(key) is not None and str(item.get(provider, '')).split('://')[0] not in {
+                'imdb',
+                'rottentomatoes',
+                'themoviedb',
+            }:
                 warnings.append('A rating with an unverified source or scale is omitted.')
         if any(row.get('thumb') for row in item.get('Role', [])):
             warnings.append(
@@ -475,6 +547,7 @@ class NfoExports:
             phase='ready',
             field_values=metadata(item),
             previous_nfo=previous.decode('utf-8', errors='replace') if previous else None,
+            differences=xml_differences(previous if owned else None, xml),
         )
 
     def _prepare_nfo(self, identity):
@@ -509,7 +582,18 @@ class NfoExports:
                 current = self.nfo_manifest(identity)
                 if current['phase'] != 'preparing':
                     return
+                size = len(json.dumps(row, ensure_ascii=False).encode())
+                if size > MAX_ITEM_PREVIEW or current.get('preview_bytes', 0) + size > MAX_PREVIEW:
+                    row = dict(
+                        asset=aid,
+                        title='Preview limit reached',
+                        phase='blocked',
+                        reason='Metadata/XML exceeds the bounded preview budget. Export a smaller scope or simplify the metadata first.',
+                        files=[],
+                    )
+                    size = len(json.dumps(row).encode())
                 current['items'].append(row)
+                current['preview_bytes'] = current.get('preview_bytes', 0) + size
                 self._save_nfo(current)
         with self.lock:
             current = self.nfo_manifest(identity)
@@ -589,6 +673,10 @@ class NfoExports:
         for row in record['items']:
             if row['asset'] not in record['selected'] or row['phase'] != 'ready':
                 continue
+            if self.file_queue_paused():
+                record['phase'] = 'queued'
+                self._save_nfo(record)
+                return dict(manifest=identity, phase='paused', items=len(record['selected']))
             try:
                 with self.lock:
                     fresh, _, client = self._nfo_source(self.asset({'asset': row['asset']}))

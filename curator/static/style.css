@@ -330,3 +330,5 @@
 .standards-dialog>.dialog-actions{display:flex;justify-content:space-between;gap:16px;padding:16px 22px;border-top:1px solid var(--line);flex-wrap:wrap}
 .standards-actions{display:flex;gap:10px;flex-wrap:wrap}
 @media(max-width:700px){.standards-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}.standards-sections{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);align-items:center;max-height:100px}.standards-sections h3{display:none}.standards-sections button{flex:0 0 auto;max-width:190px}.standards-body{padding:12px}.standards-dialog>.dialog-actions{padding:10px}.standard-review{font-size:.8rem}}
+
+.nfo-export-file{min-width:0}.nfo-export-file p{overflow-wrap:anywhere}
