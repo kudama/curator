@@ -2,6 +2,7 @@
 // Keep the approved board stable; file preparation and other work never replace it.
 const queueFileSelection=new Set();
 const expandedWaitingQueues=new Set();
+function schedulingKind(kind){return kind==='preview_render'?'optimize':kind;}
 const QUEUE_FILE_KINDS=new Set(['join','rename','group']);
 function foldWaitingQueue(lane,kind){
  const waiting=[...lane.children].filter(card=>card.dataset.queueWaiting==='true');
@@ -30,7 +31,7 @@ function renderQueueStatusLinks(){
  }
 }
 function mergeQueueOrder(full,visible,order){const chosen=new Set(visible),next=order[Symbol.iterator]();return full.map(id=>chosen.has(id)?next.next().value:id);}
-function queueLaneIds(kind){return kind==='file_operations'?(state.file_queue||[]).map(r=>r.id):waitingSnapshot().filter(r=>state.tasks.find(t=>t.id===r.id)?.kind===kind).map(r=>r.id);}
+function queueLaneIds(kind){return kind==='file_operations'?(state.file_queue||[]).map(r=>r.id):waitingSnapshot().filter(r=>schedulingKind(state.tasks.find(t=>t.id===r.id)?.kind)===schedulingKind(kind)).map(r=>r.id);}
 function queueVisibleIds(kind){const rows=kind==='file_operations'?queueActiveFiles():state.tasks;return queueLaneIds(kind).filter(id=>rows.some(r=>r.id===id&&queueVisible(r)));}
 async function changeFileOrder(order,expected=(state.file_queue||[]).map(r=>({...r}))){
  if(queueChangeBusy)return;queueChangeBusy=true;render();
@@ -43,7 +44,7 @@ function queueHandleFocus(id){
  card?.scrollIntoView?.({block:'nearest',inline:'nearest'});
 }
 async function moveQueueRow(row,file,visible,order,snapshot){
- const kind=file?'file_operations':row.kind;
+ const kind=file?'file_operations':schedulingKind(row.kind);
  expandedWaitingQueues.add(['join','rename','group'].includes(kind)?'file_operations':['home','folder_metadata'].includes(kind)?'metadata':kind);
  try{
   const full=mergeQueueOrder(snapshot.map(r=>r.id),visible,order);
@@ -52,7 +53,7 @@ async function moveQueueRow(row,file,visible,order,snapshot){
  }finally{const active=document.activeElement;if(!active||active===document.body||active.closest?.('[data-waiting-id]')?.dataset.waitingId===row.id)queueHandleFocus(row.id);}
 }
 function queueDrag(card,handle,row,file=false){
- const kind=file?'file_operations':row.kind;
+ const kind=file?'file_operations':schedulingKind(row.kind);
  card.dataset.waitingId=row.id;handle.dataset.queueHandle='true';
  handle.setAttribute('aria-describedby','queue-reorder-help');
  handle.setAttribute('aria-keyshortcuts','ArrowUp ArrowDown Home End');
@@ -140,23 +141,23 @@ function queueTaskDetailControls(task){
  controls.append(button('Remove from queue',()=>taskAction(task,'remove_queue'),'text-button'));return controls;
 }
 function renderProcessing(){
- const typeCounts=new Map(),byId=new Map(state.tasks.map(t=>[t.id,t]));taskQueuePositions=new Map();for(const row of waitingSnapshot()){const task=byId.get(row.id);if(!task)continue;const position=(typeCounts.get(task.kind)||0)+1;typeCounts.set(task.kind,position);taskQueuePositions.set(task.id,position);}
+ const typeCounts=new Map(),byId=new Map(state.tasks.map(t=>[t.id,t]));taskQueuePositions=new Map();for(const row of waitingSnapshot()){const task=byId.get(row.id);if(!task)continue;const position=(typeCounts.get(schedulingKind(task.kind))||0)+1;typeCounts.set(schedulingKind(task.kind),position);taskQueuePositions.set(task.id,position);}
  const board=node('div',undefined,'queue-board'),tasks=queueBoardTasks().filter(t=>queueVisible(t)&&(t.status!=='awaiting_review'||queueStatus==='awaiting_review'||!['upscale','optimize','join'].includes(t.kind))&&queueStatusMatches(t.status)),positions=new Map(waitingSnapshot().map((r,i)=>[r.id,i]));
  for(const [kind,title] of [['upscale','Upscaling'],['optimize','Encoding'],['file_operations','File operations'],['mage_generation','Artwork generation'],['metadata','Metadata']]){
   const metadataKinds=['metadata','folder_metadata','home'];
   const filePreparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)),orphans=queueOrphanCleanups().filter(r=>queueVisible({...r,title:'Clean up originals'})&&queueStatusMatches(r.phase==='queued'?'queued':r.phase==='deleting'?'publishing':'blocked'));
-  const hasRows=kind==='file_operations'?queueActiveFiles().some(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing'))||filePreparation.length||orphans.length:tasks.some(t=>t.kind===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider));
+  const hasRows=kind==='file_operations'?queueActiveFiles().some(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing'))||filePreparation.length||orphans.length:tasks.some(t=>schedulingKind(t.kind)===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider));
   if(!hasRows)continue;
   const lane=node('section',undefined,'queue-lane'),header=node('div',undefined,'queue-lane-heading');lane.setAttribute('aria-label',title);header.append(node('h2',title),queueLaneControl(kind));lane.append(header,queueLaneSelection(kind));if(kind==='metadata')for(const subtype of ['home','folder_metadata'])if(tasks.some(t=>t.kind===subtype))lane.append(node('h3',TASK_LABELS[subtype]||subtype),taskQueueControls(subtype),queueLaneSelection(subtype));
   if(kind==='file_operations')for(const subtype of [...new Set(filePreparation.map(t=>t.kind))])lane.append(node('h3',(TASK_LABELS[subtype]||subtype)+' · preparation'),taskQueueControls(subtype),queueLaneSelection(subtype));
-  const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>t.kind===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider)).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
+  const files=kind==='file_operations',rows=files?queueActiveFiles().filter(j=>queueVisible(j)&&queueStatusMatches(j.phase==='waiting'?'queued':'publishing')):tasks.filter(t=>schedulingKind(t.kind)===kind||(kind==='metadata'&&metadataKinds.includes(t.kind))||(kind==='mage_generation'&&t.kind==='artwork'&&t.provider)).sort((a,b)=>(a.status==='queued')-(b.status==='queued')||(positions.get(a.id)||0)-(positions.get(b.id)||0));
   const running=rows.filter(r=>files?r.phase==='running':['running','publishing'].includes(r.status)),waiting=rows.filter(r=>files?r.phase==='waiting':r.status==='queued'),attention=files?[]:rows.filter(r=>['failed','blocked'].includes(r.status));
   const head=running[0]||waiting[0],make=(row,head)=>{if(files)return queueFileCard(row,head);const card=processingTaskCard(row);card.dataset.queueWaiting=String(row.status==='queued');card.classList.add(head?'queue-head':'queue-compact');return card;};
   if(head)lane.append(make(head,true));else if(!files||!tasks.some(t=>QUEUE_FILE_KINDS.has(t.kind)))lane.append(node('p',rows.length?'No processing jobs match this view.':'No jobs','queue-lane-idle muted'));
   for(const row of running.slice(1))lane.append(make(row,false));
   if(waiting.length)lane.append(node('h3',(files?'Copy/delete waiting (':'Waiting (')+waiting.length+')'));for(const row of waiting)if(row!==head)lane.append(make(row,false));
   if(attention.length)lane.append(node('h3','Needs attention ('+attention.length+')'));for(const row of attention)lane.append(make(row,false));
-  const review=files?[]:rows.filter(r=>r.status==='awaiting_review');if(review.length&&!['mage_generation','metadata'].includes(kind))lane.append(bulkTaskControls(review));for(const row of review)lane.append(make(row,false));
+  const review=files?[]:rows.filter(r=>r.status==='awaiting_review');if(review.length&&!['mage_generation','metadata'].includes(kind))lane.append(bulkTaskControls(review.filter(t=>t.kind!=='preview_render')));for(const row of review)lane.append(make(row,false));
   if(files){
    const preparation=tasks.filter(t=>QUEUE_FILE_KINDS.has(t.kind)).sort((a,b)=>['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(a.status)-['running','publishing','queued','awaiting_review','failed','blocked'].indexOf(b.status)||(positions.get(a.id)??0)-(positions.get(b.id)??0));let hasHead=Boolean(head);
    for(const kind of [...new Set(preparation.map(t=>t.kind))]){
@@ -169,7 +170,7 @@ function renderProcessing(){
   }
   foldWaitingQueue(lane,kind);board.append(lane);
  }
- const other=tasks.filter(t=>!['upscale','optimize','mage_generation','metadata','folder_metadata','home'].includes(t.kind)&&!(t.kind==='artwork'&&t.provider)&&!QUEUE_FILE_KINDS.has(t.kind)),extra=[];
+ const other=tasks.filter(t=>!['upscale','optimize','mage_generation','metadata','folder_metadata','home'].includes(schedulingKind(t.kind))&&!(t.kind==='artwork'&&t.provider)&&!QUEUE_FILE_KINDS.has(t.kind)),extra=[];
  for(const kind of [...new Set(other.map(t=>t.kind))]){
   const section=node('section',undefined,'processing-group');section.append(node('h2',TASK_LABELS[kind]||kind),taskQueueControls(kind),queueLaneSelection(kind));
   section.append(...other.filter(t=>t.kind===kind).map(processingTaskCard));extra.push(section);

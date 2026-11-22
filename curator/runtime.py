@@ -77,6 +77,7 @@ class ServiceRuntime:
                 'build': dict(self.build),
                 'capabilities': [
                     'preview_cards',
+                    'preview_render',
                     'bulk_review',
                     'backup_cleanup',
                     'encoding_controls',

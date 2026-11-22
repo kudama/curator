@@ -209,6 +209,9 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.artwork_target_image(query['asset'][0], query['kind'][0])
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/preview/info':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.preview_info(query['asset'][0]))
             if path == '/api/preview/cards':
                 return self.reply(self.server.service.preview_cards())
             if path == '/api/preview/defaults':
@@ -426,6 +429,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_presence(data['library'])
             elif path == '/api/files/comparison':
                 result = service.join_comparison(data['id'])
+            elif path == '/api/preview/plan':
+                result = service.create_preview_plan(data)
+            elif path == '/api/preview/generate':
+                result = service.generate_preview(data['plan'], data['request_id'])
             elif path == '/api/preview/cards/import':
                 result = service.import_preview_card(data)
             elif path == '/api/preview/cards/hide':

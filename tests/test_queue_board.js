@@ -190,3 +190,13 @@ test('inspector restoration finds the same queue control after polling replaces 
  assert.equal(h.run('restoreQueueFocus(identity)'),true);assert.equal(focused,'details');
  h.context.document.querySelectorAll=()=>[];assert.equal(h.run('restoreQueueFocus(identity)'),false);
 });
+
+test('preview renders share Encoding lane order and positions without another queue',()=>{
+ const h=setup();h.add('encode','optimize');h.add('preview','preview_render');
+ assert.deepEqual(Array.from(h.run("queueLaneIds('optimize')")),['encode','preview']);
+ assert.deepEqual(Array.from(h.run("queueLaneIds('preview_render')")),['encode','preview']);
+ const sections=h.run('renderProcessing()'),board=sections[0];
+ assert.equal(sections.length,1);assert.equal(h.cards.filter(id=>id==='preview').length,1);
+ assert.equal(board.children.length,1);assert.equal(board.children[0].attrs['aria-label'],'Encoding');
+ assert.equal(h.run("taskQueuePositions.get('preview')"),2);
+});

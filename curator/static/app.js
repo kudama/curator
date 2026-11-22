@@ -1,7 +1,7 @@
 'use strict';
 let state={libraries:[],assets:[],tasks:[],config:{}},libraryId=null,filter='all',selected=new Set(),openedTask=null;
 const expandedFiles=new Set();let queueStatus='all',activeGrouping='folder';let screen='library',libraryView='attention',searchText='',selectedAssetId=null,inspectorMode=null,inspectorDirty=false;
-const TASK_LABELS={upscale:'Upscale video',optimize:'Optimize encoding',home:'AI assist',metadata:'Metadata',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Artwork generation'};
+const TASK_LABELS={preview_render:'Preview render',upscale:'Upscale video',optimize:'Optimize encoding',home:'AI assist',metadata:'Metadata',inspect:'File access',playlist:'Viewing order',rename:'Rename file',join:'Join parts',group:'Collection & playlist',folder_metadata:'Folder metadata',portrait:'Portrait review',artwork:'Artwork review',mage_generation:'Artwork generation'};
 const $=id=>document.getElementById(id);
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function feedbackTarget(){return $($('config-dialog').open?'config-feedback':$('library-dialog').open?'library-feedback':inspectorOpen()?'task-feedback':'workspace-feedback');}
@@ -302,7 +302,7 @@ async function taskAction(t,action,settings={}){
 function taskControls(t,dialog=false){
  const controls=node('div',undefined,'task-controls');
  if(t.status==='queued')controls.append(button('Remove from queue',()=>taskAction(t,'remove_queue'),'subtle'));
- if(t.status==='running'&&['upscale','optimize','join','mage_generation'].includes(t.kind)){const cancel=button(t.cancel_requested?'Cancelling…':'Cancel',()=>taskAction(t,'cancel'),'subtle');cancel.disabled=Boolean(t.cancel_requested);controls.append(cancel);}
+ if(t.status==='running'&&['upscale','optimize','join','mage_generation','preview_render'].includes(t.kind)){const cancel=button(t.cancel_requested?'Cancelling…':'Cancel',()=>taskAction(t,'cancel'),'subtle');cancel.disabled=Boolean(t.cancel_requested);controls.append(cancel);}
  if(!['running','publishing'].includes(t.status)&&(dialog||t.status!=='queued'))controls.append(button('Delete task',()=>taskAction(t,'delete'),'subtle'));
  return controls;
 }

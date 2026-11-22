@@ -2,6 +2,7 @@
 
 from .store import now
 from .errors import UserError
+from .rules import scheduling_kind
 
 
 class SourceBusy(UserError):
@@ -70,7 +71,7 @@ class QueueWorkflows:
             if (library is None or t['library'] == library)
             and t['status'] == 'queued'
             and not t.get('deleted')
-            and (kind is None or t['kind'] == kind)
+            and (kind is None or scheduling_kind(t['kind']) == scheduling_kind(kind))
         ]
         order = self.store.get('settings', 'queue-order:global', {}).get('ids', [])
         positions = {key: index for index, key in enumerate(order)}
