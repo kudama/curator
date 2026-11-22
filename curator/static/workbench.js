@@ -360,7 +360,7 @@ function renderHistory(){
  return [...reviewBatchCards(true),...cleanupJobCards(true),...state.tasks.filter(t=>historyLibraryMatches(t.library)&&historyStatusMatches(t)&&historyInPeriod(t.updated||t.created)&&(!searchText||[t.title,catalogIndex().byId.get(t.asset)?.plex_path,TASK_LABELS[t.kind]].join(' ').toLowerCase().includes(searchText))).sort((a,b)=>(b.updated||'').localeCompare(a.updated||'')).map(task=>{const row=node('article',undefined,'history-row'),text=node('div');text.append(node('strong',catalogIndex().byId.get(task.asset)?fileName(catalogIndex().byId.get(task.asset)):task.title),node('p',historyMeta([TASK_LABELS[task.kind]||task.kind,taskStatusLabel(task.status),new Date(task.updated||task.created).toLocaleString(),task.queued_by?'Queued by '+(HISTORY_INITIATORS[task.queued_by]||task.queued_by):'',historyScope==='all'?historyLibraryTitle(task.library):'']),'muted'));
   if(task.error&&['failed','blocked'].includes(task.status))text.append(node('p',task.error,'task-error'));
   const recovery=historyRecovery(task);if(recovery)text.append(node('p',recovery.text,'history-recovery muted'));text.append(jobTimeline(task));
-  row.append(text);if(recovery?.action)row.append(button(recovery.action.label,()=>historyRecoveryAction(task,recovery.action),'primary'));row.append(button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
+  row.append(text);if(recovery?.action)row.append(button(recovery.action.label,()=>historyRecoveryAction(task,recovery.action),'primary'));if(task.kind==='rename'&&task.rename_receipt)row.append(button('Rename recovery',()=>openRenameReceipt(task.rename_receipt),'subtle'));row.append(button('View',()=>openTask(task.id),'subtle'),taskControls(task));return row;})];
 }
 // A resolution-only exception the operator recorded for this exact output (PR #129). The server
 // re-checks it; this only decides whether History offers the existing resume_review.
@@ -430,7 +430,7 @@ function renderCuratorHistory(){
   const row=node('article',undefined,'history-row curator-event '+(e.level||'info')),text=node('div');
   text.append(node('strong',e.message),node('p',historyMeta([new Date(e.at).toLocaleString(),e.level==='error'?'Error':e.level==='warning'?'Warning':'',HISTORY_INITIATORS[e.initiator]||'',e.library?historyLibraryTitle(e.library):'']),'muted'));
   const keys=Object.keys(e.details||{});if(keys.length){const box=node('details',undefined,'history-details'),list=node('dl');box.append(node('summary','Technical details'),list);for(const key of keys)list.append(node('dt',key.replaceAll('_',' ')),node('dd',String(e.details[key])));text.append(box);}
-  row.append(text);return row;});
+  row.append(text);if(e.action==='rename preservation'&&e.details?.receipt)row.append(button('Review rename',()=>openRenameReceipt(e.details.receipt),'subtle'));return row;});
  if(curatorHistory.error)rows.unshift(node('p',curatorHistory.error,'error'));
  if(curatorHistory.loading)rows.push(node('p','Loading Curator history…','muted'));
  else if(curatorHistory.next)rows.push(button('Load older events',()=>loadCuratorHistory(true),'subtle'));
