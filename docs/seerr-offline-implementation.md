@@ -33,8 +33,10 @@ pair can replace the last complete snapshot. Partial/outages retain old data and
 its original success timestamp, without exposing a truncated fresh result.
 Cached views identify stale data; after 24 hours counts and rows are hidden.
 
-Matching requires approved request status 2 before considering media availability.
-Pending/declined/failed/completed-request states never leak into Landed merely
+Matching excludes blocklisted/deleted media first, then requires request status
+2 (APPROVED) or 5 (COMPLETED). Seerr can itself complete a pending request when
+shared media becomes available; this is its fulfillment state, not an inferred
+approval history. Pending/declined/failed requests never leak into Landed merely
 because a shared media object is available. IDs are typed TMDB movie versus TV
 series identifiers; no title/year fallback. Movie matches are unique Plex
 movie-item identities, with duplicates explicit. Landing time comes from Plex
@@ -54,9 +56,10 @@ Home implementation; no alternative navigation has been invented.
 
 Upstream enums were checked against Seerr commit
 [77c977f](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/constants/media.ts):
-media **6 is BLOCKLISTED; 7 is DELETED**. Request states additionally include
-FAILED=4 and COMPLETED=5; these stay excluded until their exact supported semantics
-are accepted. This corrects the older proposed contract’s “6 deleted” wording.
+media **6 is BLOCKLISTED; 7 is DELETED**. Request FAILED=4 stays excluded; COMPLETED=5 is eligible only after media and
+typed Plex catalog checks. Both removed-media statuses override request completion.
+This follows corrected contract PR #130 at 66c30a6 and its verified
+[MediaSubscriber source](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/subscriber/MediaSubscriber.ts). This corrects the older proposed contract’s “6 deleted” wording.
 Request list ordering/REQUEST_VIEW and permission values were verified against
 [request.ts](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/routes/request.ts)
 and [permissions.ts](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/lib/permissions.ts).

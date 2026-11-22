@@ -277,10 +277,29 @@ class MatchingTests(unittest.TestCase):
         )[0]
 
     def test_approved_state_precedence_even_when_shared_media_is_available(self):
-        for status in [1, 3, 4, 5]:
+        for status in [1, 3, 4]:
             row = self.view(request(status=status))
             self.assertNotIn(row['state'], {'landed', 'partly_landed', 'ambiguous'})
         self.assertEqual(self.view(request())['state'], 'landed')
+        self.assertEqual(self.view(request(status=5))['state'], 'landed')
+
+    def test_provider_completion_can_land_without_inferred_approval_and_removed_wins(self):
+        pending = request(status=1)
+        self.assertEqual(self.view(pending)['state'], 'requested')
+        transport = Transport([pending])
+        transport.rows[0]['status'] = 5
+        completed = client(transport).snapshot()['requests'][0]
+        self.assertEqual(completed['status'], 5)
+        result = arrivals_view([completed], [self.asset], [self.library], clock=1700000100)[0]
+        self.assertEqual(result['state'], 'landed')
+        self.assertNotIn('approved', result)
+        for media_status in [6, 7]:
+            for status in [1, 2, 3, 4, 5]:
+                with self.subTest(status=status, media_status=media_status):
+                    self.assertEqual(self.view(request(status=status, media_status=media_status))['state'], 'removed')
+        copy_asset = {**copy.deepcopy(self.asset), 'id': 'other', 'rating_key': '20'}
+        copy_asset['item']['ratingKey'] = '20'
+        self.assertEqual(self.view(request(status=5), assets=[self.asset, copy_asset])['state'], 'ambiguous')
 
     def test_match_by_typed_ids_not_title_and_distinguish_duplicates(self):
         self.assertEqual(self.view(request(), assets=[])['state'], 'available_not_scanned')
@@ -303,7 +322,8 @@ class MatchingTests(unittest.TestCase):
         row = request()
         row['is4k'] = True
         self.assertEqual(self.view(row)['state'], '4k_excluded')
-        self.assertEqual(self.view(request(media_status=6))['state'], 'blocklisted')
+        self.assertEqual(self.view(request(media_status=6))['state'], 'removed')
+        self.assertEqual(self.view(request(media_status=6))['removal_reason'], 'blocklisted')
         self.assertEqual(self.view(request(media_status=7))['state'], 'removed')
 
     def test_tv_unavailable_until_verified_series_index_not_episode_guid(self):

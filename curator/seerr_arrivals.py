@@ -98,15 +98,14 @@ def arrivals_view(requests, assets, libraries, *, series=(), tv_verified=False, 
     output = []
     for request in requests:
         row = dict(request=request['id'], type=request['type'], state='requested', matches=[])
-        # Request state has priority over a shared media object's availability.
-        if request['status'] != 2:
-            row['state'] = {1: 'requested', 3: 'declined', 4: 'request_failed', 5: 'request_completed'}.get(
-                request['status'], 'unsupported'
-            )
+        # Deleted/blocklisted media never lands, even after Seerr completed a request.
+        # Completion is a provider state, not an inferred history of approval.
+        if request['media_status'] in {6, 7}:
+            row.update(state='removed', removal_reason='blocklisted' if request['media_status'] == 6 else 'deleted')
+        elif request['status'] not in {2, 5}:
+            row['state'] = {1: 'requested', 3: 'declined', 4: 'request_failed'}.get(request['status'], 'unsupported')
         elif request['is4k']:
             row['state'] = '4k_excluded'
-        elif request['media_status'] in {6, 7}:
-            row['state'] = 'blocklisted' if request['media_status'] == 6 else 'removed'
         elif request['type'] == 'tv' and not tv_verified:
             row['state'] = 'tv_unavailable'
         elif request['media_status'] not in {4, 5} or (request['type'] == 'movie' and request['media_status'] != 5):
