@@ -1,0 +1,85 @@
+'use strict';
+// Standards configure future findings. This editor never queues or publishes work.
+const STANDARD_FIELDS={
+ metadata:{label:'Metadata',fields:{enabled:['Counts toward completion','flag'],required:['Required fields','subset',[['summary','Description'],['year','Year'],['originally_available_at','Original date'],['genres','Categories'],['studio','Studio'],['content_rating','Content rating'],['collections','Collections']]],local_ai_suggestions:['Local AI suggestions','flag']}},
+ cast:{label:'Cast',fields:{enabled:['Counts toward completion','flag'],mode:['Done when','choice',[['credits','Catalog credits'],['known_people','Known people']]]}},
+ artwork:{label:'Artwork',fields:{enabled:['Counts toward completion','flag'],required:['Required artwork','subset',[['poster','Poster'],['background','Background'],['logo','Logo']]],poster_ratio:['Poster shape','fixed','2:3']}},
+ upscaling:{label:'Upscaling',fields:{enabled:['Counts toward completion','flag'],target:['Resolution target','choice',[['1080','1080p'],['2160','2160p']]],suggest_when_met:['Offer optional upscales when the target is met','flag']}},
+ encoding:{label:'Re-encoding',fields:{enabled:['Counts toward completion','flag'],max_mbps_1080:['1080p threshold (Mbps)','number'],max_mbps_4k:['4K threshold (Mbps)','number'],preserve_originals:['Skip space-saving re-encoding suggestions','flag']}}
+};
+function standardCanonical(value){return Array.isArray(value)?value.map(standardCanonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,standardCanonical(value[key])])):value;}
+function standardEqual(a,b){return JSON.stringify(standardCanonical(a))===JSON.stringify(standardCanonical(b));}
+function standardMerged(base,overrides){const values=structuredClone(base);for(const [dimension,fields] of Object.entries(overrides))Object.assign(values[dimension],structuredClone(fields));return values;}
+function standardSetOverride(overrides,base,dimension,field,value){const next=structuredClone(overrides);if(standardEqual(value,base[dimension][field])){if(next[dimension]){delete next[dimension][field];if(!Object.keys(next[dimension]).length)delete next[dimension];}}else{next[dimension]??={};next[dimension][field]=structuredClone(value);}return next;}
+function standardChanges(before,after,beforeOverrides=null,afterOverrides=null){const rows=[];for(const [dimension,section] of Object.entries(STANDARD_FIELDS))for(const field of Object.keys(section.fields)){const inherited=beforeOverrides!==null&&!Object.hasOwn(beforeOverrides[dimension]||{},field),nowInherited=afterOverrides!==null&&!Object.hasOwn(afterOverrides[dimension]||{},field);if(!standardEqual(before[dimension][field],after[dimension][field])||inherited!==nowInherited)rows.push({dimension,field,before:before[dimension][field],after:after[dimension][field],inherited:nowInherited});}return rows;}
+let standardsEditor=null;
+async function openStandardsEditor(target=null){
+ if(standardsEditor?.dialog.open){standardsEditor.dialog.focus();return;}
+ const dialog=node('dialog',undefined,'standards-dialog'),head=node('div',undefined,'dialog-head'),heading=node('h2','Library standards'),close=button('×',requestClose,'icon-button subtle'),layout=node('div',undefined,'standards-layout'),sidebar=node('nav',undefined,'standards-sections'),body=node('section',undefined,'standards-body'),footer=node('div',undefined,'dialog-actions'),note=node('p',undefined,'muted'),feedback=node('p',undefined,'inline-feedback'),actions=node('div',undefined,'standards-actions');
+ heading.id='standards-heading';dialog.setAttribute('aria-labelledby',heading.id);close.setAttribute('aria-label','Close library standards');sidebar.setAttribute('aria-label','Standards sections');feedback.setAttribute('role','status');head.append(heading,close);layout.append(sidebar,body);footer.append(note,actions);dialog.append(head,feedback,layout,footer);document.body.append(dialog);
+ let snapshot=null,page=target?.library?'library:'+target.library:'type:'+(target?.kind||'movie'),draft=null,before=null,parent=null,baseRow=null,busy=false,reviewing=false,serial=0;
+ const errors=new Map(),fieldViews=new Map();let controls=[],reviewButton=null;
+ standardsEditor={dialog,dirty:()=>dirty()};
+ function libraryPage(){return page.startsWith('library:');}
+ function identity(){return page.slice(page.indexOf(':')+1);}
+ function kind(){return libraryPage()?baseRow.kind:identity();}
+ function label(id){return state.libraries.find(l=>l.id===id)?.title||'Library no longer available';}
+ function values(){return libraryPage()?standardMerged(parent.values,draft):draft;}
+ function changes(){return before?standardChanges(before,values(),libraryPage()?baseRow.overrides:null,libraryPage()?draft:null):[];}
+ function dirty(){return errors.size>0||(draft!==null&&!standardEqual(draft,libraryPage()?baseRow.overrides:baseRow.values));}
+ function canLeave(){return !busy&&(!dirty()||confirm('Discard unsaved standards changes?'));}
+ function requestClose(){if(canLeave())dialog.close();}
+ function message(text,error=false){feedback.textContent=text;feedback.classList.toggle('error',error);feedback.hidden=!text;}
+ function setBusy(value){busy=value;close.disabled=value;for(const control of dialog.querySelectorAll('button,input,select'))control.disabled=value;for(const control of dialog.querySelectorAll('[data-fixed]'))control.disabled=true;if(!value)update();}
+ function update(){if(!draft||!reviewButton)return;const list=changes();note.textContent=errors.size?'Correct the marked fields before reviewing.':list.length?list.length+' field '+(list.length===1?'change':'changes')+' · nothing is processed or published.':'No changes. Nothing will be saved.';reviewButton.disabled=busy||errors.size>0||list.length===0;for(const [key,row] of fieldViews){const [dimension,field]=key.split('.');const inherited=libraryPage()&&!Object.hasOwn(draft[dimension]||{},field);row.badge.textContent=libraryPage()?(inherited?'Inherited':'Override'):'';row.changed.textContent=list.some(c=>c.dimension===dimension&&c.field===field)?'Changed':'';row.reset.hidden=!libraryPage()||inherited;row.error.textContent=errors.get(key)||'';}for(const card of body.querySelectorAll('[data-dimension]'))card.classList.toggle('standard-disabled',!values()[card.dataset.dimension].enabled);for(const button of sidebar.querySelectorAll('button'))button.textContent=button.dataset.label+(button.dataset.page===page&&dirty()?' · Unsaved':'');}
+ function choose(next){if(next===page)return;if(!canLeave())return;page=next;begin();}
+ function navigation(){sidebar.replaceChildren(node('h3','Standards by Plex type'));for(const [key,row] of Object.entries(snapshot.types)){const b=button(row.label,()=>choose('type:'+key),'subtle');b.dataset.page='type:'+key;b.dataset.label=row.label;b.setAttribute('aria-current',page===b.dataset.page?'page':'false');sidebar.append(b);}sidebar.append(node('h3','Library overrides'));for(const id of Object.keys(snapshot.libraries)){const b=button(label(id),()=>choose('library:'+id),'subtle');b.dataset.page='library:'+id;b.dataset.label=label(id);b.setAttribute('aria-current',page===b.dataset.page?'page':'false');sidebar.append(b);}}
+ function begin(){serial++;reviewing=false;errors.clear();fieldViews.clear();if(libraryPage()&&!snapshot.libraries[identity()]){page='type:movie';message('That library is no longer available. Choose another standard.',true);}baseRow=libraryPage()?snapshot.libraries[identity()]:snapshot.types[identity()];if(!baseRow){page='type:movie';baseRow=snapshot.types.movie;}parent=snapshot.types[libraryPage()?baseRow.kind:identity()];before=structuredClone(baseRow.values);draft=structuredClone(libraryPage()?baseRow.overrides:baseRow.values);navigation();renderEdit();}
+ function change(dimension,field,value){reviewing=false;serial++;if(libraryPage())draft=standardSetOverride(draft,parent.values,dimension,field,value);else draft[dimension][field]=structuredClone(value);update();}
+ function format(dimension,field,value){const definition=STANDARD_FIELDS[dimension].fields[field];if(value===null){const key=field==='max_mbps_4k'?'max_mbps_4k':'max_mbps_1080';return 'Uses global threshold'+(state.config[key]?' (currently '+state.config[key]+' Mbps)':'');}if(typeof value==='boolean')return value?'On':'Off';if(definition[1]==='choice')return definition[2].find(o=>o[0]===value)?.[1]||String(value);if(Array.isArray(value))return value.length?value.map(v=>definition[2].find(o=>o[0]===v)?.[1]||v).join(', '):'None';return String(value);}
+ function renderEdit(){
+  reviewing=false;controls=[];fieldViews.clear();body.replaceChildren();actions.replaceChildren();
+  const title=node('h3',libraryPage()?label(identity()):parent.label+' standard');body.append(title,node('p',libraryPage()?'Inherits '+parent.label+' revision '+baseRow.type_revision+' · library revision '+baseRow.revision:'Revision '+baseRow.revision+' · '+(baseRow.customized?'Customized':'Curator defaults'),'muted'),node('p','Standards describe future findings. Saving does not process, publish or approve existing work.','muted'));
+  const reset=button(libraryPage()?'Use '+parent.label+' values for everything':'Reset form to Curator defaults',()=>{draft=libraryPage()?{}:structuredClone(baseRow.defaults);errors.clear();serial++;renderEdit();},'text-button');body.append(reset);
+  const current=values();
+  for(const [dimension,section] of Object.entries(STANDARD_FIELDS)){
+   const card=node('section',undefined,'standard-dimension');card.dataset.dimension=dimension;card.append(node('h3',section.label));body.append(card);
+   for(const [field,definition] of Object.entries(section.fields)){
+    const [title,type,options]=definition,key=dimension+'.'+field,row=node('div',undefined,'standard-field'),label=node(type==='subset'?'div':'label',title),badge=node('span',undefined,'standard-origin'),changed=node('span',undefined,'standard-changed'),error=node('p',undefined,'error');error.setAttribute('role','status');
+    let control;
+    if(type==='subset'){
+     control=node('fieldset');const legend=node('legend',title);control.append(legend);label.textContent='';
+     for(const [value,text] of options){const pick=node('input'),wrap=node('label',undefined,'standard-check');pick.type='checkbox';pick.checked=current[dimension][field].includes(value);pick.dataset.value=value;pick.setAttribute('aria-label',section.label+': '+text);pick.onchange=()=>change(dimension,field,[...control.querySelectorAll('input')].filter(p=>p.checked).map(p=>p.dataset.value));wrap.append(pick,document.createTextNode(text));control.append(wrap);controls.push(pick);}
+    }else if(type==='choice'){control=node('select');for(const [value,text]of options){const option=node('option',text);option.value=value;control.append(option);}control.value=current[dimension][field];control.onchange=()=>change(dimension,field,control.value);}
+    else{control=node('input');if(type==='flag'){control.type='checkbox';control.checked=current[dimension][field];control.onchange=()=>change(dimension,field,control.checked);}else if(type==='fixed'){control.value=options;control.disabled=true;control.dataset.fixed='true';}else{control.type='number';control.min='1';control.max='400';control.step='any';control.value=current[dimension][field]??'';control.placeholder=format(dimension,field,null);control.oninput=()=>{const value=control.value===''?null:Number(control.value);if(control.validity.badInput||!control.validity.valid||(value!==null&&(!Number.isFinite(value)||value<1||value>400))){errors.set(key,'Enter 1–400 Mbps, or leave empty to use the global threshold.');serial++;update();return;}errors.delete(key);change(dimension,field,value);};}}
+    if(type!=='subset'){control.setAttribute('aria-label',section.label+': '+title);controls.push(control);}label.append(control);const revert=button('Use '+parent.label+' value',()=>{if(!libraryPage())return;const next=structuredClone(draft);delete next[dimension][field];if(!Object.keys(next[dimension]).length)delete next[dimension];draft=next;errors.delete(key);serial++;renderEdit();},'text-button');
+    row.append(label,badge,changed);if(libraryPage())row.append(node('p','Type value: '+format(dimension,field,parent.values[dimension][field]),'muted'));row.append(revert,error);card.append(row);fieldViews.set(key,{badge,changed,reset:revert,error});
+   }
+   if(dimension==='encoding')card.append(node('p','Skip space-saving suggestions is not a retention switch. Publishing an encoded or upscaled file keeps the original either way.','muted'));
+   if(dimension==='upscaling')card.append(node('p','The target is a resolution goal, not a scale. Processing settings and the existing output ceiling are unchanged.','muted'));
+  }
+  reviewButton=button('Review changes',renderReview,'primary');actions.append(button('Discard changes',()=>{draft=structuredClone(libraryPage()?baseRow.overrides:baseRow.values);errors.clear();serial++;renderEdit();},'subtle'),reviewButton);update();body.scrollTop=0;
+ }
+ function renderReview(){
+  if(errors.size||!changes().length)return;reviewing=true;body.replaceChildren(node('h3','Review standards changes'));actions.replaceChildren();
+  body.append(node('p',libraryPage()?'Reviewed against '+parent.label+' revision '+baseRow.type_revision+'.':'Libraries with an override keep their own value.','muted'));
+  const table=node('table',undefined,'standard-review'),head=node('tr');for(const label of ['Field','Before','After',libraryPage()?'Source':'Libraries affected'])head.append(node('th',label));table.append(head);
+  for(const change of changes()){
+   const row=node('tr'),title=STANDARD_FIELDS[change.dimension].label+' · '+STANDARD_FIELDS[change.dimension].fields[change.field][0];row.append(node('th',title),node('td',format(change.dimension,change.field,change.before)),node('td',format(change.dimension,change.field,change.after)));
+   let scope=change.inherited?'Inherited from '+parent.label:'Library override';if(!libraryPage()){const ids=Object.keys(snapshot.libraries).filter(id=>snapshot.libraries[id].kind===kind()),affected=ids.filter(id=>!Object.hasOwn(snapshot.libraries[id].overrides[change.dimension]||{},change.field)),kept=ids.filter(id=>!affected.includes(id));scope=(affected.length?affected.map(label).join(', '):'No connected libraries')+(kept.length?' · Keep override: '+kept.map(label).join(', '):'');}row.append(node('td',scope));table.append(row);
+  }
+  body.append(table,node('p','Only these settings are saved. No processing, publication or existing approval changes.','muted'));reviewButton=button(libraryPage()?'Save overrides':'Save standard',save,'primary');actions.append(button('Back to editing',renderEdit,'subtle'),reviewButton);update();body.scrollTop=0;
+ }
+ async function reload(){if(busy)return;if(dirty()&&!confirm('Discard these edits and reload the latest standard?'))return;setBusy(true);try{const data=await api('standards');if(!dialog.open)return;snapshot=data;message('Latest values loaded. Review new changes before saving.');begin();}catch(error){message(error.message,true);}finally{if(dialog.open)setBusy(false);}}
+ async function save(){
+  if(busy||!reviewing||errors.size||!changes().length)return;setBusy(true);message('Saving reviewed settings…');
+  try{if(libraryPage())await api('library/standard',{library:identity(),revision:baseRow.revision,kind:baseRow.kind,type_revision:baseRow.type_revision,type_digest:baseRow.type_digest,overrides:structuredClone(draft)});else await api('standards',{kind:identity(),revision:baseRow.revision,values:structuredClone(draft)});
+   const data=await api('standards');if(!dialog.open)return;snapshot=data;begin();message('Standards saved. No work was queued or published.');
+  }catch(error){if(!dialog.open)return;message(error.message+' Your edits are kept.',true);actions.append(button('Reload latest values',reload,'text-button'));}
+  finally{if(dialog.open)setBusy(false);}
+ }
+ dialog.addEventListener('cancel',event=>{event.preventDefault();requestClose();});dialog.addEventListener('close',()=>{serial++;if(standardsEditor?.dialog===dialog)standardsEditor=null;dialog.remove();});
+ dialog.showModal();message('Loading standards…');
+ try{snapshot=await api('standards');if(!dialog.open)return;message('');begin();}catch(error){message(error.message,true);actions.append(button('Retry',reload,'subtle'));}
+}
+window.addEventListener('beforeunload',event=>{if(standardsEditor?.dirty()){event.preventDefault();event.returnValue='';}});

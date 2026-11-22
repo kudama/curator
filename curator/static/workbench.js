@@ -134,6 +134,7 @@ function initWorkbench(){
  $('history-status').onchange=e=>{historyStatus=e.target.value;render();};
  for(const [id,set] of [['history-view',v=>{historyView=v;if(v==='curator')historyScope='all';}],['history-scope',v=>{historyScope=v;}],['history-period',v=>{historyPeriod=v;}],['history-level',v=>{historyLevel=v;}]]){const control=$(id);if(control)control.onchange=e=>{set(e.target.value);render();};}
  const fileLibrary=$('file-management-library');if(fileLibrary)fileLibrary.onchange=e=>{if(!chooseFileManagementLibrary(e.target.value))e.target.value=libraryId;};
+ const standardsButton=$('manage-library-standards');if(standardsButton)standardsButton.onclick=()=>run(()=>openStandardsEditor());
  setupMageSettings();$('settings-style-guides').onclick=()=>{$('config-dialog').close();openStyleGuideManager();};
  const notifications=$('enable-run-notifications');if(notifications)notifications.onclick=()=>run(enableRunNotifications);
  const restart=$('restart-curator');if(restart)restart.onclick=restartCurator;

@@ -121,3 +121,18 @@ requests cannot remove the selected job; stale edits keep their candidate/draft.
 **Publish to Plex** is visibly disabled until#143 is implemented and separately
 accepted. Trailers do not replace movies or call Mage. Drafts are stored in this
 browser tab, with in-memory fallback when browser storage is unavailable.
+
+## Standards editor
+
+Settings → Library standards opens type defaults and per-library override editing,
+keeping the existing Settings form and its unsaved values intact. Review shows every
+changed field and its scope before save. No-op saves do not advance revisions or history.
+Library saves require the reviewed parent kind, revision and server-provided digest
+inside the same transaction as the library revision/write. A conflict keeps the draft;
+reload is explicit. Test this with synthetic libraries and another client changing a
+type standard during a library review. No jobs or media changes should result.
+
+The Configuration navigation shell and standards-driven scanning are separate slices;
+these controls do not themselves approve work. The legacy preserve_originals field is
+labelled Skip space-saving re-encoding suggestions and never changes original retention.
+See [implementation evidence](designs/v2-standards-editor-20261122/README.md).
