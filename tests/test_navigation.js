@@ -65,7 +65,8 @@ test('configuration routes open the existing settings and standards editors only
 test('the address follows in-app history filters, and the badge counts every review kind',()=>{
  const h=setup();h.run("navApply(navParse('#/history'))");h.context.historyPeriod='30';h.context.historyStatus='failed';h.context.historyScope='all';
  h.run('navAfterRender()');assert.equal(h.location.hash,'#/history?library=all&period=30&status=failed');
- assert.equal(h.els['tab-review-count'].textContent,'4');// 3 artwork + 1 metadataassert.match(h.els['global-status'].innerText,/1 processing · 0 publishing · 1 waiting/);
+ assert.equal(h.els['tab-review-count'].textContent,'4'); // 3 artwork + 1 metadata
+ assert.match(h.els['global-status'].innerText,/1 processing · 0 publishing · 1 waiting/);
 });
 test('a busy or unsaved inspector blocks every departure before anything changes',()=>{
  for(const route of ['#/home','#/history?period=7','#/configuration','#/library/all/queue']){
@@ -77,13 +78,41 @@ test('a busy or unsaved inspector blocks every departure before anything changes
  const ok=setup({open:true,confirmLeave:true});assert.equal(ok.run("navApply(navParse('#/home'))"),true);
  assert.deepEqual(ok.calls.slice(0,2),['prepareInspector','closeInspector']);
 });
-test('an unsaved standards editor must agree before any other route; a standards route switches its target',()=>{
- const h=setup(),chosen=[];let leave=false;
- h.context.standardsEditor={dialog:{open:true,close(){this.open=false;}},canLeave:()=>leave,choose:p=>chosen.push(p)};
- h.context.openStandardsEditor=t=>chosen.push(JSON.stringify(t));
- assert.equal(h.run("navApply(navParse('#/home'))"),false);assert.equal(h.context.standardsEditor.dialog.open,true);
- assert.equal(h.run("navApply(navParse('#/configuration/library/films'))"),true);assert.deepEqual(chosen,['{"library":"films"}']);
- leave=true;assert.equal(h.run("navApply(navParse('#/home'))"),true);assert.equal(h.context.standardsEditor.dialog.open,false);
+// A representative editor with the real choose() contract: switching asks once, and declining or a
+// running save keeps the current page.
+function editor(h,{page='type:movie',dirty=true,busy=false,answer=false}={}){
+ const e={page,prompts:0,dialog:{open:true,close(){this.open=false;}},
+  canLeave(){if(busy)return false;if(!dirty)return true;e.prompts++;return answer;},
+  choose(next){if(next===e.page)return true;if(!e.canLeave())return false;e.page=next;dirty=false;return true;}};
+ h.context.standardsEditor=e;h.context.openStandardsEditor=t=>e.choose(t.library?'library:'+t.library:'type:'+(t.kind||'movie'));return e;
+}
+test('an unsaved standards editor must agree before any other route',()=>{
+ const h=setup(),e=editor(h);h.run("navApply(navParse('#/configuration/standards/movie'))");
+ const before=h.location.hash;
+ assert.equal(h.run("navApply(navParse('#/home'))"),false);assert.equal(e.dialog.open,true);assert.equal(h.context.document.body.dataset.tab,'configuration');
+ e.canLeave=()=>true;assert.equal(h.run("navApply(navParse('#/home'))"),true);assert.equal(e.dialog.open,false);
+ assert.notEqual(before,'#/home');
+});
+test('declining a dirty standards switch, or a running save, keeps the editor page, tab and address',()=>{
+ for(const options of [{answer:false},{busy:true}]){
+  const h=setup(),e=editor(h,options);h.run("navCurrent=navParse('#/configuration/standards/movie')");h.context.document.body.dataset.tab='configuration';h.location.hash='#/configuration/standards/movie';
+  for(const hash of ['#/configuration/standards/show','#/configuration/library/films']){
+   h.location.hash=hash;h.run('navOnHashChange()');
+   assert.equal(e.page,'type:movie',JSON.stringify(options));assert.equal(h.location.hash,'#/configuration/standards/movie');
+   assert.equal(h.run('navFormat(navCurrent)'),'#/configuration/standards/movie');
+  }
+ }
+});
+test('accepting a dirty standards switch asks exactly once and commits the route',()=>{
+ const h=setup(),e=editor(h,{answer:true});h.run("navCurrent=navParse('#/configuration/standards/movie')");h.context.document.body.dataset.tab='configuration';
+ assert.equal(h.run("navApply(navParse('#/configuration/library/films'))"),true);
+ assert.equal(e.page,'library:films');assert.equal(e.prompts,1);assert.equal(h.run('navFormat(navCurrent)'),'#/configuration/library/films');
+});
+test('Home and dimension links use #110 helpers when present',()=>{
+ const h=setup(),filters=[];h.context.renderHomeSummary=()=>{h.calls.push('summary');};h.context.setStandardDimensionFilter=d=>filters.push(d);
+ h.run("navApply(navParse('#/home'))");assert.ok(h.calls.includes('summary'));
+ h.run("navApply(navParse('#/library/films/files?dimension=metadata'))");assert.equal(h.els['route-notice'].hidden,true);
+ h.run("navApply(navParse('#/library/all/queue'))");assert.deepEqual(filters,['metadata',null]);
 });
 test('returning by tab restores search, selections and the item, dropping work that has gone',()=>{
  const h=setup();h.run("navApply(navParse('#/library/films/files?view=files'))");

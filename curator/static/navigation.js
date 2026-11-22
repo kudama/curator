@@ -94,8 +94,10 @@ function navGuard(route){
  const open=typeof inspectorOpen==='function'?inspectorOpen():Boolean(openedTask);
  if(open){if(!prepareInspector())return false;closeInspector(true);}
  if(typeof standardsEditor!=='undefined'&&standardsEditor?.dialog?.open){
-  const standards=route.tab==='configuration'&&/^(standards|library)\//.test(route.section||'');
-  if(!standards){if(!standardsEditor.canLeave())return false;standardsEditor.dialog.close();}
+  const section=route.tab==='configuration'?route.section||'':'',target=section.startsWith('standards/')?'type:'+section.slice(10):section.startsWith('library/')?'library:'+section.slice(8):null;
+  // Switch the open editor to the exact target first; only a real switch lets the route commit.
+  if(target){if(!standardsEditor.choose(target))return false;}
+  else{if(!standardsEditor.canLeave())return false;standardsEditor.dialog.close();}
  }
  return true;
 }
@@ -126,18 +128,23 @@ function navApply(route,{fromLink=true}={}){
     libraryView=['attention','files','completed'].includes(q.view)?q.view:'attention';activeGrouping=['folder','task','movie'].includes(q.group)?q.group:'folder';
     if($('group-by'))$('group-by').value=activeGrouping;if(!setScreen('library'))return false;
     if(q.asset&&state.assets.some(a=>a.id===q.asset&&a.library===libraryId)){selectedAssetId=q.asset;render();}
-    if(q.dimension)notice='Filtering by standard dimension is not available yet; showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'.';
+    // Dimension filtering belongs to #110's helper; without it, say so rather than pretend.
+    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(q.dimension||null);
+    else if(q.dimension)notice='Filtering by standard dimension is not available yet; showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'.';
     navBanner(fromLink&&(q.view||q.asset)?'Opened from a link: showing '+(NAV_VIEW_TEXT[libraryView]||'items')+'. Filters only change what you see.':'',{tab:'library',library:id||'all',view:'files'});
    }else if(view==='queue'){
+    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(null);
     queueLibrary=scoped?id:'all';queueStatus=NAV_QUEUE_STATUS[q.status]||'all';waitingSelection.clear();
     const lane=Object.hasOwn(NAV_LANES,q.lane||'')?q.lane:null;if(lane)expandedWaitingQueues.add(lane);
     if(!setScreen('processing'))return false;
     if(lane)requestAnimationFrame(()=>[...document.querySelectorAll('.queue-lane')].find(l=>l.getAttribute('aria-label')===NAV_LANES[lane])?.scrollIntoView({block:'nearest'}));
     navBanner(fromLink&&(q.status||q.lane)?'Opened from a link: showing '+(NAV_STATUS_TEXT[q.status]||'all jobs')+(lane?' in '+NAV_LANES[lane]:'')+(scoped?' in this library':' across all libraries')+'. The filter only changes what you see; it does not change or start any job.':'',{tab:'library',library:scoped?id:'all',view:'queue'});
    }else if(view==='review'){
+    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(null);
     queueLibrary=scoped?id:'all';reviewKind=NAV_REVIEW_KINDS.includes(q.kind)?q.kind:'all';
     if(!setScreen('review'))return false;navBanner('');
    }else{
+    if(typeof setStandardDimensionFilter==='function')setStandardDimensionFilter(null);
     if(!scoped){notice='Choose a library first; '+(view==='artwork'?'artwork':'file management')+' belongs to one library.';if(!libraryId&&state.libraries.length&&!chooseLibrary(state.libraries[0].id))return false;}
     if(!setScreen(view))return false;
     const pending=view==='artwork'&&q.status==='review'?navPendingArtwork(libraryId):[];
@@ -173,6 +180,7 @@ function navUpdateBadges(){
  const status=$('global-status');if(status){const running=state.tasks.filter(t=>t.status==='running').length,publishing=state.tasks.filter(t=>t.status==='publishing').length,waiting=state.tasks.filter(t=>t.status==='queued').length,link=node('a','View queue');link.href='#/library/all/queue';status.replaceChildren(node('span',running+' processing · '+publishing+' publishing · '+waiting+' waiting'),node('span','Queue runs across all libraries','muted'),link);}
 }
 function renderHome(){
+ if(typeof renderHomeSummary==='function')return renderHomeSummary(); // Home content (#110), when loaded.
  const page=$('home-page');if(!page)return;
  const f=navReviewFamilies(),plural=(n,one,many)=>n+' '+(n===1?one:many);
  const links=[['Library Manager','Browse and fix items in a library',navFormat({tab:'library',library:libraryId||'all',view:'files'})],
