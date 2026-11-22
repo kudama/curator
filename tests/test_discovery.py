@@ -197,6 +197,18 @@ class Discovery(unittest.TestCase):
         self.assertEqual(result['total'], 1)
         self.assertEqual(self.service.discovery_feedback_list()['entries'][0]['status'], 'identity_changed')
 
+    def test_missing_current_guids_detaches_previously_verified_feedback(self):
+        original = asset('68')
+        self.put(original)
+        self.vote('68', 'hide')
+        original['item']['Guid'] = []
+        self.put(original)
+        self.assertEqual(self.service.discovery()['total'], 1)
+        entries = self.service.discovery_feedback_list()['entries']
+        self.assertEqual(entries[0]['status'], 'identity_unknown')
+        self.vote('68', 'clear')
+        self.assertEqual(self.service.discovery_feedback_state()['entries'], {})
+
     def test_reused_plex_key_cannot_transfer_feedback_to_another_movie(self):
         old = asset('61')
         self.put(old)

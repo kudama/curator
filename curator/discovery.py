@@ -129,6 +129,8 @@ def resolve_feedback(record, assets, catalogue, libraries):
         target = by_unit[unit(original, libraries)]
         current = typed_identity(target, libraries[target['library']])
         old_ids, new_ids = set(identity.get('guids', [])), set(current['guids'])
+        if old_ids and not new_ids:
+            return None, 'identity_unknown'
         if identity.get('server') != current['server'] or old_ids and new_ids and not old_ids.intersection(new_ids):
             return None, 'identity_changed'
         return by_unit[unit(original, libraries)], 'attached'
