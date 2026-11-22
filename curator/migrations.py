@@ -80,7 +80,11 @@ def _profile_standard_intent(store):
     from .standards import DEFAULTS
 
     for library in store.all('libraries'):
+        saved_kind = library.get('kind') or library_kind(library)
+        observed = library.get('observed_kind') or saved_kind
         library.update(observe_library(library, library))
+        library['kind'] = saved_kind
+        library['observed_kind'] = observed
         kind = library['standard_kind']
         record = store.get('settings', 'standard:' + kind) or {}
         parent = record.get('values') or DEFAULTS[kind]
@@ -88,6 +92,18 @@ def _profile_standard_intent(store):
         after = migrated_profile_overrides(library, parent)
         if before != after:
             library.update(standard_overrides=after, standard_revision=library.get('standard_revision', 0) + 1)
+            fields = [
+                dimension + '.' + field
+                for dimension, values in after.items()
+                for field, value in values.items()
+                if before.get(dimension, {}).get(field) != value
+            ]
+            store.record(
+                'standard migration',
+                'Preserved legacy profile intent as library overrides',
+                library=library['id'],
+                details={'fields': fields},
+            )
         library['profile_standard_migration'] = 1
         store.put('libraries', library['id'], library)
 

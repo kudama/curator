@@ -314,11 +314,31 @@ class Service(
                     mappings=old.get('mappings', []),
                     themes=old.get('themes', []),
                 )
+                self._record_library_observation(old, library)
                 self.store.put('libraries', library['id'], library)
             self.store.record(
                 'libraries', f'Libraries refreshed from Plex: {len(rows)} available', details={'count': len(rows)}
             )
         return rows
+
+    def _record_library_observation(self, previous, library):
+        notice = previous.get('standard_type_notice')
+        before = previous.get('observed_kind') or previous.get('kind')
+        current = library['observed_kind']
+        if before and before != current:
+            notice = None
+            if current != library['standard_kind']:
+                notice = dict(before=before, observed=current, chosen=library['standard_kind'], at=now())
+                self.store.record(
+                    'library type observed',
+                    'Plex library type changed; chosen standard retained',
+                    library=library['id'],
+                    details=notice,
+                )
+        if notice:
+            library['standard_type_notice'] = notice
+        else:
+            library.pop('standard_type_notice', None)
 
     def library_metadata_choices(self, key, field):
         if field not in {'genre', 'label', 'collection'}:
@@ -338,6 +358,7 @@ class Service(
                 if field in fresh:
                     latest[field] = fresh[field]
             latest.update(observe_library(latest, previous))
+            self._record_library_observation(previous, latest)
             self.store.put('libraries', key, latest)
         return latest
 

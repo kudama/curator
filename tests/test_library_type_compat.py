@@ -41,6 +41,10 @@ class Compatibility(unittest.TestCase):
         self.assertEqual(after['observed_kind'], 'movie')
         self.assertEqual(after['values'], before['values'])
         self.assertEqual(after['revision'], before['revision'])
+        self.assertEqual(after['observation_notice']['observed'], 'movie')
+        self.service.connect()
+        notices = [event for event in self.store.curator_history() if event['action'] == 'library type observed']
+        self.assertEqual(len(notices), 1)
 
     def test_profile_migration_preserves_tv_type_custom_fields_overrides_and_receipts(self):
         custom = copy.deepcopy(DEFAULTS['show'])
@@ -85,10 +89,15 @@ class Compatibility(unittest.TestCase):
         self.assertEqual(saved['standard_revision'], 5)
         self.assertEqual(self.store.get('settings', 'standard:show')['values'], custom)
         self.assertEqual(self.store.get('tasks', receipt['id']), receipt)
+        migration_events = [event for event in self.store.curator_history() if event['action'] == 'standard migration']
+        self.assertEqual(len(migration_events), 1)
         self.store.close()
         self.store = Store(self.root)
         self.assertIsNone(self.store.migration_backup)
         self.assertEqual(self.store.get('libraries', 'srv:2'), saved)
+        self.assertEqual(
+            len([event for event in self.store.curator_history() if event['action'] == 'standard migration']), 1
+        )
 
     def test_movie_home_migration_creates_overrides_without_reclassifying(self):
         with self.store.transaction():
