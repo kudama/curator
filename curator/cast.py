@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import json
 import re
 from .errors import UserError
 
@@ -60,7 +61,8 @@ def photo_bytes(encoded):
 
 def digest(rows):
     """Identity of a reviewed cast: names, roles, order and pictures."""
-    text = '\n'.join(f"{r['name']}\t{r.get('role', '')}\t{r.get('thumb', '')}" for r in rows)
+    # Canonical JSON of ordered (name, role, thumb) triples: unambiguous for any characters.
+    text = json.dumps([[r['name'], r.get('role', ''), r.get('thumb', '')] for r in rows], ensure_ascii=False)
     return hashlib.sha256(text.encode()).hexdigest()
 
 

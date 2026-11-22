@@ -275,6 +275,25 @@ class Recovery(unittest.TestCase):
                 )
                 self.assertEqual(person['restore']['state'], 'failed')
 
+    def test_cast_digest_is_unambiguous_for_delimiters_row_boundaries_and_order(self):
+        from curator import cast
+
+        distinct = [
+            [{'name': 'Alex\tExample', 'role': 'Self', 'thumb': ''}],
+            [{'name': 'Alex', 'role': 'Example\tSelf', 'thumb': ''}],
+            [{'name': 'Alex', 'role': 'Self\nB\tC', 'thumb': ''}],
+            [{'name': 'Alex', 'role': 'Self', 'thumb': ''}, {'name': 'B', 'role': 'C', 'thumb': ''}],
+            [{'name': 'B', 'role': 'C', 'thumb': ''}, {'name': 'Alex', 'role': 'Self', 'thumb': ''}],
+            [{'name': 'Alex', 'role': '', 'thumb': 'Self'}],
+            [],
+        ]
+        for rows in distinct:
+            cast.validate_rows(rows)
+        self.assertEqual(len({cast.digest(rows) for rows in distinct}), len(distinct))
+        self.assertEqual(
+            cast.digest([{'name': 'A', 'role': 'R'}]), cast.digest([{'name': 'A', 'role': 'R', 'thumb': ''}])
+        )
+
     def test_apply_cast_without_a_reviewed_digest_keeps_its_existing_behaviour(self):
         task = self.service.metadata_task(self.assets[0]['id'])
         rows = [
