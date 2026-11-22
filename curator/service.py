@@ -45,6 +45,7 @@ from .errors import UserError
 from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
 from .history import acting, current_initiator
+from .preview_cards import PreviewCards
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
 
@@ -53,6 +54,7 @@ identifier = stable_id
 
 
 class Service(
+    PreviewCards,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,

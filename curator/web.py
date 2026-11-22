@@ -184,6 +184,7 @@ class Handler(BaseHTTPRequestHandler):
             '/workbench.js': ('workbench.js', 'application/javascript'),
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
+            '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
         if path in static:
@@ -208,6 +209,16 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlsplit(self.path).query)
                 image = self.server.service.artwork_target_image(query['asset'][0], query['kind'][0])
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/preview/cards':
+                return self.reply(self.server.service.preview_cards())
+            if path == '/api/preview/defaults':
+                return self.reply(self.server.service.preview_defaults())
+            if path == '/api/preview/cards/image':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.preview_card_image(query['id'][0], int(query['version'][0])),
+                    content_type='image/png',
+                )
             if path == '/api/artwork/collections':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.artwork_collections(query['library'][0]))
@@ -415,6 +426,12 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.sync_presence(data['library'])
             elif path == '/api/files/comparison':
                 result = service.join_comparison(data['id'])
+            elif path == '/api/preview/cards/import':
+                result = service.import_preview_card(data)
+            elif path == '/api/preview/cards/hide':
+                result = service.hide_preview_card(data['id'], data['revision'])
+            elif path == '/api/preview/defaults':
+                result = service.save_preview_defaults(data['revision'], data['changes'])
             elif path == '/api/config':
                 service.save_config(data)
                 result = {'saved': True}
