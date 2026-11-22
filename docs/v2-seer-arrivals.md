@@ -1,6 +1,6 @@
 # Curator v2 — Seer arrivals contract (proposed)
 
-Issue #114. **Status: proposed contract, awaiting operator decisions and senior security review.** Implementation is #115. This document defines a **read-only** integration that shows, on Home, Seer requests that have landed in Plex. It creates no accounts, stores no credentials, and grants no permission to request, approve or fulfil anything.
+Issue #114. **Status: proposed contract, revised 2026-11-22 for Codex review (verified against Seerr source); awaiting operator decisions and senior security review.** Implementation is #115. This document defines a **read-only** integration that shows, on Home, Seer requests that have landed in Plex. It creates no accounts, stores no credentials, and grants no permission to request, approve or fulfil anything.
 
 ## 1. Which service and API
 
@@ -12,45 +12,41 @@ The contract targets the **Seerr API v1** as described in its OpenAPI file, [`se
 
 ## 2. Authentication and read permission
 
-What the spec shows:
+Verified against Seerr source at commit [`77c977f`](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14) (2026-11-22), not only the OpenAPI summary:
 
-- **Two schemes:** an `X-Api-Key` header, or a `connect.sid` session cookie obtained from `/auth/local`, `/auth/plex` or `/auth/jellyfin`.
-- **One key:** the API key is the single **main settings** key (`MainSettings.apiKey`, regenerated through `POST /settings/main/regenerate`). The spec has no per-user keys, no scopes and no read-only key.
-- **Seeing everyone's requests needs management rights:** `GET /request` "returns all requests if the user has the `ADMIN` or `MANAGE_REQUESTS` permissions. Otherwise, only the logged-in user's requests are returned." `MANAGE_REQUESTS` also allows approving and declining.
+- **Seeing everyone's requests needs `MANAGE_REQUESTS` *or* `REQUEST_VIEW`.** `GET /request` keeps every user's requests when the caller has either permission (`hasPermission([MANAGE_REQUESTS, REQUEST_VIEW], {type: 'or'})`) and otherwise limits the list to the caller's own requests ([request list](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/routes/request.ts#L150)). `REQUEST_VIEW` (16384) is a separate permission from `MANAGE_REQUESTS` (16) ([permissions](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/lib/permissions.ts#L16)). Approve, decline and retry still require `MANAGE_REQUESTS`. So a dedicated user with only `REQUEST_VIEW` can read every request and cannot change any.
+- **The API key always acts as an administrator.** `X-Api-Key` is the single main-settings key. With it, a request acts as user 1 (the original administrator), or as *any* user named in an `X-API-User` header ([auth middleware](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/middleware/auth.ts)). Holding the key is equivalent to holding admin, whichever user Curator chooses to act as.
+- **A non-admin user signs in with a session.** `POST /auth/local` (or `/auth/plex`, `/auth/jellyfin`) returns a `connect.sid` session cookie. Sessions last 30 days by default.
 
-**Consequence: Seerr offers no credential that can only read all requests.** Read-only is therefore a property Curator must enforce itself, not one Seerr provides. Credential options for decision D2:
+The OpenAPI text says all requests need `ADMIN` or `MANAGE_REQUESTS`; the code is authoritative and also accepts `REQUEST_VIEW`. The operator's instance and version must still be checked against this (D1) before relying on it.
+
+Credential options for decision D2:
 
 | Option | What Curator holds | Effect |
 | --- | --- | --- |
-| **A. Main API key** (proposed) | The admin `X-Api-Key` | Simplest; sees all requests. If leaked, the key controls Seerr. Curator enforces a GET-only allowlist (section 7) and treats the key as a secret, like the Plex token. |
-| B. Dedicated Seerr user with `MANAGE_REQUESTS` | That user's password, used for a cookie session | Narrower than admin, but it can still approve and decline. Sessions need renewing, and Curator has to keep a password. |
-| C. Dedicated user without management rights | Same as B | Sees only that user's own requests, so it is not useful for a household Home. |
-| D. Seerr webhook into Curator (no Seerr credential) | Nothing for Seerr. Curator accepts an inbound POST. | The spec does not document the webhook payload (`jsonPayload` is an operator template), and inbound POST is a new attack surface for Curator. Needs its own security review. Not proposed. |
+| **A. Dedicated view-only user** (proposed) | Email and password of a local Seerr user that has **only** `REQUEST_VIEW`, used to keep a session cookie | Least privilege: sees every request and cannot approve, decline, retry, delete or change settings. Curator must store a password, sign in, and renew the session before it expires. A leaked password exposes request visibility only. |
+| B. Main API key | The admin `X-Api-Key` | Simplest; never expires. A leaked key controls Seerr. `X-API-User` could narrow Curator's own calls to a view-only user but not what the key itself can do, so it adds no protection and Curator does not send it. Curator would still enforce a GET-only allowlist. |
+| C. Dedicated user with `MANAGE_REQUESTS` | That user's session | No advantage over A, and it can approve and decline. Not proposed. |
+| D. Seerr webhook into Curator (no Seerr credential) | Nothing for Seerr. Curator accepts an inbound POST. | The webhook payload is an operator template, and inbound POST is a new attack surface for Curator. Needs its own security review. Not proposed. |
 
-Whichever option is chosen, adding it needs the operator's decision and the senior controller's security review before #115 starts. This document grants nothing.
+Whichever option is chosen, creating the Seerr user, setting its permissions and giving Curator the credential all need the operator's decision and the senior controller's security review before #115 starts. Nothing here creates, provisions or approves access.
 
 ## 3. Endpoints Curator may call
 
-Only these, only with `GET`:
+Only these, only with `GET`, plus option A's sign-in:
 
 | Call | Use |
 | --- | --- |
 | `GET /status` | Reachability and `version` (public, no credential). Used by the connection test and the compatibility check. |
-| `GET /request?filter=all&sort=modified&sortDirection=desc&take=50&skip=N&mediaType=all` | Requests and their linked `media` (`MediaInfo`), paged by `pageInfo` |
+| `GET /request?filter=all&mediaType=movie&sort=added&sortDirection=desc&take=100&skip=N` | The **movie** request stream, paged by `pageInfo` |
+| `GET /request?filter=all&mediaType=tv&sort=added&sortDirection=desc&take=100&skip=N` | The **TV** request stream, paged by `pageInfo` |
+| `POST /auth/local` | Option A only: sign in as the view-only user. Curator sends the credential in the body, keeps only the session cookie in memory, and never calls any other `/auth` path except `GET /auth/me` to confirm the session's user and permissions |
 
-Nothing else. In particular, Curator never calls `POST /request`, `/request/{id}/approve`, `/request/{id}/decline`, `DELETE`, any `/settings/...` path (including key regeneration and notification settings), or any `/auth/...` path apart from option B's sign-in.
+Nothing else. In particular, Curator never calls `POST /request`, `/request/{id}/approve`, `/request/{id}/decline`, `/request/{id}/retry`, `DELETE`, any `/settings/...` path (including key regeneration and notification settings), and never sends `X-API-User`.
 
-## 4. Fields used
+**Two typed streams, never `mediaType=all`.** TMDB numeric IDs are separate namespaces for movies and TV, so a bare `tmdbId` cannot say which it is. Curator fetches movies and TV separately and keeps the stream's type with every request. Each request's own `type` field (`movie` or `tv`, present on the request entity) and its `media.mediaType` must agree with the stream; any disagreement marks the response incompatible and nothing from it is matched.
 
-From each `MediaRequest`: `id`, `status`, `is4k`, `createdAt`, `updatedAt`, `requestedBy` (display name only, and only if D4 allows it), and `media`.
-
-From `media` (`MediaInfo`): `id`, `tmdbId`, `tvdbId` (nullable), `status`, `updatedAt`. The request's `mediaType` filter tells movies and series apart.
-
-The spec does **not** document `ratingKey`, `mediaAddedAt`, `status4k`, `imdbId` or seasons for these schemas, so Curator must not depend on them. If a running instance does return them, they may be used as *hints* only, never as the match.
-
-**Enums** (verbatim from the spec):
-- Request status: 1 pending approval, 2 approved, 3 declined.
-- Media status: 1 unknown, 2 pending, 3 processing, 4 partially available, 5 available, 6 deleted.
+**Page to completion; never stop by age.** Seerr's `sort=modified` orders by the *request's* `updatedAt`, but arrivals are defined by Plex's `addedAt` ([ordering](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/routes/request.ts#L116)). An old approved request can land today, so stopping at an age cut-off would silently drop it. Each sync reads both streams to the end and replaces the previous snapshot atomically (household request lists are small). `sort=added` orders by request `createdAt` with `id` as a tie-break, so a request created during a sync shifts later pages and can repeat a row, which Curator de-duplicates by request `id`; it is never skipped. If `pageInfo.results` differs between the first and last page (for example, a request was deleted mid-sync), Curator retries the stream once, then keeps the previous snapshot and shows Partial. Safety bound: at most 5,000 requests per stream; above that the sync stops, keeps the last complete snapshot, and shows the Partial state. A faster incremental sync needs a proven-safe strategy and its own review; none is proposed.
 
 ## 5. States Curator shows
 
@@ -71,26 +67,30 @@ Seerr's own "available" alone never counts as landed. Curator's catalog is the a
 
 ## 6. Matching rules
 
-1. **Match only on stable external IDs:**
-   - movies: `tmdbId` against the Plex item's `tmdb://` GUID
-   - series: `tvdbId` against `tvdb://`, otherwise `tmdbId` against `tmdb://`
-   - **Never** match on title or year.
-2. **Plex IDs come from Curator's own scan.** Curator does not read Plex GUIDs today. #115 must add the read-only `includeGuids=1` to its existing Plex library reads, store each item's external IDs and `addedAt`, and change nothing else.
+1. **Match only on typed, stable external IDs**, never on title or year:
+   - movie stream: `tmdbId` against a **movie** item's `tmdb://` GUID in a Movies library
+   - TV stream: `tvdbId` against a **series'** `tvdb://` GUID, otherwise `tmdbId` against the series' `tmdb://`, in a TV Shows library
+   - A movie ID is never compared with a series ID, even when the numbers are equal.
+2. **Plex IDs come from Curator's own scans.**
+   - **Movies:** Curator's movie assets are Plex movie items. #115 adds the read-only `includeGuids=1` to the existing movie-library read and stores each item's external IDs and `addedAt`.
+   - **TV:** Curator's TV assets are **episodes** (the scan reads `type=4`), and an episode's external IDs identify the episode, not the series. A series TMDB/TVDB ID is never matched against an episode. #115 adds one read-only **series index** per TV library, `GET /library/sections/{key}/all?type=2&includeGuids=1`, storing each series' `ratingKey`, external IDs and `addedAt`. Episodes link to their series by `grandparentRatingKey`. The landing time for a series is the latest `addedAt` among its episodes added on or after the request's `createdAt`, and "Some episodes in Plex" means at least one such episode exists.
+   - **TV gate:** the series index and its episode link are standard Plex fields but have not yet been verified against the operator's server here. Until #115's fixtures and one approved read-only check confirm them, TV arrivals stay unavailable and Home says "TV requests are not matched yet." Movies do not wait for TV.
 3. **Only Movies and TV Shows libraries are considered.** Other Videos, personal-media agents and items without external GUIDs are never matched.
 4. **Requests for 4K** (`is4k`) are excluded until D3 decides how to treat them.
-5. **Landing time** is Plex's `addedAt` for the matched item, and must be on or after the request's `createdAt`; an older item means the request was already satisfied and is shown as "Already in Plex". Home's "last 7 days" window uses the landing time.
+5. **Landing time** is Plex's `addedAt` (for TV, as in rule 2), and must be on or after the request's `createdAt`; an older item means the request was already satisfied and is shown as "Already in Plex". Home's "last 7 days" window uses the landing time, never the request's own timestamps.
 
 ## 7. Client rules for #115
 
-- **GET-only allowlist.** The Seerr client accepts only `GET` to the two paths in section 3. Any other method or path raises **before** a network call. Tests prove this, including for redirects.
+- **GET-only allowlist.** The Seerr client accepts only `GET` to the paths in section 3, plus option A's single `POST /auth/local`. Any other method or path raises **before** a network call. Tests prove this, including for redirects.
 - **The credential is a secret:**
   - stored in Curator's configuration like the Plex token, never returned by `state()`
+  - option A: the password is used only for `POST /auth/local`; the session cookie is kept in memory, renewed before expiry, and re-obtained after a 401 at most once per sync; `GET /auth/me` must show the expected user with `REQUEST_VIEW` and **without** `ADMIN` or `MANAGE_REQUESTS`, otherwise Curator refuses to sync ("This Seer user has more access than Curator needs")
   - registered with `logs.register_secret` so logs and history redact it
   - never placed in URLs
   - history records "Seer key changed", never the value
 - **Freshness:**
   - sync at most every 15 minutes, and when Home opens if the last sync is older than 5 minutes
-  - page by `modified` descending, and stop once results are older than the display window
+  - read both typed streams to completion and swap in the new snapshot only when both finish (section 3)
   - record the last successful sync time and show it ("Updated 14:02")
 - **Failure:** keep the last good result and mark it stale. After 24 hours of failure, hide the counts and show "Seer not reachable since …".
 - **No writes anywhere:** no Seerr writes, Plex writes or job creation. Matching only changes what Home displays.
@@ -113,7 +113,7 @@ Each transition is recorded once in Curator history as a connection event, like 
 - the credential for option A or B
 - `seer_enabled`
 
-**Connection test:** `GET /status`, then `GET /request?take=1`. It reports the version, and whether all users' requests are visible.
+**Connection test:** `GET /status`; for option A, sign in and check `GET /auth/me` permissions as above; then `GET /request?mediaType=movie&take=1` and `?mediaType=tv&take=1`. It reports the version, the signed-in user's permissions, and whether all users' requests are visible.
 
 Nothing else. No user sync, no quotas, no notification settings.
 
@@ -126,6 +126,11 @@ Synthetic JSON shaped as in the spec:
 - deleted media (6)
 - an item in Plex before the request was made ("Already in Plex")
 - two pages of results
+- **typed namespaces:** a movie request and a TV request with the **same numeric `tmdbId`**, a Plex movie and a Plex series that share that number; each request lands only on its own type
+- a response whose request `type` or `media.mediaType` disagrees with its stream (incompatible, nothing matched)
+- **old request, new arrival:** a request created and last modified months ago whose movie was added to Plex today; it appears in "last 7 days" and is not cut off by paging
+- **TV unit:** a series request matched through the series index, with episodes linked by `grandparentRatingKey`; an episode whose own GUID equals the series' TMDB number is **not** matched; season-only additions after the request
+- option A: `/auth/me` showing `MANAGE_REQUESTS` or `ADMIN` (refused), session expiry and one re-sign-in
 - responses: 401, 500, timeout
 - malformed request with no `media`
 - a `/status` with an unsupported version
@@ -134,7 +139,7 @@ Synthetic JSON shaped as in the spec:
 ## 11. Decisions for the operator
 
 - **D1** Which Seer instance (Seerr or legacy Overseerr/Jellyseerr), its version and its URL.
-- **D2** Credential option A (proposed), B, or none yet. Senior security review is also required.
+- **D2** Credential option A (dedicated `REQUEST_VIEW`-only user, proposed), B (main API key), or none yet. Creating that user is the operator's action, not Curator's. Senior security review is also required.
 - **D3** Show 4K requests separately, merge them with HD, or exclude them (proposed: exclude for now).
 - **D4** Whose requests appear on Home: everyone's (household), or only yours. Show the requester's display name or not (proposed: everyone's, no names).
 - **D5** Whether Home should also show "On its way" (approved, not yet available) counts. Proposed: not now.
