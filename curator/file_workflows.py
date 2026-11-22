@@ -17,6 +17,7 @@ from .quality import assess
 from .logs import log
 from .errors import UserError
 from .rules import ACTIVE, FILE_KINDS
+from .rename_preservation import RenamePreservation
 
 UNSUPPORTED_MOVE = {errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS}
 
@@ -69,7 +70,7 @@ def install_exclusive(source, destination):
         source.unlink()
 
 
-class FileWorkflows:
+class FileWorkflows(RenamePreservation):
     def copy_install_required(self, destination, task=None):
         device = Path(destination).parent.stat().st_dev
         previous = (task or {}).get('publication_error') or {}
@@ -582,12 +583,19 @@ class FileWorkflows:
         library = self.library(task['library'])
         client = self.checked_client(library)
         client.automatic_trash()
-        before = asset['item']
-        art = {}
+        # A fresh snapshot of Plex metadata and selected artwork, kept before anything moves (#70).
+        snapshot = self.capture_rename_receipt(task, asset, client)
+        before = snapshot['metadata']
+        art = {kind: entry['sha256'] for kind, entry in snapshot['artwork'].items()}
         moves = task['plan']['moves']
         moved = []
         self._save(
-            task, rename_started=True, rename_before=before, rename_art_hashes=art, progress={'phase': 'Renaming files'}
+            task,
+            rename_started=True,
+            rename_before=before,
+            rename_art_hashes=art,
+            rename_receipt=snapshot['receipt'],
+            progress={'phase': 'Renaming files'},
         )
         self.publication_phase(task, 'Renaming files')
         try:
@@ -658,6 +666,7 @@ class FileWorkflows:
                 rename_verified=True,
                 rename_plex_verified=False,
             )
+            self.settle_rename_receipt(snapshot, 'moved', destination_fingerprint=tools.fingerprint(destination))
         except Exception as error:
             log.exception('Rename failed for task %s', task['id'])
             phase = task.get('progress', {}).get('phase', 'Renaming files')
@@ -691,6 +700,8 @@ class FileWorkflows:
                     log.exception('Rename rollback failed for one file of task %s', task['id'])
                     failures.append(move)
             self._save(task, rename_rollback_failures=failures, rename_restored=not failures)
+            # Fully rolled back: Plex was never asked to see a new path, so nothing needs reconciling.
+            self.settle_rename_receipt(snapshot, 'void' if not failures else 'moved')
             if not failures and Path(moves[0]['source']).is_file():
                 with self.store.transaction():
                     for row in self.store.all('assets'):
