@@ -49,6 +49,41 @@ Repeated cleanup choices may later be offered as explicit changes to a standard.
 - `POST /api/library/standard {library, revision, overrides}` replaces a library's overrides and requires the current revision.
 - Validation is strict. Unknown dimensions or fields, out-of-range thresholds, non-boolean switches and stale revisions are all refused with a message written for the user.
 
+## Configuration screen (proposed, #105)
+
+The proposed design is in [docs/designs/v2-standards-20261120](designs/v2-standards-20261120/README.md). The operator approved the desktop direction on 2026-11-21; #109 implements it. The UI uses the existing API, except for the library save contract below, which #109 must add:
+
+| UI element | API field / behaviour |
+| --- | --- |
+| Type page header: revision, Customized / Curator defaults | `GET /api/standards` → `types[kind].revision`, `.customized` |
+| Type page: libraries using it, overrides per field | `libraries[id].kind`, `libraries[id].overrides` |
+| Dimension switch "Counts toward completion" | `values[dimension].enabled` |
+| Metadata required fields / local AI suggestions | `metadata.required` (subset of `METADATA_FIELDS`) / `metadata.local_ai_suggestions` |
+| Cast "done when" | `cast.mode`: `credits` / `known_people` |
+| Artwork required / poster shape (fixed 2:3) | `artwork.required` (poster, background, logo) / `artwork.poster_ratio` |
+| Upscaling resolution target / still suggest when met | `upscaling.target` (`1080`, `2160`) / `upscaling.suggest_when_met` |
+| Re-encoding thresholds (empty = global) / Skip space-saving re-encoding suggestions | `encoding.max_mbps_1080`, `encoding.max_mbps_4k` (`null` = global config value) / `encoding.preserve_originals` (legacy name; suggestions only, never retention) |
+| Reset form to Curator defaults | `types[kind].defaults`; form only, saved through review |
+| Save type standard | `POST /api/standards {kind, revision, values}` (full standard) |
+| Library page effective value | `libraries[id].values` (type values merged with overrides) |
+| Inherited / Override tag; Use <Type> value | the field is absent from / present in `libraries[id].overrides[dimension]`; reset removes it |
+| Save library overrides | `POST /api/library/standard {library, revision, kind, type_revision, type_digest, overrides}` (full override set plus the inherited snapshot that was reviewed; see below) |
+| Overrides revision | `libraries[id].revision` (`standard_revision`) |
+| No-op | the review finds no difference; no request is sent |
+| Stale revision warning | API error "This standard changed in another window; reload before saving" (or the library variant) |
+| Inherited standard changed during review | API error "The <Type> standard changed while you were reviewing; reload and review again"; overrides kept, nothing saved |
+| Inline field errors | API validation messages, also checked in the browser before review |
+
+### Library override save contract (required for #109)
+
+The library review shows effective values, which depend on the inherited type standard. Today `save_library_overrides` checks only the library's own `standard_revision` and then normalizes against the *latest* type values, so a type change saved in another window between review and save would silently change what the reviewed inheritance and resets mean. #109 must make the reviewed inheritance part of the save:
+
+- The request carries `kind` (the Plex type the library was reviewed as), `type_revision` (that type standard's revision shown in the review) and `type_digest` (SHA-256 of the canonical JSON of the type values the review was computed from). `GET /api/standards` returns the digest with each type so the client never computes it from its own copy.
+- Inside the same store transaction as the override write, the server recomputes the library's current kind, the type's current revision and the digest of its current values. Any difference refuses the save with the "inherited standard changed" error. Overrides are normalized only against the type values that matched.
+- The digest also catches built-in defaults that change in a Curator update while a type is still at revision 0, and a library whose Plex type changed (#92).
+- A client-side re-fetch before saving is a convenience, not the guarantee. The atomic server check is.
+- A type standard save does not need the library snapshots: its review lists the libraries it reaches for information, and the per-field override semantics are unchanged by a concurrent library save.
+
 ## Schema versioning
 
 State now carries a `schema_version` table. `curator/migrations.py` lists numbered migrations. Each one runs once, inside a transaction together with its version bump, so a failed migration leaves the previous version in place.
@@ -64,6 +99,6 @@ The per-start repairs in `Service.__init__` are unchanged. They can move into nu
 
 ## Next
 
-1. Configuration screen for type standards and library overrides (prototype first).
+1. Configuration screen for type standards and library overrides: proposed design in #105, implementation #109.
 2. Scan evaluates the effective standard: findings and thresholds come from it. Add per-library completion and a migration that turns `profile` into overrides.
 3. History: see [Curator v2 — history](curator-v2-history.md).
