@@ -1,5 +1,7 @@
 """Application workflows. Scans propose work; mutations always require review."""
 
+from . import development
+
 import json
 import hashlib
 import os
@@ -43,6 +45,11 @@ from .errors import UserError
 from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
 from .history import acting, current_initiator
+from .preview_cards import PreviewCards
+from .preview_render import PreviewRendering
+from .preview_review import PreviewReview
+from .rules import scheduling_kind
+from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
 
 
@@ -50,6 +57,9 @@ identifier = stable_id
 
 
 class Service(
+    PreviewCards,
+    PreviewRendering,
+    PreviewReview,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
@@ -69,6 +79,7 @@ class Service(
     RecoveryWorkflows,
     RunSummaries,
     LibraryStandards,
+    UpscaleRecovery,
 ):
     def __init__(self, store, plex_factory=Plex):
         self.store, self.plex_factory = store, plex_factory
@@ -114,6 +125,12 @@ class Service(
         return client
 
     def save_config(self, data):
+        if development.root():
+            if data.get('plex_url') or data.get('plex_token'):
+                development.block_external()
+            for key in ('archive_root', 'artwork_archive_path'):
+                if data.get(key):
+                    development.check_path(data[key])
         allowed = {
             'plex_url',
             'plex_token',
@@ -469,6 +486,7 @@ class Service(
         config = self.config()
         known = {}
         pending_renames = []
+        scanned_items = {}  # asset id -> Plex item seen in this scan, for rename reconciliation (#70)
         for a in assets:
             if a['library'] == library['id']:
                 known.setdefault((a['rating_key'], a['plex_path']), []).append(a)
@@ -562,6 +580,7 @@ class Service(
                             task_ids = task_index.setdefault(aid, {})
                             self.reconcile_findings(asset, findings, task_ids)
                             self.recommend_folder_defaults(asset, folder_defaults, task_ids)
+                        scanned_items[aid] = item
                         state['count'] += 1
             with self.store.transaction():
                 for asset in self.store.all('assets'):
@@ -580,6 +599,8 @@ class Service(
                                 missing_file=presence['state'] == 'missing',
                             )
                         self.store.put('assets', asset['id'], asset)
+            if self.pending_rename_receipts(library['id']):
+                self.reconcile_rename_receipts(library, scanned_items, self.checked_client(library))
             state['finished'] = now()
             self.connection_ok()
             self.store.record(
@@ -687,7 +708,7 @@ class Service(
             raise UserError('Unsupported plan settings')
         with self.store.transaction():
             task = self.get_task(key)
-            if task['kind'] in FILE_KINDS | {'artwork', 'mage_generation', 'portrait'}:
+            if task['kind'] in FILE_KINDS | {'artwork', 'mage_generation', 'portrait', 'preview_render'}:
                 raise UserError('Preview a new file operation to change its plan')
             if 'handbrake_preset' in plan and (
                 task['kind'] != 'optimize'
@@ -732,6 +753,8 @@ class Service(
             candidate = self.get_task(key)
             if candidate['version'] != version:
                 raise UserError('Stale task version; refresh first')
+            if candidate['kind'] == 'preview_render':
+                raise UserError('Review a fresh preview plan to retry rendering')
             if candidate['kind'] in {'artwork', 'mage_generation', 'portrait'}:
                 raise UserError('Use artwork review; paid generation requires a verified configuration quote')
             if candidate['kind'] == 'folder_metadata':
@@ -753,6 +776,12 @@ class Service(
                 raise UserError('Joined output changed')
         with self.store.transaction():
             task = self.get_task(key)
+            if (
+                action in {'delete', 'reject'}
+                and task['kind'] == 'preview_render'
+                and self.preview_selection(task['asset'])['job'] == key
+            ):
+                raise UserError('Select a replacement before removing the saved Curator preview')
             if task['version'] != version:
                 raise UserError('Stale task version; refresh first')
             if task.get('deleted') and action != 'restore_task':
@@ -798,7 +827,7 @@ class Service(
                     task['status'] != 'blocked'
                     or task['kind'] not in {'optimize', 'upscale'}
                     or task.get('published')
-                    or task.get('validation')
+                    or processing_validation(task)
                     or not task.get('source_hash')
                     or not task.get('output_hash')
                     or not Path(task.get('output', '')).is_file()
@@ -816,6 +845,7 @@ class Service(
                     'optimize',
                     'join',
                     'mage_generation',
+                    'preview_render',
                 }:
                     raise UserError('This operation is finishing; remove its task after it completes')
                 self.cancels.add(key)
@@ -938,6 +968,11 @@ class Service(
             }
             # Do not persist an unrelated Plex credential into processing plans.
             task['tool_settings'].pop('plex_token', None)
+            recovery = task.get('plan', {}).get('upscale_recovery')
+            if task['kind'] == 'upscale' and recovery:
+                if recovery['source'] != asset['fingerprint']:
+                    raise UserError('Original source changed since the 4× preview')
+                task['tool_settings'] = recovery['settings']
             if task['kind'] == 'optimize':
                 task['tool_settings'].update(
                     tools.freeze_handbrake_preset(
@@ -948,6 +983,8 @@ class Service(
                     )
                 )
             tools.command(task['kind'], asset['local_path'], '/tmp/curator-output.mkv', task['tool_settings'])
+            if task['kind'] == 'upscale':
+                tools.validate_upscale_target(asset.get('technical'), task['tool_settings'])
         if task['kind'] == 'metadata' and not task['plan'].get('changes'):
             raise UserError('Preview/edit metadata changes before queueing')
         task.update(
@@ -984,7 +1021,8 @@ class Service(
                     if queue_wake not in workers or list(workers).index(queue_wake) >= self.queue_limit(queue_kind):
                         return
                     if sum(
-                        t['kind'] == queue_kind and t['status'] == 'running' for t in self.store.all('tasks')
+                        scheduling_kind(t['kind']) == scheduling_kind(queue_kind) and t['status'] == 'running'
+                        for t in self.store.all('tasks')
                     ) >= self.queue_limit(queue_kind):
                         return 'capacity_busy'
                 if queue_kind is not None and self.store.get(
@@ -1025,6 +1063,8 @@ class Service(
                         raise
                 else:
                     self.execute_file_task(task)
+            elif task['kind'] == 'preview_render':
+                self.execute_preview(task)
             elif task['kind'] == 'mage_generation':
                 self.execute_mage(task)
             elif task['kind'] == 'folder_metadata':
@@ -1099,7 +1139,7 @@ class Service(
             comparable(field, observed.get(field)) == comparable(field, value) for field, value in expected.items()
         )
 
-    def _write_metadata(self, client, asset, changes, before):
+    def _write_metadata(self, client, asset, changes, before, clear_cast_photos=()):
         Plex.validate_changes(changes)
         current = client.item(asset['rating_key'])
         if not self._same_metadata(self.metadata_fields(current), before):
@@ -1107,14 +1147,33 @@ class Service(
         result = client.edit(self.library(asset['library']), current, changes)
         self._cache_metadata(asset, result)
         observed = self.metadata_fields(result)
-        differing = [field for field, value in changes.items() if not self._same_metadata(observed, {field: value})]
+        expected = dict(changes)
+        if 'cast' in changes:
+            # Adding an existing Plex person can restore its canonical portrait even
+            # when no portrait was requested. Only that new-credit case is optional;
+            # names, roles, ordering, explicit photos and explicit clears stay exact.
+            previous_names = {row['name'].casefold() for row in cast.fields(current)}
+            clear_names = {name.casefold() for name in clear_cast_photos}
+            actual = observed['cast']
+            expected['cast'] = []
+            for index, row in enumerate(changes['cast']):
+                comparison = dict(row)
+                if (
+                    not row.get('thumb')
+                    and row['name'].casefold() not in previous_names
+                    and row['name'].casefold() not in clear_names
+                    and index < len(actual)
+                ):
+                    comparison['thumb'] = actual[index]['thumb']
+                expected['cast'].append(comparison)
+        differing = [field for field, value in expected.items() if not self._same_metadata(observed, {field: value})]
         if differing:
             labels = {'summary': 'Description', 'genre': 'Categories', 'label': 'Labels', 'collection': 'Collections'}
             names = ', '.join(labels.get(field, field.title()) for field in differing)
             raise UserError('Plex readback differs (' + names + '); inspect before retrying')
         if 'cast' in changes:
             previous_pictures = {row['thumb'] for row in (before or {}).get('cast', [])}
-            for row in changes['cast']:
+            for row in observed['cast']:
                 if row.get('thumb') and row['thumb'] not in previous_pictures:
                     client.cast_image(row['thumb'])
         return result
@@ -1243,13 +1302,19 @@ class Service(
                         )
                 task['plan'] = {**task['plan'], 'changes': {'cast': changes}}
                 self._save(task)
-                self._write_metadata(client, asset, {'cast': changes}, before)
+                observed = self._write_metadata(
+                    client,
+                    asset,
+                    {'cast': changes},
+                    before,
+                    clear_cast_photos=[row['name'] for row, _, _ in prepared if row.get('clear_photo')],
+                )
                 with self.store.transaction():
                     for profile_id, profile in remembered:
                         profiles[profile_id] = profile
                     self.store.put('settings', 'cast_profiles', profiles)
                 self._save(task, status='applied', result={**(task.get('result') or {}), 'cast_verified': True})
-                return dict(version=task['version'], cast=changes, profiles=self.cast_profiles())
+                return dict(version=task['version'], cast=cast.fields(observed), profiles=self.cast_profiles())
             except Exception as error:
                 log.exception('Cast save failed for task %s', task['id'])
                 message = (
@@ -1338,6 +1403,8 @@ class Service(
         return {**task, 'metadata': self.metadata_fields(observed)}
 
     def _process(self, task, asset):
+        if task['kind'] == 'upscale':
+            tools.validate_upscale_target(asset.get('technical'), task['tool_settings'])
         folder = self.store.root / 'outputs' / task['id'] / uuid.uuid4().hex
         folder.mkdir(parents=True, mode=0o700)
         suffix = Path(asset['local_path']).suffix.lower()
@@ -1350,6 +1417,7 @@ class Service(
                 (self.store.root / 'comparisons' / task['id'] / side / f'{index}.jpg').unlink(missing_ok=True)
         self._save(task, comparison_loaded=False, progress={'phase': 'Checking original'})
         source_hash = tools.digest(asset['local_path'])
+        task.pop('resolution_exception', None)
         cmd = tools.command(task['kind'], asset['local_path'], output, task['tool_settings'])
         log = folder / 'tool.log'
         telemetry = EncodingProgress(task['kind'], asset['technical'].get('duration_seconds'))
@@ -1390,28 +1458,7 @@ class Service(
         result = tools.probe(output, task['tool_settings'])
         issues = tools.validate(asset['technical'], result)
         # Decode output independently of the processing tool's exit status.
-        decode = subprocess.run(
-            [
-                tools.executable(task['tool_settings'], 'ffmpeg'),
-                '-nostdin',
-                '-v',
-                'error',
-                '-xerror',
-                '-i',
-                str(output),
-                '-map',
-                '0:v:0',
-                '-map',
-                '0:a?',
-                '-f',
-                'null',
-                '-',
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=3600,
-        )
-        if decode.returncode:
+        if not tools.output_decodes(output, task['tool_settings']):
             issues.append('Independent output decode failed')
         if task['id'] in self.cancels:
             raise UserError('Cancelled during validation; original preserved')
@@ -1427,6 +1474,7 @@ class Service(
         )
 
     def _home(self, task, asset):
+        development.block_external()
         folder = self.store.root / 'frames' / asset['id']
         marker = folder / 'source.json'
         if marker.exists() and json.loads(marker.read_text()) != asset['fingerprint']:
@@ -1496,12 +1544,10 @@ class Service(
 
     def cover_prompt(self, key, title):
         task = self.get_task(key)
-        asset = self.asset(task, check=False)
-        landscape = self.library(asset['library'])['profile'] == 'home'
+        self.asset(task, check=False)
         return (
-            'Create an exact '
-            + ('16:9 landscape cover at 1920 × 1080' if landscape else '2:3 portrait cover at 1000 × 1500')
-            + ' using the supplied frame. Preserve proportions; never stretch. '
+            'Create an exact 2:3 portrait cover at 1000 × 1500'
+            ' using the supplied frame. Preserve proportions; never stretch. '
             'Blend the upper image smoothly into the background. Title: '
             + title.strip()
             + '. Keep typography readable at Plex thumbnail size.'
@@ -1677,6 +1723,8 @@ class Service(
         return path
 
     def review(self, key, version, mode, background=False):
+        if self.get_task(key)['kind'] == 'preview_render':
+            raise UserError('Preview selection is separate from movie publication')
         with self.store.transaction():
             task = self.get_task(key)
             if task.get('deleted') or task['status'] != 'awaiting_review' or task['version'] != version:
@@ -1758,7 +1806,7 @@ class Service(
         self._save(task, progress={'phase': 'Verifying source and output'})
         client = self.checked_client(self.library(asset['library']))
         output = Path(task['output'])
-        if task.get('validation') or tools.digest(output) != task['output_hash']:
+        if processing_validation(task) or tools.digest(output) != task['output_hash']:
             raise UserError('Output failed validation or changed after review')
         if tools.digest(asset['local_path']) != task['source_hash']:
             raise UserError('Source changed after processing')

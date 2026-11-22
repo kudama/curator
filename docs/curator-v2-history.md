@@ -40,8 +40,30 @@ Schema migration 3 adds `category` (`job` or `curator`), `library`, `initiator` 
 - Curator events tied to a state change commit or roll back with that change.
 - Logged errors are written so that they survive a rollback and never wait for another thread's transaction. If the store is busy, they are written as soon as the current transaction ends.
 
+## Recovery from job history
+
+Each job in History shows the next supported step for its state, using only actions that already exist. **View** opens the existing job inspector and never acts by itself. Only two actions can be taken from the History row, and neither one publishes:
+
+| State | What History offers |
+| --- | --- |
+| Applied or resolved | Nothing to recover |
+| Retained-original cleanup pending | Guidance: view the job; restoring happens there |
+| Rejected | Explanation: rejected results stay closed |
+| Publication started (`published`) | Guidance: check the publication log and Plex verification in the inspector; never reprocess |
+| Rename started | Guidance: restore the original filenames from the inspector |
+| Join with a retained output | Guidance: refresh the preview and return to review from the inspector |
+| Blocked upscale/encode with a validated, unpublished output, or an upscale whose only failure is the resolution floor and whose recorded resolution exception matches this exact output (#97/#129) | **Return output to review** (existing `resume_review`) |
+| Retained output that failed validation | Guidance: inspect it before choosing to process again |
+| Artwork, paid generation, portraits | Guidance: use artwork review (a fresh quote for paid generation) |
+| Folder metadata | Guidance: a fresh preview is required |
+| Inspection finding | Guidance: scan the library again |
+| Failed/blocked/cancelled with its source missing from the catalog | Explanation: scan the library first |
+| Failed or blocked, nothing written (`safe_failed_retry`) | **Retry** (existing `recovery/retry-failed`): rechecks the source and settings and queues the job; it never starts the queue |
+| Cancelled, or failed/blocked otherwise | Guidance: view the job and queue it again through its existing review |
+
+Before either action, History refreshes state and refuses if the job's version, status or recovery path has changed since the row was shown. The server then re-checks the version, and the source fingerprint or output file, through the same code the inspector uses. Requests from the browser are recorded with the operator as initiator. Filters stay as they were, and the list keeps its scroll position after an action and after closing the inspector.
+
 ## Not yet
 
-- Recovery actions inside job history. The existing View and task controls remain the way to retry or recover.
 - Rule and AI initiators, until those features exist.
 - Home's "work accomplished" summary, which will link into this screen with filters applied.

@@ -30,13 +30,13 @@ def resolve_style(preset, item, profile, kind, overrides, has_reference=False):
     # Destination defaults take precedence over style defaults; explicit overrides win.
     ratio = (
         '2:3'
-        if kind == 'cover' and item.get('type') == 'collection'
+        if kind == 'cover'
         else '16:9'
         if kind == 'logo'
         else '1:1'
         if kind == 'square'
         else '16:9'
-        if kind == 'background' or profile == 'home'
+        if kind == 'background'
         else '2:3'
     )
     result = dict(
@@ -48,6 +48,8 @@ def resolve_style(preset, item, profile, kind, overrides, has_reference=False):
     result.update(overrides)
     if result['ratio'] not in RATIOS or not __import__('re').fullmatch(r'[A-Za-z0-9_.-]{0,40}', result['resolution']):
         raise UserError('Choose a supported ratio and resolution')
+    if kind == 'cover' and result['ratio'] != '2:3':
+        raise UserError('Posters use 2:3; create a portrait artwork plan')
     title, summary = item.get('title', ''), item.get('summary', '')
     if has_reference:
         result.setdefault('prompt', 're-imagine this image in style guidance ' + preset['details'])
@@ -442,6 +444,7 @@ class ArtworkWorkflows:
                 or task.get('provider')
             ):
                 raise UserError('Generation plan changed or has already been submitted')
+            self._check_poster_generation(task)
             reference_images = self.mage_references(task)
             quote = (
                 provider.quote(task['plan']['settings'], len(reference_images), reference_images=reference_images)
@@ -520,6 +523,12 @@ class ArtworkWorkflows:
             'task_ids': [row['id'] for row in receipt['rows']],
         }
 
+    @staticmethod
+    def _check_poster_generation(task):
+        plan = task['plan']
+        if plan['kind'] == 'cover' and plan['settings']['ratio'] != '2:3':
+            raise UserError('Posters use 2:3; create a fresh portrait artwork plan')
+
     def execute_mage(self, task, provider=None, wait=None):
         from .mage import Mage
         import time
@@ -534,6 +543,7 @@ class ArtworkWorkflows:
             raise UserError('Generation destination changed; no new request submitted')
         self.ensure_mage_budget_for_submission(task)
         if not receipt.get('request_id') and not receipt.get('attempted'):
+            self._check_poster_generation(task)
             reference_images = self.mage_references(task)
             fresh = (
                 provider.quote(task['plan']['settings'], len(reference_images), reference_images=reference_images)

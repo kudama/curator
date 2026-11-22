@@ -95,6 +95,50 @@ class UniversalQueue(unittest.TestCase):
             finally:
                 self.finish()
 
+    def test_idle_slot_takes_newly_queued_work_while_long_job_continues(self):
+        self.add('long')
+        self.add('short')
+        self.service.set_queue_limits({'optimize': 2})
+        with (
+            patch.object(self.service, 'asset', side_effect=lambda task, **kw: self.store.get('assets', task['asset'])),
+            patch.object(self.service, '_process', side_effect=self.process),
+        ):
+            try:
+                self.service.start(None, 'optimize')
+                self.wait(lambda: len(self.seen) == 2)
+                self.gates['short'].set()
+                self.wait(lambda: self.service.get_task('short')['status'] == 'applied')
+                time.sleep(0.3)  # Let the spare worker reach the empty waiting queue.
+                self.add('later', library='two')
+                self.wait(lambda: 'later' in self.seen)
+                self.assertEqual(self.service.get_task('long')['status'], 'running')
+                self.assertEqual(len(self.running()), 2)
+                self.assertEqual(self.seen.count('later'), 1)
+            finally:
+                self.finish()
+
+    def test_raising_active_limit_fills_slots_without_resuming_paused_or_stopped_queues(self):
+        for key in ('a', 'b', 'c'):
+            self.add(key)
+        with (
+            patch.object(self.service, 'asset', side_effect=lambda task, **kw: self.store.get('assets', task['asset'])),
+            patch.object(self.service, '_process', side_effect=self.process),
+        ):
+            try:
+                self.service.set_queue_limits({'optimize': 1})
+                self.assertFalse(self.service.queue_running())
+                self.service.start(None, 'optimize')
+                self.wait(lambda: self.seen == ['a'])
+                self.service.set_queue_limits({'optimize': 2})
+                self.wait(lambda: len(self.running()) == 2)
+                self.service.pause_queues(None, 'optimize')
+                self.service.set_queue_limits({'optimize': 3})
+                time.sleep(0.3)
+                self.assertNotIn('c', self.seen)
+                self.assertEqual(self.service.get_task('c')['status'], 'queued')
+            finally:
+                self.finish()
+
     def test_lower_limit_does_not_replace_a_finished_slot_while_excess_job_runs(self):
         for key in ('a', 'b', 'c'):
             self.add(key)

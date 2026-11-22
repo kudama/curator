@@ -2,6 +2,10 @@
 
 Recorded 2026-11-19 from the operator's Forge design discussion. This is the agreed product direction and a starting brief for detailed design. Only the separate theme slice described below is implemented by this change; navigation, discovery and maintenance features remain to be specified and built.
 
+## Current delivery ledger
+
+The [v2 readiness audit](v2-readiness.md), [tracking issue #102](https://github.com/kudama/curator/issues/102) and [shared agent workflow](agent-workflow.md) map this direction to implementation and acceptance. The original theme-slice wording above is historical; later merged foundations do not complete the full direction.
+
 ## Purpose and experience
 
 Curator first helps the operator bring a large existing catalog up to the desired standard. It then shifts toward maintaining new arrivals with progressively less intervention and helping the operator discover something worth watching. Design around fewer repeated decisions, useful defaults, batch work, review by exception, preserved working context and visible progress.
@@ -16,6 +20,8 @@ The current application is the working screen. A new Home provides context and d
 | Library Manager | The existing workbench: metadata, cast, artwork, file management, active queues and review. Preserve drafts, position and existing processing/publication safeguards. |
 | History | Job history and Curator history, as described below. |
 | Configuration | Existing Settings, service connections, and the standards/rules that define desired encoding, upscaling, metadata and artwork treatment. Shared defaults with library-specific settings where needed. |
+
+The proposed Home and navigation design, with its navigation contract, is in [designs/v2-home-navigation-20261120](designs/v2-home-navigation-20261120/README.md) (#104). It awaits operator approval.
 
 Homebase remains the overall dashboard, with a compact Curator summary and links into Curator. Library health is a section of Curator Home, not an additional standalone destination or separate page for every library. Home summaries link directly to relevant work or filtered history. Exact placement and screens require prototype review.
 

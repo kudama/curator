@@ -15,6 +15,7 @@ from .errors import UserError
 
 
 TOPAZ = '/Applications/Topaz Video.app/Contents/MacOS/'
+RESOLUTION_FLOOR = 'Output is below 1080-class target'
 
 
 def fingerprint(path):
@@ -219,6 +220,85 @@ def probe(path, config):
         raise UserError('No usable video stream') from None
 
 
+def upscale_output_geometry(source, settings):
+    """Predict reviewed dynamic 1x/2x/4x filters; complex/explicit layouts stay unknown."""
+    import math
+
+    vf = settings.get('topaz_filter', '')
+    if not isinstance(source, dict) or not isinstance(vf, str) or not vf.startswith('tvai_up=') or ',' in vf:
+        return None
+    fields = {}
+    for part in vf.removeprefix('tvai_up=').split(':'):
+        key, separator, value = part.partition('=')
+        if not separator or key in fields:
+            return None
+        fields[key] = value
+    if fields.get('w') != '0' or fields.get('h') != '0':
+        return None
+    try:
+        scale = float(fields.get('scale', ''))
+        if scale not in (1, 2, 4):
+            return None
+        width, height = display_geometry(source)
+        if not all(math.isfinite(edge) and edge > 0 for edge in (width, height)):
+            return None
+    except (KeyError, ValueError, TypeError):
+        return None
+    return width * scale, height * scale
+
+
+def validate_upscale_target(source, settings):
+    geometry = upscale_output_geometry(source, settings)
+    if geometry and (max(geometry) > 4096 or min(geometry) > 2160):
+        width, height = geometry
+        raise UserError(
+            f'This upscale would produce {width:g} × {height:g}, above the 4K ceiling. '
+            'Change the upscale settings before retrying.'
+        )
+    if geometry and (max(geometry) < 1920 or min(geometry) < 720):
+        width, height = geometry
+        raise UserError(
+            f'This upscale would produce {width:g} × {height:g}, below the 1080-class target. '
+            'Review a 4× plan or change the settings; an existing retained output can be reviewed separately.'
+        )
+
+
+def upscale_4x_settings(source, settings):
+    # Replace the source-relative filter field, never multiply an existing scale.
+    if upscale_output_geometry(source, settings) is None:
+        raise UserError('4× recovery requires a single dynamic Topaz filter with known geometry')
+    fields = settings['topaz_filter'].removeprefix('tvai_up=').split(':')
+    vf = 'tvai_up=' + ':'.join('scale=4' if part.startswith('scale=') else part for part in fields)
+    result = {**settings, 'topaz_filter': vf}
+    validate_upscale_target(source, result)
+    return result
+
+
+def output_decodes(output, settings):
+    result = subprocess.run(
+        [
+            executable(settings, 'ffmpeg'),
+            '-nostdin',
+            '-v',
+            'error',
+            '-xerror',
+            '-i',
+            str(output),
+            '-map',
+            '0:v:0',
+            '-map',
+            '0:a?',
+            '-f',
+            'null',
+            '-',
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=3600,
+    )
+    return result.returncode == 0
+
+
 def validate(source, output):
     issues = []
     duration = source['duration_seconds']
@@ -229,7 +309,7 @@ def validate(source, output):
     if abs(source_width / source_height - output_width / output_height) > 0.025:
         issues.append('Aspect ratio changed')
     if max(output_width, output_height) < 1920 or min(output_width, output_height) < 720:
-        issues.append('Output is below 1080-class target')
+        issues.append(RESOLUTION_FLOOR)
     if max(output_width, output_height) > 4096 or min(output_width, output_height) > 2160:
         issues.append('Output exceeds the 4K target ceiling')
     formats = set(output.get('container', '').split(','))

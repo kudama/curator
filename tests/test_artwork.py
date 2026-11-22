@@ -35,9 +35,9 @@ class Artwork(unittest.TestCase):
     def test_home_cover_ratio_and_unescaped_title(self):
         self.home()
         prompt = self.service.cover_prompt(self.task['id'], 'A "quoted" title')
-        self.assertIn('16:9', prompt)
+        self.assertIn('2:3 portrait', prompt)
         self.assertIn('A "quoted" title', prompt)
-        self.assertNotIn('portrait', prompt)
+        self.assertNotIn('16:9', prompt)
 
     def test_commercial_cover_ratio(self):
         self.assertIn('2:3 portrait', self.service.cover_prompt(self.task['id'], 'Title'))

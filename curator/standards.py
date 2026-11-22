@@ -7,6 +7,8 @@ media on their own.
 """
 
 import copy
+import hashlib
+import json
 
 from .errors import UserError
 from .rules import LIBRARY_KINDS, library_kind
@@ -16,7 +18,7 @@ DIMENSIONS = ('metadata', 'cast', 'artwork', 'upscaling', 'encoding')
 METADATA_FIELDS = ('summary', 'year', 'originally_available_at', 'genres', 'studio', 'content_rating', 'collections')
 ARTWORK_KINDS = ('poster', 'background', 'logo')
 CAST_MODES = ('credits', 'known_people')
-POSTER_RATIOS = ('2:3', '16:9')
+POSTER_RATIOS = ('2:3',)
 UPSCALE_TARGETS = ('1080', '2160')
 
 _CATALOG = {
@@ -35,7 +37,7 @@ DEFAULTS = {
     'other_videos': {
         'metadata': dict(enabled=True, required=['summary', 'originally_available_at'], local_ai_suggestions=True),
         'cast': dict(enabled=True, mode='known_people'),
-        'artwork': dict(enabled=True, required=['poster'], poster_ratio='16:9'),
+        'artwork': dict(enabled=True, required=['poster'], poster_ratio='2:3'),
         'upscaling': dict(enabled=True, target='1080', suggest_when_met=True),
         'encoding': dict(enabled=True, max_mbps_1080=None, max_mbps_4k=None, preserve_originals=True),
     },
@@ -124,6 +126,13 @@ def merged(base, overrides):
     return result
 
 
+def type_digest(values):
+    """Identity of the reviewed parent, including unsaved built-in defaults."""
+    return hashlib.sha256(
+        json.dumps(values, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()
+    ).hexdigest()
+
+
 class LibraryStandards:
     def type_standard(self, kind):
         _choice(kind, LIBRARY_KINDS, 'library type')
@@ -145,20 +154,30 @@ class LibraryStandards:
             library = self.library(library)
         kind = library.get('kind') or library_kind(library)
         overrides = library.get('standard_overrides') or {}
+        parent = self.type_standard(kind)
         return dict(
             kind=kind,
+            type_revision=parent['revision'],
+            type_digest=type_digest(parent['values']),
             overrides=overrides,
             revision=library.get('standard_revision', 0),
-            values=merged(self.type_standard(kind)['values'], overrides),
+            values=merged(parent['values'], overrides),
         )
 
     def standards(self):
+        # Return parent values and every effective library from one coherent
+        # application snapshot, not individually locked reads that can interleave.
+        with self.store.transaction():
+            return self._standards_snapshot()
+
+    def _standards_snapshot(self):
         types = {}
         for kind, label in LIBRARY_KINDS.items():
             record = self.type_standard(kind)
             types[kind] = dict(
                 label=label,
                 revision=record['revision'],
+                type_digest=type_digest(record['values']),
                 customized=record.get('customized', True),
                 values=record['values'],
                 defaults=copy.deepcopy(DEFAULTS[kind]),
@@ -174,6 +193,8 @@ class LibraryStandards:
             current = self.type_standard(kind)
             if revision != current['revision']:
                 raise UserError('This standard changed in another window; reload before saving')
+            if current['values'] == values:
+                return self._standards_snapshot()['types'][kind]
             record = dict(
                 id=current['id'],
                 record_type='library_standard',
@@ -187,22 +208,36 @@ class LibraryStandards:
             self.store.record(
                 'standard', f'{LIBRARY_KINDS[kind]} standard changed', details={'revision': record['revision']}
             )
-        return self.standards()['types'][kind]
+            return self._standards_snapshot()['types'][kind]
 
-    def save_library_overrides(self, key, revision, overrides):
+    def save_library_overrides(self, key, revision, overrides, kind=None, type_revision=None, type_digest=None):
         _revision(revision)
+        reviewed = (kind, type_revision, type_digest)
+        guarded = any(value is not None for value in reviewed)
+        if guarded:
+            if any(value is None for value in reviewed):
+                raise UserError('Reload and review the inherited standard before saving')
+            _choice(kind, LIBRARY_KINDS, 'library type')
+            _revision(type_revision)
+            if not isinstance(type_digest, str):
+                raise UserError('Reload and review the inherited standard before saving')
         overrides = validate(overrides or {}, partial=True)
         with self.store.transaction():
             library = self.library(key)
             if revision != library.get('standard_revision', 0):
                 raise UserError('This library changed in another window; reload before saving')
-            base = self.type_standard(library.get('kind') or library_kind(library))['values']
+            effective = self.library_standard(library)
+            if guarded and reviewed != (effective['kind'], effective['type_revision'], effective['type_digest']):
+                raise UserError('The inherited standard changed while you were reviewing; reload and review again')
+            base = self.type_standard(effective['kind'])['values']
             # Keep only real differences, so later changes to the type standard still apply.
             kept = {}
             for dimension, fields in overrides.items():
                 changed = {f: v for f, v in fields.items() if base[dimension][f] != v}
                 if changed:
                     kept[dimension] = changed
+            if kept == (library.get('standard_overrides') or {}):
+                return effective
             library.update(standard_overrides=kept, standard_revision=library.get('standard_revision', 0) + 1)
             self.store.put('libraries', key, library)
             self.store.record(
@@ -211,4 +246,4 @@ class LibraryStandards:
                 library=key,
                 details={'revision': library['standard_revision']},
             )
-        return self.library_standard(library)
+            return self.library_standard(library)

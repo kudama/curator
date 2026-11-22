@@ -58,7 +58,7 @@ class ArtworkManagers(unittest.TestCase):
         plan = self.service.artwork_preview([asset['id']], 'cover', '2:3', {asset['id']: png(20, 30)})['tasks'][0]
         self.assertEqual(plan['plan']['rating_key'], '50')
         self.assertEqual(self.plex.writes, [])
-        with self.assertRaisesRegex(ValueError, 'Collection posters'):
+        with self.assertRaisesRegex(ValueError, 'correct artwork format'):
             self.service.artwork_preview([asset['id']], 'cover', '16:9', {asset['id']: png(16, 9)})
         with self.assertRaisesRegex(ValueError, 'does not belong'):
             self.service.collection_artwork_target(self.lib['id'], '999')

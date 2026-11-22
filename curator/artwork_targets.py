@@ -92,7 +92,7 @@ class ArtworkTargets:
             or kind == 'square'
             and ratio != '1:1'
             or kind == 'cover'
-            and ratio not in {'2:3', '16:9'}
+            and ratio != '2:3'
             or kind == 'logo'
             and ratio is not None
         ):
@@ -117,6 +117,14 @@ class ArtworkTargets:
         return dict(frames=frames)
 
     def artwork_target_image(self, asset_id, kind):
+        from . import development, tools
+
+        if development.root():
+            asset = self.store.get('assets', asset_id, {})
+            source = asset.get('development_artwork', {}).get(kind)
+            if not source:
+                raise UserError('No synthetic artwork for this target')
+            return tools.image_bytes(development.check_path(source))
         from .plex import Plex
 
         if kind not in Plex.ARTWORK:

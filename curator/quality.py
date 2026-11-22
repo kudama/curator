@@ -72,7 +72,7 @@ def assess(media: dict, policy: dict | None = None) -> list[dict]:
                 evidence=dict(width=width, height=height, target_long_edge=1920, preserve_aspect_ratio=True),
             )
         )
-    else:
+    elif long_edge < 3840 and short_edge < 2160:
         findings.append(
             dict(
                 kind='upscale',

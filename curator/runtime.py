@@ -1,5 +1,6 @@
 """Coordinate a supervised, idle-only restart without replaying work."""
 
+from . import development
 from contextlib import contextmanager
 import os
 import socket
@@ -24,6 +25,7 @@ class ServiceRuntime:
     def __init__(self, service, managed=False):
         self.service = service
         self.managed = managed
+        self.environment = 'development' if development.root() else 'production'
         self.instance_id = uuid.uuid4().hex
         self.hostname = socket.gethostname()
         self.build = dict(RUNNING_BUILD)
@@ -62,6 +64,7 @@ class ServiceRuntime:
     def status(self):
         with self.condition:
             return {
+                'environment': self.environment,
                 'restart_available': self.managed,
                 'restarting': self.restart_requested,
                 'instance_id': self.instance_id,
@@ -73,6 +76,9 @@ class ServiceRuntime:
                 'restart_error': self.restart_error,
                 'build': dict(self.build),
                 'capabilities': [
+                    'preview_cards',
+                    'preview_render',
+                    'preview_review',
                     'bulk_review',
                     'backup_cleanup',
                     'encoding_controls',
