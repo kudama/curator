@@ -1221,7 +1221,8 @@ class Service(
             raise UserError('Unknown cast member')
         return self.checked_client(self.library(asset['library'])).cast_image(rows[index]['thumb'])
 
-    def apply_cast(self, key, version, rows):
+    def apply_cast(self, key, version, rows, expected_cast=None):
+        """expected_cast: digest of the cast the operator reviewed; any newer cast refuses the save."""
         cast.validate_rows(rows)
         # Validate all edits and profile revisions before making any external write.
         with self.lock:
@@ -1233,6 +1234,10 @@ class Service(
                     raise UserError('Task changed or is running; refresh before saving cast')
                 asset = self.asset(task)
                 before = self.metadata_fields(asset['item'])
+                # Checked under the cast-save lock and transaction, before any upload or Plex write.
+                # The live read below must then match this same reviewed cast.
+                if expected_cast is not None and cast.digest(before['cast']) != expected_cast:
+                    raise UserError('The cast changed since you reviewed it; reopen it. Nothing was written.')
                 for row in rows:
                     profile_id = row.get('profile_id')
                     profile = profiles.get(profile_id) if profile_id else None

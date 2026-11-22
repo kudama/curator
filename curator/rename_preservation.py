@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
-from . import tools
+from . import cast, tools
 from .errors import UserError
 from .logs import log, redact
 from .plex import Plex
@@ -551,8 +551,7 @@ class RenamePreservation:
 
     @staticmethod
     def _cast_digest(rows):
-        text = '\n'.join(f"{r['name']}\t{r.get('role', '')}\t{r.get('thumb', '')}" for r in rows)
-        return hashlib.sha256(text.encode()).hexdigest()
+        return cast.digest(rows)
 
     def _restore_target(self, receipt_id, version):
         """The verified destination for a restore. Raises without writing anything."""
@@ -699,7 +698,7 @@ class RenamePreservation:
             for row in live
         ]
         try:
-            self.apply_cast(task['id'], task['version'], rows)
+            self.apply_cast(task['id'], task['version'], rows, expected_cast=cast_digest)
             outcome, error = 'restored', None
         except UserError as failure:
             outcome, error = 'failed', str(failure)

@@ -58,6 +58,12 @@ def photo_bytes(encoded):
     return data
 
 
+def digest(rows):
+    """Identity of a reviewed cast: names, roles, order and pictures."""
+    text = '\n'.join(f"{r['name']}\t{r.get('role', '')}\t{r.get('thumb', '')}" for r in rows)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def photo_id(data):
     return hashlib.sha256(data).hexdigest()
 

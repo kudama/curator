@@ -238,6 +238,53 @@ class Recovery(unittest.TestCase):
             self.service.restore_rename_portraits(view['id'], view['version'], [0], view['cast_digest'])
         self.assertEqual(self.plex.uploads, [])
 
+    def test_a_cast_edit_landing_during_the_restore_is_kept_and_nothing_is_written(self):
+        """Codex #158 P1: a newer cast that lands after the receipt check must never be overwritten."""
+        cases = {
+            'new credit': lambda roles: roles.append({'tag': 'Newcomer', 'role': 'Guest star', 'thumb': ''}),
+            'role': lambda roles: roles[1].update(role='Co-host'),
+            'order': lambda roles: roles.reverse(),
+            'photo': lambda roles: roles[2].update(thumb='https://agent.example/friend.jpg'),
+        }
+        for name, change in cases.items():
+            with self.subTest(change=name):
+                self.tearDown()
+                self.setUp()
+                receipt, view = self.lost_after_rematch()
+                real_task = self.service.metadata_task
+
+                def edit_lands_first(asset_id):
+                    # Another approved edit reaches Plex and the cache between the receipt check and the save.
+                    task = real_task(asset_id)
+                    change(self.plex.rows['100']['Role'])
+                    with self.store.transaction():
+                        asset = self.store.get('assets', asset_id)
+                        asset['item'] = copy.deepcopy(self.plex.rows['100'])
+                        self.store.put('assets', asset_id, asset)
+                    return task
+
+                newer = None
+                with patch.object(self.service, 'metadata_task', side_effect=edit_lands_first):
+                    with self.assertRaisesRegex(UserError, 'changed since you reviewed'):
+                        self.service.restore_rename_portraits(view['id'], view['version'], [0], view['cast_digest'])
+                newer = copy.deepcopy(self.plex.rows['100']['Role'])
+                self.assertEqual(self.plex.uploads, [])
+                self.assertEqual(self.plex.rows['100']['Role'], newer)
+                person = next(
+                    p for p in self.service.rename_receipt_view(view['id'])['portraits'] if p['name'] == 'Person'
+                )
+                self.assertEqual(person['restore']['state'], 'failed')
+
+    def test_apply_cast_without_a_reviewed_digest_keeps_its_existing_behaviour(self):
+        task = self.service.metadata_task(self.assets[0]['id'])
+        rows = [
+            dict(name=r['name'], role=r['role'], thumb=r['thumb'])
+            for r in self.service.metadata_fields(self.plex.rows['1'])['cast']
+        ]
+        rows[1]['role'] = 'Presenter'
+        self.service.apply_cast(task['id'], task['version'], rows)
+        self.assertEqual(self.plex.rows['1']['Role'][1]['role'], 'Presenter')
+
     def test_failed_portrait_upload_is_reported_and_the_retained_picture_is_kept(self):
         receipt, view = self.lost_after_rematch()
 
