@@ -330,6 +330,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(self.server.service.file_operation(query['id'][0]))
             if path == '/api/standards':
                 return self.reply(self.server.service.standards())
+            if path == '/api/home':
+                query = parse_qs(urlsplit(self.path).query)
+                limit = query.get('limit', ['12'])[0]
+                if not limit.isdigit():
+                    raise UserError('Choose a valid recent-arrivals limit')
+                return self.reply(
+                    self.server.service.home_summary(
+                        query.get('library', ['all'])[0], query.get('view', ['full'])[0], int(limit)
+                    )
+                )
             if path == '/api/history':
                 query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 return self.reply(self.server.service.history(**query))

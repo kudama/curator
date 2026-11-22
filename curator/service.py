@@ -44,6 +44,7 @@ from .errors import UserError
 from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
 from .library_types import observe_library
+from .home_summary import HomeSummary
 from .standard_evaluation import (
     evaluate as evaluate_standard,
     summarize as summarize_standards,
@@ -62,6 +63,7 @@ identifier = stable_id
 
 
 class Service(
+    HomeSummary,
     PreviewCards,
     PreviewRendering,
     PreviewReview,
