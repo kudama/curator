@@ -137,6 +137,7 @@ class PreviewReview:
             selection=self.preview_selection(task['asset']),
             paused=self.store.get('settings', self.pause_key(None, 'optimize'), False),
             lane='optimize',
+            batch=task.get('preview_batch'),
             publications=[
                 self.public_preview_publication(row)
                 for row in self.store.all('settings')

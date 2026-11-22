@@ -49,6 +49,7 @@ from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
 from .preview_publication import PreviewPublication
+from .preview_batches import PreviewBatches
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .nfo_export import NfoExports
@@ -64,6 +65,7 @@ class Service(
     PreviewRendering,
     PreviewReview,
     PreviewPublication,
+    PreviewBatches,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
