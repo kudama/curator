@@ -48,6 +48,23 @@ class PreviewPublication:
             or media[0]['Part'][0].get('file') != asset['plex_path']
         ):
             raise UserError('Plex movie, edition or file identity is ambiguous; rescan and review')
+        section = item.get('librarySectionID')
+        if section is not None and str(section) != str(library['key']):
+            raise UserError('Plex item belongs to another library; rescan and review')
+        guid = item.get('guid')
+        guids = item.get('Guid') or []
+        if (
+            (guid is not None and (not isinstance(guid, str) or len(guid) > 2048))
+            or not isinstance(guids, list)
+            or len(guids) > 50
+        ):
+            raise UserError('Plex canonical movie identity is unsupported; rescan and review')
+        if any(
+            not isinstance(row, dict) or not isinstance(row.get('id'), str) or not row['id'] or len(row['id']) > 2048
+            for row in guids
+        ):
+            raise UserError('Plex external movie identity is unsupported; rescan and review')
+        external_guids = sorted({row['id'] for row in guids})
         folder = Path(asset['local_path']).parent
         directory = safe_directory(folder)
         for sibling in folder.iterdir():
@@ -65,6 +82,9 @@ class PreviewPublication:
             library=library['id'],
             rating_key=asset['rating_key'],
             edition=item.get('editionTitle'),
+            guid=guid,
+            external_guids=external_guids,
+            plex_section=str(section) if section is not None else None,
             source=self.preview_source(asset),
             directory=directory,
         )
@@ -168,9 +188,35 @@ class PreviewPublication:
                         isinstance(other, dict)
                         and other.get('record_type') == 'preview_publication'
                         and other.get('destination') == record['destination']
-                        and other['status'] != 'review'
+                        and other['status'] not in {'review', 'abandoned_unattempted'}
                     ):
-                        raise UserError('Another publication owns this destination; inspect its receipt')
+                        owner = self.store.get('settings', other.get('file_job')) if other.get('file_job') else None
+                        old_stage = Path(other['destination']).with_name('.curator-trailer-' + other['id'] + '.partial')
+                        unattempted = (
+                            other['status'] == 'queued'
+                            and not other.get('staging')
+                            and owner
+                            and owner.get('record_type') == 'file_operation'
+                            and owner.get('operation') == 'preview_publish'
+                            and owner.get('payload') == {'task': other['task'], 'publication': other['id']}
+                            and owner.get('phase') in {'failed', 'interrupted', 'cancelled'}
+                            and not Path(other['destination']).exists()
+                            and not Path(other['destination']).is_symlink()
+                            and not old_stage.exists()
+                            and not old_stage.is_symlink()
+                        )
+                        if not unattempted:
+                            raise UserError('Another publication owns this destination; inspect its receipt')
+                        other.update(status='abandoned_unattempted', abandoned_at=now(), superseded_by=identity)
+                        self.store.put('settings', 'preview-publication:' + other['id'], other)
+                        self.store.event(
+                            other['task'],
+                            dict(
+                                action='unattempted trailer publication superseded by fresh approval',
+                                publication=other['id'],
+                                replacement=identity,
+                            ),
+                        )
                 job = dict(
                     id='file-operation:' + uuid.uuid4().hex,
                     record_type='file_operation',

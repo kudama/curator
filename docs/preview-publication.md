@@ -14,14 +14,19 @@ shared/root movie folders are refused. The additive filename is
 retained. Destination collisions refuse the write, including dangling symlinks.
 There is no overwrite, movie replacement, agent change or forced Plex refresh.
 
-The destination review freezes server/library/item/edition, mapped source and
-parent-directory identity, source/candidate hashes and task version. Approval is
+The destination review freezes server/library/item/edition and normalized canonical/external movie GUIDs, mapped source and
+parent-directory identity, supplied Plex library-section identity, source/candidate hashes and task version. Approval is
 idempotent and transactionally creates the shared queue record. Execution
 rechecks these guards, exclusively stages beside the movie, flushes and reads
 back its SHA256, installs without replacement, then verifies installed bytes.
 Failed or interrupted attempted writes retain their staging and receipt for
 inspection, never automatic replay. Shared file-operation recovery also prevents
-replaying waiting/running work after restart.
+replaying waiting/running work after restart. A fresh separately reviewed approval can
+supersede only a terminal failed/interrupted/cancelled file job whose durable
+publication still says queued and has no destination or deterministic staging
+file/symlink. The old receipt becomes abandoned_unattempted in the same approval
+transaction; its errors/history remain and old payload replay is refused. Active,
+attempted, saved or uncertain receipts never release automatically.
 
 **Saved locally**, **Plex association pending**, and **verified** are distinct.
 Read-only association checks require Plex to expose a trailer extra with this

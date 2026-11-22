@@ -168,3 +168,90 @@ class TrailerPublication(unittest.TestCase):
         self.assertEqual(record['status'], 'attempted')
         self.assertTrue((moved / Path(record['destination']).name).is_file())
         self.assertTrue((moved / 'film.mkv').is_file())
+
+    def test_same_key_and_file_canonical_rematch_refuses_stale_publication(self):
+        for field in ('guid', 'Guid'):
+            with self.subTest(field=field):
+                task, _ = self.candidate(('candidate-' + field).encode())
+                self.plex.rows[0].update(guid='plex://movie/first', Guid=[{'id': 'tmdb://123'}, {'id': 'imdb://tt123'}])
+                plan = self.service.preview_publication_plan(task['id'], task['version'])
+                self.plex.rows[0]['Guid'].reverse()
+                self.service.approve_preview_publication(plan['id'], uuid.uuid4().hex)
+                if field == 'guid':
+                    self.plex.rows[0]['guid'] = 'plex://movie/rematched'
+                else:
+                    self.plex.rows[0]['Guid'] = [{'id': 'tmdb://999'}]
+                with self.assertRaises(UserError):
+                    self.service.execute_preview_publication(dict(publication=plan['id']))
+                record = self.service.get_preview_publication(plan['id'])
+                self.assertFalse(Path(record['destination']).exists())
+                self.assertEqual(record['status'], 'queued')
+
+    def test_wrong_library_supplied_by_plex_is_refused_without_inventing_absent_id(self):
+        task, _, plan = self.publication()
+        self.assertIsNone(self.service.get_preview_publication(plan['id'])['target']['plex_section'])
+        self.plex.rows[0]['librarySectionID'] = '2'
+        with self.assertRaises(UserError):
+            self.service.preview_publication_plan(task['id'], task['version'])
+        self.plex.rows[0]['librarySectionID'] = '1'
+        plan = self.service.preview_publication_plan(task['id'], task['version'])
+        self.service.approve_preview_publication(plan['id'], uuid.uuid4().hex)
+        self.plex.rows[0]['librarySectionID'] = '2'
+        with self.assertRaises(UserError):
+            self.service.execute_preview_publication(dict(publication=plan['id']))
+        self.assertFalse(Path(self.service.get_preview_publication(plan['id'])['destination']).exists())
+
+    def test_fresh_explicit_approval_can_supersede_terminal_unattempted_owner_only(self):
+        task, _, first = self.publication()
+        old_request = uuid.uuid4().hex
+        old = self.service.approve_preview_publication(first['id'], old_request)
+        with self.store.transaction():
+            job = self.store.get('settings', old['file_job'])
+            job.update(phase='failed', error='Synthetic failure before any write')
+            self.store.put('settings', job['id'], job)
+        second = self.service.preview_publication_plan(task['id'], task['version'])
+        key = uuid.uuid4().hex
+        new = self.service.approve_preview_publication(second['id'], key)
+        self.assertEqual(self.service.approve_preview_publication(second['id'], key)['file_job'], new['file_job'])
+        self.assertEqual(self.service.get_preview_publication(first['id'])['status'], 'abandoned_unattempted')
+        self.assertEqual(self.store.get('settings', old['file_job'])['error'], 'Synthetic failure before any write')
+        self.assertEqual(len(self.service.file_jobs()), 2)
+        self.assertEqual(
+            self.service.approve_preview_publication(first['id'], old_request)['status'], 'abandoned_unattempted'
+        )
+        with self.assertRaises(UserError):
+            self.service.execute_preview_publication(dict(publication=first['id']))
+        self.assertFalse(Path(self.service.get_preview_publication(second['id'])['destination']).exists())
+        with self.store.transaction():
+            second_job = self.store.get('settings', new['file_job'])
+            second_job['phase'] = 'failed'
+            self.store.put('settings', second_job['id'], second_job)
+        third = self.service.preview_publication_plan(task['id'], task['version'])
+        self.service.approve_preview_publication(third['id'], uuid.uuid4().hex)
+        self.assertEqual(self.service.get_preview_publication(second['id'])['status'], 'abandoned_unattempted')
+        self.assertEqual(len(self.service.file_jobs()), 3)
+        with self.assertRaises(UserError):
+            self.service.execute_preview_publication(dict(publication=second['id']))
+        self.service.execute_preview_publication(dict(publication=third['id']))
+        self.assertEqual(self.service.get_preview_publication(third['id'])['status'], 'local_saved')
+
+    def test_terminal_attempted_or_retained_staging_owner_never_releases(self):
+        task, _, first = self.publication()
+        old = self.service.approve_preview_publication(first['id'], uuid.uuid4().hex)
+        with self.store.transaction():
+            job = self.store.get('settings', old['file_job'])
+            job['phase'] = 'failed'
+            self.store.put('settings', job['id'], job)
+        second = self.service.preview_publication_plan(task['id'], task['version'])
+        original = self.service.get_preview_publication(first['id'])
+        stage = Path(original['destination']).with_name('.curator-trailer-' + first['id'] + '.partial')
+        stage.symlink_to(self.root / 'absent-staging')
+        with self.assertRaises(UserError):
+            self.service.approve_preview_publication(second['id'], uuid.uuid4().hex)
+        stage.unlink()
+        with self.store.transaction():
+            original['status'] = 'attempted'
+            self.store.put('settings', 'preview-publication:' + first['id'], original)
+        with self.assertRaises(UserError):
+            self.service.approve_preview_publication(second['id'], uuid.uuid4().hex)
+        self.assertEqual(self.service.get_preview_publication(first['id'])['status'], 'attempted')
