@@ -39,6 +39,8 @@ Home movies and public media share the application but have different completion
 - **Curator history:** configuration/standards changes, connection failures and recovery, scans, application lifecycle events and system errors. Show readable events with technical details available beneath them. Exclude credentials.
 - Identify the initiator where available: operator, automated rule or AI-assisted action. Filter by date, outcome and library where appropriate. Active work stays in Library Manager's Queue; Home summarizes accomplishments and links to history.
 
+Seer arrivals: the proposed read-only contract is in [v2-seer-arrivals.md](v2-seer-arrivals.md) (#114).
+
 ## Discovery and Plex recommendations
 
 Candidate signals: recently added media, Rotten Tomatoes scores, social popularity, authorized library viewing activity and personal preferences/feedback. These are distinct sources with their own dates and meanings; show why an item was selected. Signal availability, account/data permissions, licensing and ranking behavior remain to be specified.
