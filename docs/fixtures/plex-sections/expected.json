@@ -1,0 +1,310 @@
+{
+ "_note": "observed = raw rules.library_kind() at the starting revision (no hint). first_connect_suggestion = library_kind() plus the video-files scanner hint (scanner normalised: trimmed, case-insensitive, trailing ' Scanner' removed, equal to 'plex video files'). standard_kind is set once from the suggestion and never changes on reconnect.",
+ "sections": [
+  {
+   "key": "1",
+   "case": "Ordinary Movies library",
+   "observed": "movie",
+   "first_connect_suggestion": "movie"
+  },
+  {
+   "key": "2",
+   "case": "Ordinary TV Shows library",
+   "observed": "show",
+   "first_connect_suggestion": "show"
+  },
+  {
+   "key": "3",
+   "case": "Other Videos (current Plex)",
+   "observed": "other_videos",
+   "first_connect_suggestion": "other_videos"
+  },
+  {
+   "key": "4",
+   "case": "Legacy Personal Media agent (Plex plans to remove legacy agents)",
+   "observed": "other_videos",
+   "first_connect_suggestion": "other_videos"
+  },
+  {
+   "key": "5",
+   "case": "Personal media moved to the Plex NFO Movie agent; scanner still Video Files",
+   "observed": "movie",
+   "first_connect_suggestion": "other_videos"
+  },
+  {
+   "key": "6",
+   "case": "Commercial films using the Plex NFO Movie agent",
+   "observed": "movie",
+   "first_connect_suggestion": "movie"
+  },
+  {
+   "key": "7",
+   "case": "Series using the Plex NFO Series agent",
+   "observed": "show",
+   "first_connect_suggestion": "show"
+  },
+  {
+   "key": "8",
+   "case": "Custom metadata provider chain (identifier format unverified)",
+   "observed": "movie",
+   "first_connect_suggestion": "movie"
+  }
+ ],
+ "reconnect_cases": [
+  {
+   "case": "Other Videos library switches agent from tv.plex.agents.none to tv.plex.agents.nfo.movie",
+   "before": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Video Files"
+   },
+   "today": {
+    "kind": "movie",
+    "effect": "silently switches to the Movies standard: cast and artwork stop counting, local AI suggestions stop"
+   },
+   "proposed": {
+    "standard_kind": "other_videos",
+    "observed_kind": "movie",
+    "notice": "Plex now reports this library as Movies (agent changed). It still follows the Other Videos standard.",
+    "history": "one curator event, level info",
+    "_why": "observed_kind is the raw library_kind(); the scanner hint is used only at first connect"
+   }
+  },
+  {
+   "case": "Movies library switches agent from tv.plex.agents.movie to tv.plex.agents.nfo.movie",
+   "before": {
+    "standard_kind": "movie",
+    "observed_kind": "movie"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Movie"
+   },
+   "today": {
+    "kind": "movie",
+    "effect": "none"
+   },
+   "proposed": {
+    "standard_kind": "movie",
+    "observed_kind": "movie",
+    "notice": null,
+    "history": "none"
+   }
+  },
+  {
+   "case": "Legacy agent removed by Plex; library becomes tv.plex.agents.none",
+   "before": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.none",
+    "scanner": "Plex Video Files Scanner"
+   },
+   "today": {
+    "kind": "other_videos",
+    "effect": "none"
+   },
+   "proposed": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos",
+    "notice": null,
+    "history": "none"
+   }
+  },
+  {
+   "case": "Personal-media NFO library connected with the hint: observed was already movie, standard other_videos; refresh with no change",
+   "before": {
+    "standard_kind": "other_videos",
+    "observed_kind": "movie"
+   },
+   "plex_now": {
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Video Files"
+   },
+   "today": {
+    "kind": "movie",
+    "effect": "silently on the Movies standard"
+   },
+   "proposed": {
+    "standard_kind": "other_videos",
+    "observed_kind": "movie",
+    "notice": null,
+    "history": "none",
+    "_why": "the difference existed already; only a change of observed_kind is reported"
+   }
+  }
+ ],
+ "schema_upgrade_cases": [
+  {
+   "case": "Movies library marked home (operator marked personal media)",
+   "before": {
+    "kind": "movie",
+    "profile": "home",
+    "type_standard_customised": {},
+    "explicit_overrides": {}
+   },
+   "after": {
+    "standard_kind": "movie",
+    "observed_kind": "movie",
+    "profile": "home",
+    "overrides": {
+     "metadata": {
+      "required": [
+       "summary",
+       "originally_available_at"
+      ],
+      "local_ai_suggestions": true
+     },
+     "cast": {
+      "enabled": true,
+      "mode": "known_people"
+     },
+     "artwork": {
+      "enabled": true
+     },
+     "encoding": {
+      "preserve_originals": true
+     }
+    }
+   },
+   "_why": "type kept; Other Videos defaults written as overrides for every field the Movies type has not customised"
+  },
+  {
+   "case": "TV Shows library marked home, with a customised TV standard and an explicit override",
+   "before": {
+    "kind": "show",
+    "profile": "home",
+    "type_standard_customised": {
+     "cast.enabled": true
+    },
+    "explicit_overrides": {
+     "metadata": {
+      "required": [
+       "summary"
+      ]
+     }
+    }
+   },
+   "after": {
+    "standard_kind": "show",
+    "observed_kind": "show",
+    "profile": "home",
+    "overrides": {
+     "metadata": {
+      "required": [
+       "summary"
+      ],
+      "local_ai_suggestions": true
+     },
+     "cast": {
+      "mode": "known_people"
+     },
+     "artwork": {
+      "enabled": true
+     },
+     "encoding": {
+      "preserve_originals": true
+     }
+    }
+   },
+   "_why": "explicit metadata.required wins; cast.enabled stays the customised TV value (no override); other fields follow the Other Videos defaults"
+  },
+  {
+   "case": "Other Videos library marked commercial",
+   "before": {
+    "kind": "other_videos",
+    "profile": "commercial",
+    "type_standard_customised": {},
+    "explicit_overrides": {}
+   },
+   "after": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos",
+    "profile": "commercial",
+    "overrides": {
+     "metadata": {
+      "required": [
+       "summary",
+       "year",
+       "genres"
+      ],
+      "local_ai_suggestions": false
+     },
+     "cast": {
+      "enabled": false,
+      "mode": "credits"
+     },
+     "artwork": {
+      "enabled": false
+     },
+     "encoding": {
+      "preserve_originals": false
+     }
+    }
+   },
+   "_why": "type kept; Movies defaults written as overrides"
+  },
+  {
+   "case": "Ordinary Movies library",
+   "before": {
+    "kind": "movie",
+    "profile": "commercial",
+    "type_standard_customised": {},
+    "explicit_overrides": {}
+   },
+   "after": {
+    "standard_kind": "movie",
+    "observed_kind": "movie",
+    "profile": "commercial",
+    "overrides": {}
+   },
+   "_why": "profile agrees with type; nothing written"
+  },
+  {
+   "case": "Other Videos library marked home",
+   "before": {
+    "kind": "other_videos",
+    "profile": "home",
+    "type_standard_customised": {},
+    "explicit_overrides": {}
+   },
+   "after": {
+    "standard_kind": "other_videos",
+    "observed_kind": "other_videos",
+    "profile": "home",
+    "overrides": {}
+   },
+   "_why": "profile agrees with type; nothing written"
+  }
+ ],
+ "scanner_normalisation": [
+  {
+   "scanner": "Plex Video Files",
+   "matches": true
+  },
+  {
+   "scanner": "Plex Video Files Scanner",
+   "matches": true
+  },
+  {
+   "scanner": " plex video files scanner ",
+   "matches": true
+  },
+  {
+   "scanner": "Plex Movie",
+   "matches": false
+  },
+  {
+   "scanner": "Plex Video Files Extra",
+   "matches": false
+  }
+ ]
+}

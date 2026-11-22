@@ -1,0 +1,119 @@
+{
+ "_note": "Synthetic /library/sections Directory entries. Scanner spelling 'Plex Video Files' was verified read-only on the operator's server (2026-11-21); 'Plex Video Files Scanner' is kept for versions that add the suffix. Agent identifiers for Plex NFO and custom providers remain UNVERIFIED.",
+ "MediaContainer": {
+  "Directory": [
+   {
+    "key": "1",
+    "title": "Synthetic movies",
+    "type": "movie",
+    "agent": "tv.plex.agents.movie",
+    "scanner": "Plex Movie",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 1,
+      "path": "/synthetic/movies"
+     }
+    ]
+   },
+   {
+    "key": "2",
+    "title": "Synthetic series",
+    "type": "show",
+    "agent": "tv.plex.agents.series",
+    "scanner": "Plex TV Series",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 2,
+      "path": "/synthetic/series"
+     }
+    ]
+   },
+   {
+    "key": "3",
+    "title": "Synthetic other",
+    "type": "movie",
+    "agent": "tv.plex.agents.none",
+    "scanner": "Plex Video Files",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 3,
+      "path": "/synthetic/other"
+     }
+    ]
+   },
+   {
+    "key": "4",
+    "title": "Synthetic legacy",
+    "type": "movie",
+    "agent": "com.plexapp.agents.none",
+    "scanner": "Plex Video Files Scanner",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 4,
+      "path": "/synthetic/legacy"
+     }
+    ]
+   },
+   {
+    "key": "5",
+    "title": "Synthetic nfo-home",
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Video Files",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 5,
+      "path": "/synthetic/nfo-home"
+     }
+    ]
+   },
+   {
+    "key": "6",
+    "title": "Synthetic nfo-films",
+    "type": "movie",
+    "agent": "tv.plex.agents.nfo.movie",
+    "scanner": "Plex Movie",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 6,
+      "path": "/synthetic/nfo-films"
+     }
+    ]
+   },
+   {
+    "key": "7",
+    "title": "Synthetic nfo-series",
+    "type": "show",
+    "agent": "tv.plex.agents.nfo.series",
+    "scanner": "Plex TV Series",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 7,
+      "path": "/synthetic/nfo-series"
+     }
+    ]
+   },
+   {
+    "key": "8",
+    "title": "Synthetic custom",
+    "type": "movie",
+    "agent": "tv.plex.agents.custom.synthetic",
+    "scanner": "Plex Movie",
+    "language": "en-US",
+    "Location": [
+     {
+      "id": 8,
+      "path": "/synthetic/custom"
+     }
+    ]
+   }
+  ]
+ }
+}

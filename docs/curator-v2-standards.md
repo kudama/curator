@@ -36,6 +36,55 @@ Otherwise, the defaults record what is done today. Encoding thresholds default t
 
 Each library still has its `profile`, and today that profile drives home-media suggestions. This change does not alter it, with one exception: a newly connected Other Videos library now starts as `home`. Existing libraries keep the profile the operator chose. When the scan starts reading standards, `profile` will be replaced by the type standard plus overrides. A library whose profile disagrees with its type (for example a Movies library marked `home`) keeps its current behaviour: a migration will write a library override that matches its old profile (confirmed by the operator).
 
+## Agent changes and the chosen standard type (proposed, #92)
+
+**Problem.** Today `kind` is *inferred* from Plex and recomputed on every connect and location refresh (`rules.library_kind`: a `movie` section with a "none" agent is Other Videos). The inference breaks on agent changes:
+
+- A personal-media library moved to the **Plex NFO Movie** agent, with the Plex Video Files scanner, becomes `movie`. It then silently switches to the Movies standard: cast and artwork stop counting, and local AI suggestions stop.
+- Plex has announced it will remove legacy agents (including `com.plexapp.agents.none`) and offers **custom metadata providers** (agent chains such as Local Media → NFO → Plex Movie). Agent identity is therefore not a stable signal of intent.
+
+Sources: [Plex: Using NFO metadata files](https://support.plex.tv/articles/using-nfo-metadata-files-with-plex/), [Plex: custom metadata providers](https://forums.plex.tv/t/announcement-custom-metadata-providers/934384). The exact NFO and custom-provider agent identifiers are **unverified**; forum examples show `tv.plex.agents.nfo.series`.
+
+**Proposal: separate what Plex reports from what the operator chose.**
+
+| Field | Meaning | Changes when |
+| --- | --- | --- |
+| `observed_kind` | What Plex reports now: the raw `library_kind()` result, with no hint applied | Every connect or refresh (as `kind` does today) |
+| `standard_kind` | The standard type the library follows | **Only** by an explicit operator change, or once at first connect |
+
+A **first-connect suggestion** is computed separately and used only once: it is `library_kind()`, except that a `movie` section whose scanner is Plex's video-files scanner is suggested as Other Videos, whatever its agent. Plex reports that scanner as `Plex Video Files` (verified read-only on the operator's server, 2026-11-21) and, in some versions, `Plex Video Files Scanner`. Curator normalises the name (trimmed, case-insensitive, with a trailing ` Scanner` removed) and matches `plex video files`. An NFO library with the Plex Movie scanner stays Movies, so not every NFO movie library becomes personal media. Curator adds `scanner` to its existing read-only `/library/sections` read.
+
+1. **First connect.** `standard_kind` is set from the suggestion. `observed_kind` is the raw value, so the two can differ from the start (for example a personal-media library on the NFO Movie agent: observed `movie`, standard `other_videos`). Configuration shows both as plain information, not a warning.
+2. **Reconnect or refresh** updates `observed_kind` only. When `observed_kind` **changes** from its previous value and the new value differs from `standard_kind`, Configuration shows a notice ("Plex now reports this library as Movies. It still follows the Other Videos standard.") and Curator history records one event. A difference that was already there is not reported again. Nothing changes automatically.
+3. **Changing the standard type** is an explicit Configuration action. Its review shows the effective-standard difference field by field; overrides are kept and shown against the new type. It bumps `standard_revision` and records history, like any other standard save.
+4. **The effective standard** uses `standard_kind`. Everything that today reads `kind` for standards reads `standard_kind`.
+5. **Schema migration** (next number, once, with the usual pre-migration backup and the version marker):
+   - `standard_kind` = the library's existing saved `kind` (`movie`, `show` or `other_videos`), so no library changes type. In particular, a library marked `home` is **not** moved to Other Videos.
+   - `observed_kind` = the same current `kind`. The next connect records the raw value.
+   - `profile` is unchanged.
+   - **Legacy profile intent is preserved through overrides, not by changing type.** For a library whose `profile` disagrees with its type (`home` on Movies or TV Shows, or `commercial` on Other Videos), the profile implies a built-in standard: `home` means the Other Videos defaults, `commercial` means the Movies defaults (or TV Shows for a show library). For each standard field:
+     - an existing **explicit library override** wins and is never changed;
+     - if the library's **type standard has been customised** for that field (its value differs from the type's built-in default), the customised value is kept: no override is written;
+     - otherwise, if the profile's built-in value differs from the type's value, that value is written as a library override.
+
+     Overrides keep only real differences, as today, and the migration records one history event per library it changed, listing the fields.
+   - Plans, approvals, tasks and receipts are never touched. Future reconnects change observations only.
+
+   This keeps each library on the type it has today, while libraries the operator marked as home media keep their personal-media requirements.
+
+Out of scope: switching agents, recreating libraries, editing Plex's database, refreshing real media, and converting profiles beyond the migration above.
+
+**Fixtures:**
+- [`fixtures/plex-sections/sections.json`](fixtures/plex-sections/sections.json): synthetic section payloads (ordinary movie and TV, current and legacy none agents, NFO personal, NFO commercial, NFO series, custom provider).
+- [`fixtures/plex-sections/expected.json`](fixtures/plex-sections/expected.json): the raw observation and first-connect suggestion per section, scanner-name normalisation, reconnect cases (including an existing difference that is not re-reported), and schema-upgrade cases with the exact overrides written.
+
+The `observed` values were checked against `rules.library_kind` at v2 `146d6ede`. The schema-upgrade overrides in the fixture were generated from a reference implementation of the migration rule above, using the built-in defaults in `curator/standards.py`.
+
+**Decisions for the operator:**
+- **K1.** Confirm the first-connect hint (a `movie` section using the video-files scanner, reported as `Plex Video Files`, is suggested as Other Videos).
+- **K2.** Partly done: a read-only `GET /library/sections` (2026-11-21) confirmed the field shape and the `Plex Video Files` scanner spelling. The NFO and custom-provider agent identifiers are still unverified; implementation must not depend on them.
+- **K3.** Approve the migration rule above: keep every library's current type, and carry a disagreeing `profile` forward as missing-field overrides (explicit overrides and customised type standards win).
+
 ## Rules and permissions
 
 Repeated cleanup choices may later be offered as explicit changes to a standard. A standard, or a preference Curator has inferred, never authorizes media changes, purchases or requests. Automation for new arrivals will need its own explicit permission per action.
