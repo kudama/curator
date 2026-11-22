@@ -116,6 +116,7 @@ function queueFileCard(job,head){
  text.append(button(job.title,()=>openQueueFile(job.id),'text-button task-name'),node('p',(state.libraries.find(l=>l.id===job.library)?.title||job.library||'People')+' · '+job.operation.replaceAll('_',' '),'muted'),node('p',job.phase==='waiting'?'Waiting':owner?.progress?'In progress':'In progress · progress unavailable','muted'));if(job.phase==='running'&&owner?.progress)text.append(progressView(owner));card.append(text,button('Details',()=>openQueueFile(job.id),'text-button'));return card;
 }
 function openQueueFile(id){
+ const nfo=(state.file_jobs||[]).find(j=>j.id===id&&j.operation==='nfo_export');if(nfo)return openNfoManifest(nfo.payload.plan);
  const job=(state.file_jobs||[]).find(j=>j.id===id);if(!job||!prepareInspector())return;openedTask=id;inspectorMode='file-operation';$('task-kind').textContent='FILE OPERATION · '+job.phase.toUpperCase();$('task-title').textContent=job.title;$('task-reason').hidden=true;
  const detail=$('task-detail'),actions=$('task-buttons');detail.replaceChildren(node('p',job.operation.replaceAll('_',' ')+' · '+(state.libraries.find(l=>l.id===job.library)?.title||job.library)),node('p',job.phase==='waiting'?'Waiting for a shared file-operation slot.':'The operation is in progress. It cannot be moved or interrupted during a file commit.','muted'));actions.replaceChildren();if(job.error)detail.append(node('p',job.error,'error'));
  if(job.payload?.task)actions.append(button('View task',()=>openTask(job.payload.task),'text-button'));
