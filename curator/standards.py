@@ -152,7 +152,7 @@ class LibraryStandards:
         """The standard a library is held to: its type's standard plus its own overrides."""
         if isinstance(library, str):
             library = self.library(library)
-        kind = library.get('kind') or library_kind(library)
+        kind = library.get('standard_kind') or library.get('kind') or library_kind(library)
         overrides = library.get('standard_overrides') or {}
         parent = self.type_standard(kind)
         return dict(
@@ -162,6 +162,7 @@ class LibraryStandards:
             overrides=overrides,
             revision=library.get('standard_revision', 0),
             values=merged(parent['values'], overrides),
+            observed_kind=library.get('observed_kind') or library_kind(library),
         )
 
     def standards(self):
@@ -169,6 +170,46 @@ class LibraryStandards:
         # application snapshot, not individually locked reads that can interleave.
         with self.store.transaction():
             return self._standards_snapshot()
+
+    def save_library_standard_kind(self, data):
+        required = {
+            'library',
+            'revision',
+            'before_kind',
+            'before_type_revision',
+            'before_type_digest',
+            'kind',
+            'type_revision',
+            'type_digest',
+        }
+        if not isinstance(data, dict) or set(data) != required:
+            raise UserError('Reload both standard types before changing this library')
+        for field in ('revision', 'before_type_revision', 'type_revision'):
+            _revision(data[field])
+        _choice(data['kind'], LIBRARY_KINDS, 'library type')
+        _choice(data['before_kind'], LIBRARY_KINDS, 'library type')
+        with self.store.transaction():
+            library = self.library(data['library'])
+            before = self.library_standard(library)
+            parent = self.type_standard(data['kind'])
+            if (before['revision'], before['kind'], before['type_revision'], before['type_digest']) != (
+                data['revision'],
+                data['before_kind'],
+                data['before_type_revision'],
+                data['before_type_digest'],
+            ) or (parent['revision'], type_digest(parent['values'])) != (data['type_revision'], data['type_digest']):
+                raise UserError('A reviewed standard changed; reload and review both types again')
+            if before['kind'] == data['kind']:
+                return before
+            library.update(standard_kind=data['kind'], standard_revision=before['revision'] + 1)
+            self.store.put('libraries', library['id'], library)
+            self.store.record(
+                'standard',
+                'Library standard type changed',
+                library=library['id'],
+                details={'before': before['kind'], 'after': data['kind'], 'revision': library['standard_revision']},
+            )
+            return self.library_standard(library)
 
     def _standards_snapshot(self):
         types = {}

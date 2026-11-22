@@ -114,10 +114,18 @@ class MetadataManagers(unittest.TestCase):
         self.assertTrue(art[0]['evidence']['discovery'])
 
     def test_scan_separates_missing_description_and_cover_and_resolves_only_discovery(self):
+        self.service.save_library_overrides(
+            self.lib['id'],
+            0,
+            {
+                'metadata': {'required': ['summary']},
+                'artwork': {'enabled': True},
+            },
+        )
         self.plex.rows[0]['summary'] = ''
         self.plex.rows[0].pop('thumb', None)
         self.plex.items = lambda library: iter([self.plex.item('10')])
-        self.service.scan_status[self.lib['id']] = {}
+        self.service.scan_status[self.lib['id']] = {'count': 0}
         technical = dict(
             width=1920, height=1080, codec='h264', duration_seconds=100, size_bytes=100, bitrate=8, streams=[]
         )

@@ -108,6 +108,7 @@ class Plex:
                 title=x['title'],
                 type=x['type'],
                 agent=x.get('agent'),
+                scanner=x.get('scanner'),
                 locations=x.get('Location', []),
             )
             for x in self.request('/library/sections').get('Directory', [])

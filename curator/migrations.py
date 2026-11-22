@@ -74,11 +74,30 @@ def _portrait_posters(store):
             store.put('libraries', library['id'], library)
 
 
+def _profile_standard_intent(store):
+    """Freeze chosen type and preserve legacy intent; no provider or task writes."""
+    from .library_types import observe_library, migrated_profile_overrides
+    from .standards import DEFAULTS
+
+    for library in store.all('libraries'):
+        library.update(observe_library(library, library))
+        kind = library['standard_kind']
+        record = store.get('settings', 'standard:' + kind) or {}
+        parent = record.get('values') or DEFAULTS[kind]
+        before = library.get('standard_overrides') or {}
+        after = migrated_profile_overrides(library, parent)
+        if before != after:
+            library.update(standard_overrides=after, standard_revision=library.get('standard_revision', 0) + 1)
+        library['profile_standard_migration'] = 1
+        store.put('libraries', library['id'], library)
+
+
 MIGRATIONS = (
     (1, _baseline),
     (2, _library_kinds),
     (3, _structured_events),
     (4, _portrait_posters),
+    (5, _profile_standard_intent),
 )
 LATEST = MIGRATIONS[-1][0]
 

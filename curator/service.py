@@ -16,7 +16,6 @@ from urllib.request import Request, urlopen
 
 from .paths import map_path, media_presence
 from .plex import Plex
-from .quality import assess
 from .organization import interleave
 from .store import now
 from . import tools, branding, cast
@@ -44,6 +43,12 @@ from .logs import log, register_secret
 from .errors import UserError
 from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
+from .library_types import observe_library
+from .standard_evaluation import (
+    evaluate as evaluate_standard,
+    summarize as summarize_standards,
+    identity as standard_identity,
+)
 from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
@@ -195,17 +200,31 @@ class Service(
 
     def state(self):
         tasks = self.store.all('tasks')
-        libraries = self.store.all('libraries')
         cfg = self.config()
         public = {k: v for k, v in cfg.items() if k != 'plex_token'}
         public['token_configured'] = bool(cfg.get('plex_token'))
         public['mage_configured'] = Mage(self.store.root).configured()
         public['branding_presets'] = cfg.get('branding_presets', branding.DEFAULT_PRESETS)
         file_jobs = self.file_jobs()
-        assets = self.store.all('assets')
+        # Re-evaluate cached facts against current standards, without provider reads,
+        # writes or work creation. A standards edit is visible before the next scan.
+        completion = {}
+        with self.store.transaction():
+            libraries = self.store.all('libraries')
+            assets = self.store.all('assets')
+            cfg = self.config()
+            for library in libraries:
+                effective = self.library_standard(library)
+                rows = []
+                for asset in assets:
+                    if asset['library'] == library['id']:
+                        asset['completion'], _ = evaluate_standard(asset, effective, cfg)
+                        rows.append(asset['completion'])
+                completion[library['id']] = summarize_standards(rows)
         return dict(
             config=public,
             libraries=libraries,
+            completion=completion,
             assets=assets + self.artwork_targets(),
             file_queue_paused=self.file_queue_paused(),
             file_queue=[dict(id=j['id'], updated=j.get('updated')) for j in file_jobs if j['phase'] == 'waiting'],
@@ -284,13 +303,14 @@ class Service(
         with self.store.transaction():
             for library in rows:
                 old = self.store.get('libraries', library['id'], {})
-                kind = library_kind(library)
+                observed = observe_library(library, old)
                 library.update(
                     {k: old[k] for k in ('standard_overrides', 'standard_revision') if k in old},
-                    kind=kind,
+                    **observed,
                     # A newly connected Other Videos library starts as home media; an
                     # existing library keeps the profile the operator chose.
-                    profile=old.get('profile', 'home' if kind == 'other_videos' else 'commercial'),
+                    profile=old.get('profile', 'home' if observed['standard_kind'] == 'other_videos' else 'commercial'),
+                    profile_standard_migration=1,
                     mappings=old.get('mappings', []),
                     themes=old.get('themes', []),
                 )
@@ -313,10 +333,11 @@ class Service(
             raise UserError('Plex no longer lists this library; refresh libraries')
         with self.store.transaction():
             latest = self.library(key)
-            for field in ('locations', 'title', 'type', 'agent'):
+            previous = dict(latest)
+            for field in ('locations', 'title', 'type', 'agent', 'scanner'):
                 if field in fresh:
                     latest[field] = fresh[field]
-            latest['kind'] = library_kind(latest)
+            latest.update(observe_library(latest, previous))
             self.store.put('libraries', key, latest)
         return latest
 
@@ -360,6 +381,12 @@ class Service(
                 old.update(status='recommendation', version=old['version'] + 1, updated=now(), error=None)
                 old.pop('approval', None)
             if old['status'] == 'recommendation':
+                previous_standard = old.get('evidence', {}).get('standard')
+                if previous_standard is not None and previous_standard != finding.get('evidence', {}).get('standard'):
+                    # Keep editable drafts, but stale browser approvals cannot queue
+                    # them using a version reviewed under another standard.
+                    old['version'] += 1
+                    old.pop('approval', None)
                 old.update(reason=finding['reason'], evidence=finding.get('evidence', {}), updated=now())
                 self.store.put('tasks', key, old)
             return old
@@ -555,27 +582,16 @@ class Service(
                             technical = tools.probe(path, config)
                             technical['preserve_quality'] = asset['preserve_quality']
                             asset['technical'] = technical
-                            findings = assess(technical, config)
                         except (ValueError, OSError, subprocess.SubprocessError) as e:
                             asset['blocked'] = str(e)[:200]
                             findings = [
                                 dict(kind='inspect', reason=asset['blocked'], evidence={'scan_error': asset['blocked']})
                             ]
-                        if not item.get('summary'):
-                            findings.append(dict(kind='metadata', reason='Description is missing', evidence={}))
-                        if not item.get('thumb'):
-                            findings.append(
-                                dict(kind='artwork', reason='Cover artwork is missing', evidence={'discovery': True})
-                            )
-                        if library['profile'] == 'home':
-                            findings.append(
-                                dict(
-                                    kind='home',
-                                    reason='Suggest a title, description, collections and cover frames using local AI',
-                                    evidence={},
-                                )
-                            )
                         with self.store.transaction():
+                            # A type/override edit during probe must not reconcile
+                            # findings from the stale scan-start standard.
+                            effective = self.library_standard(library['id'])
+                            asset['completion'], findings = evaluate_standard(asset, effective, config)
                             self.store.put('assets', aid, asset)
                             task_ids = task_index.setdefault(aid, {})
                             self.reconcile_findings(asset, findings, task_ids)
@@ -866,6 +882,7 @@ class Service(
                     raise UserError('Review a fresh folder preview before queueing these changes')
                 if task['status'] != prepared_status:
                     raise UserError('Task changed during queue validation; refresh first')
+                self._check_task_standard(prepared)
                 self.check_busy_sources(task)
                 if task['kind'] in FILE_KINDS:
                     self._file_conflicts(task)
@@ -945,6 +962,7 @@ class Service(
                 )
 
     def _prepare_queue(self, task, handbrake_preset):
+        self._check_task_standard(task)
         self.check_busy_sources(task)
         version = task['version']
         if task['status'] not in {'recommendation', 'failed', 'blocked', 'cancelled'}:
@@ -997,6 +1015,11 @@ class Service(
             retry_at=None,
         )
         return task
+
+    def _check_task_standard(self, task):
+        reviewed = task.get('evidence', {}).get('standard')
+        if reviewed and reviewed != standard_identity(self.library_standard(task['library']), self.config()):
+            raise UserError('Library standards changed; rescan and review a fresh plan before queueing')
 
     def _save(self, task, **values):
         task.update(values, updated=now())
