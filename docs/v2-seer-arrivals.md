@@ -48,6 +48,25 @@ Nothing else. In particular, Curator never calls `POST /request`, `/request/{id}
 
 **Page to completion; never stop by age.** Seerr's `sort=modified` orders by the *request's* `updatedAt`, but arrivals are defined by Plex's `addedAt` ([ordering](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/routes/request.ts#L116)). An old approved request can land today, so stopping at an age cut-off would silently drop it. Each sync reads both streams to the end and replaces the previous snapshot atomically (household request lists are small). Offset paging is not atomic: a request deleted and another created during a sync can leave the totals unchanged while a row shifts across a page boundary and is skipped. Matching totals therefore prove nothing, and Curator does not claim a complete read from them. Instead, each stream is read **twice in a row** (`sort=added`, which orders by `createdAt` with `id` as a tie-break). Curator accepts the stream only when both passes return the **same ordered list of request ids** with no duplicates. If they differ, it retries both passes once. If they still differ, the stream is not consistent: Curator keeps the last complete snapshot and shows Partial. The read is still not a database snapshot; the second pass only shows the list was stable while Curator read it. Safety bound: at most 5,000 requests per stream; above that the sync stops, keeps the last complete snapshot, and shows the Partial state. A faster incremental sync needs a proven-safe strategy and its own review; none is proposed.
 
+## 4. Fields used
+
+From each `MediaRequest`: `id`, `type`, `status`, `is4k`, `createdAt`, `updatedAt`, `requestedBy` (display name only, and only if D4 allows it), and `media`.
+
+From `media` (`MediaInfo`): `id`, `mediaType`, `tmdbId`, `tvdbId` (nullable), `status`, `updatedAt`. The stream's type, the request's `type` and `media.mediaType` must all agree (section 3).
+
+**Status values**, verified in source ([`server/constants/media.ts`](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/constants/media.ts)) rather than the OpenAPI summary:
+- Request status: 1 PENDING, 2 APPROVED, 3 DECLINED, 4 FAILED, 5 COMPLETED.
+- Media status: 1 UNKNOWN, 2 PENDING, 3 PROCESSING, 4 PARTIALLY_AVAILABLE, 5 AVAILABLE, 6 BLOCKLISTED, 7 DELETED.
+
+**Seerr moves requests to COMPLETED itself** ([`MediaSubscriber`](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/subscriber/MediaSubscriber.ts)):
+- approved or failed movie requests become COMPLETED when their media becomes AVAILABLE or DELETED
+- TV requests become COMPLETED once every requested season is available or deleted
+- pending requests whose media becomes available (for example, through someone else's request) are marked COMPLETED without being approved
+
+So a request that has landed is normally **COMPLETED (5)**, not APPROVED (2). COMPLETED means "Seerr considers this request fulfilled or no longer needed"; it says nothing about Curator's catalog, which is still checked.
+
+Any other value, or a response missing these fields, makes the response incompatible (section 8).
+
 ## 5. States Curator shows
 
 Three independent sources combine: the Seerr request status, the Seerr media status, and **Curator's own Plex catalog**.
@@ -55,15 +74,16 @@ Three independent sources combine: the Seerr request status, the Seerr media sta
 | Curator state | Condition | Shown on Home |
 | --- | --- | --- |
 | Requested | request 1 (pending), whatever the media status | No (later: an optional "waiting" count) |
-| On its way | request 2 and media 2 or 3 | No |
+| On its way | request 2 (approved) and media 1, 2 or 3 | No |
+| Request failed | request 4 | No (Seerr may later complete it; it is then treated as completed) |
 | Declined | request 3, whatever the media status | Never, even if the title is in Plex |
-| Available in Seerr, not yet in Curator's catalog | request 2 (approved), media 4 or 5, but no Plex match in Curator's last scan | "Available, not yet scanned", with the last scan time |
-| **Landed** | request 2 (approved), media 5 (movie) or 4/5 (series), **and** exactly one Plex match in a Movies or TV Shows library | **Yes**: "Requests that landed", linking to the item in Library Manager |
-| Partly landed (series) | request 2 (approved), media 4, with one Plex match | Yes, labelled "Some episodes in Plex". Season detail only if the API verifiably provides it. |
-| Ambiguous | request 2 (approved), media 4 or 5, more than one Plex match | Yes, as "In Plex (2 copies)", listing both. Never guessed. |
-| Removed | media 6, or a previous match is gone from Plex | No; dropped from the landed list |
+| Available in Seerr, not yet in Curator's catalog | request 2 or 5, media 4 or 5, but no Plex match in Curator's last scan | "Available, not yet scanned", with the last scan time |
+| **Landed** | request 2 or 5, media 5 (movie) or 4/5 (series), **and** exactly one Plex match in a Movies or TV Shows library | **Yes**: "Requests that landed", linking to the item in Library Manager |
+| Partly landed (series) | request 2 or 5, media 4, with one Plex match | Yes, labelled "Some episodes in Plex". Season detail only if the API verifiably provides it. |
+| Ambiguous | request 2 or 5, media 4 or 5, more than one Plex match | Yes, as "In Plex (2 copies)", listing both. Never guessed. |
+| Removed | media 6 (blocklisted) or 7 (deleted), whatever the request status, or a previous match is gone from Plex | No; dropped from the landed list |
 
-**Precedence:** the request status is checked first. Only an approved request (status 2) can become Available, Landed, Partly landed or Ambiguous. A pending or declined request never appears among landed requests, even when its media is available (for example, because someone else's request for the same title was approved). Seerr's own "available" alone never counts as landed. Curator's catalog is the authority for "present in Plex".
+**Precedence:** media 6 or 7 is checked first and always means Removed. Otherwise the request status decides. Only an approved (2) or completed (5) request can become Available, Landed, Partly landed or Ambiguous. A request still pending (1), declined (3) or failed (4) never appears among landed requests, even when its media is available. When Seerr itself completes a pending request because the title became available, that completion is Seerr's decision that the request is fulfilled, and it counts like any other completed request. Seerr's own "available" alone never counts as landed. Curator's catalog is the authority for "present in Plex".
 
 ## 6. Matching rules
 
@@ -128,7 +148,8 @@ Synthetic JSON shaped as in the spec:
 - two pages of results
 - **typed namespaces:** a movie request and a TV request with the **same numeric `tmdbId`**, a Plex movie and a Plex series that share that number; each request lands only on its own type
 - a response whose request `type` or `media.mediaType` disagrees with its stream (incompatible, nothing matched)
-- **request precedence:** a pending request and a declined request whose media is available and in Plex; neither appears as landed
+- **request precedence:** a pending, a declined and a failed request whose media is available and in Plex; none appears as landed
+- **completed requests:** a COMPLETED movie request with AVAILABLE media and one Plex match (Landed, the normal case); a request Seerr completed from pending; a COMPLETED request with DELETED (7) or BLOCKLISTED (6) media (Removed); an unknown status value (incompatible)
 - **unstable paging:** pass one and pass two differ (a deletion plus an insertion with equal totals); the stream is retried, then Partial keeps the previous complete snapshot
 - **old request, new arrival:** a request created and last modified months ago whose movie was added to Plex today; it appears in "last 7 days" and is not cut off by paging
 - **TV unit:** a series request matched through the series index, with episodes linked by `grandparentRatingKey`; an episode whose own GUID equals the series' TMDB number is **not** matched; season-only additions after the request
