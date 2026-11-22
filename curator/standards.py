@@ -163,6 +163,7 @@ class LibraryStandards:
             revision=library.get('standard_revision', 0),
             values=merged(parent['values'], overrides),
             observed_kind=library.get('observed_kind') or library_kind(library),
+            observation_notice=library.get('standard_type_notice'),
         )
 
     def standards(self):
@@ -202,6 +203,7 @@ class LibraryStandards:
             if before['kind'] == data['kind']:
                 return before
             library.update(standard_kind=data['kind'], standard_revision=before['revision'] + 1)
+            library.pop('standard_type_notice', None)
             self.store.put('libraries', library['id'], library)
             self.store.record(
                 'standard',

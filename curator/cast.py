@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import json
 import re
 from .errors import UserError
 
@@ -56,6 +57,13 @@ def photo_bytes(encoded):
     ):
         raise UserError('Cast pictures must be JPEG/PNG under 10 MiB')
     return data
+
+
+def digest(rows):
+    """Identity of a reviewed cast: names, roles, order and pictures."""
+    # Canonical JSON of ordered (name, role, thumb) triples: unambiguous for any characters.
+    text = json.dumps([[r['name'], r.get('role', ''), r.get('thumb', '')] for r in rows], ensure_ascii=False)
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def photo_id(data):

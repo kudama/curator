@@ -52,6 +52,7 @@ async function openStandardsEditor(target=null){
  function renderEdit(){
   reviewing=false;controls=[];fieldViews.clear();body.replaceChildren();actions.replaceChildren();
   const title=node('h3',libraryPage()?label(identity()):parent.label+' standard');body.append(title,node('p',libraryPage()?'Inherits '+parent.label+' revision '+baseRow.type_revision+' · library revision '+baseRow.revision:'Revision '+baseRow.revision+' · '+(baseRow.customized?'Customized':'Curator defaults'),'muted'),node('p','Standards describe future findings. Saving does not process, publish or approve existing work.','muted'));
+  if(libraryPage()&&baseRow.observation_notice)body.append(node('p','Plex now reports '+snapshot.types[baseRow.observed_kind].label+'. This library still follows '+parent.label+'.','standard-type-notice'));
   if(libraryPage())body.append(button('Change standard type',()=>run(async()=>{if(!canLeave())return;if(dirty())begin();setBusy(true);try{await openStandardKindReview(identity(),async()=>{snapshot=await api('standards');begin();message('Standard type saved. Rescan before queueing older recommendations.');});}finally{if(dialog.open)setBusy(false);}}),'text-button'));
   const reset=button(libraryPage()?'Use '+parent.label+' values for everything':'Reset form to Curator defaults',()=>{draft=libraryPage()?{}:structuredClone(baseRow.defaults);errors.clear();serial++;renderEdit();},'text-button');body.append(reset);
   const current=values();
