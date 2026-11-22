@@ -1,4 +1,5 @@
 import base64
+import errno
 import os
 from pathlib import Path
 import tempfile
@@ -6,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from curator.errors import UserError
+from curator.exclusive_install import install_exclusive_at
 from curator.nfo_sidecars import image_info, image_name, plan_sidecar, write_sidecar
 from test_artwork_managers import png
 
@@ -57,29 +59,34 @@ class Sidecars(unittest.TestCase):
 
     def test_competing_create_at_atomic_install_is_never_overwritten(self):
         plan = plan_sidecar(self.folder, 'movie.nfo', b'new')
-        original = os.link
 
-        def race(src, dst, **kw):
+        def race(fd, src, dst):
             self.target.write_bytes(b'foreign')
-            return original(src, dst, **kw)
+            return install_exclusive_at(fd, src, dst)
 
-        with patch('curator.nfo_sidecars.os.link', side_effect=race), self.assertRaises(UserError):
+        with patch('curator.nfo_sidecars.install_exclusive_at', side_effect=race), self.assertRaises(UserError):
             write_sidecar(plan, b'new')
         self.assertEqual(self.target.read_bytes(), b'foreign')
 
     def test_competing_update_after_retention_preserves_both(self):
         self.target.write_bytes(b'original')
         plan = plan_sidecar(self.folder, 'movie.nfo', b'new', update=True)
-        original = os.link
 
-        def race(src, dst, **kw):
+        def race(fd, src, dst):
             self.target.write_bytes(b'foreign')
-            return original(src, dst, **kw)
+            return install_exclusive_at(fd, src, dst)
 
-        with patch('curator.nfo_sidecars.os.link', side_effect=race), self.assertRaises(UserError):
+        with patch('curator.nfo_sidecars.install_exclusive_at', side_effect=race), self.assertRaises(UserError):
             write_sidecar(plan, b'new')
         self.assertEqual(self.target.read_bytes(), b'foreign')
         self.assertEqual((self.folder / plan['retention'] / 'reviewed-original').read_bytes(), b'original')
+
+    def test_unsupported_no_overwrite_filesystem_fails_explicitly_without_fallback(self):
+        plan = plan_sidecar(self.folder, 'movie.nfo', b'new')
+        with patch('curator.nfo_sidecars.install_exclusive_at', side_effect=OSError(errno.ENOTSUP, 'unsupported')):
+            with self.assertRaisesRegex(UserError, 'filesystem does not support safe no-overwrite'):
+                write_sidecar(plan, b'new')
+        self.assertEqual(list(self.folder.iterdir()), [])
 
     def test_symlinks_case_collisions_and_traversal_rejected(self):
         external = self.folder / 'other'
