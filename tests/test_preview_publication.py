@@ -111,7 +111,7 @@ class TrailerPublication(unittest.TestCase):
     def test_interrupted_install_is_retained_without_replay(self):
         _, _, plan = self.publication()
         self.service.approve_preview_publication(plan['id'], uuid.uuid4().hex)
-        with patch('curator.preview_publication.install_exclusive', side_effect=OSError('disconnected')):
+        with patch('curator.preview_publication.install_exclusive_at', side_effect=OSError('disconnected')):
             with self.assertRaises(OSError):
                 self.service.execute_preview_publication(dict(publication=plan['id']))
         record = self.service.get_preview_publication(plan['id'])
@@ -146,3 +146,25 @@ class TrailerPublication(unittest.TestCase):
         }
         self.assertEqual(self.service.reconcile_preview_publication(plan['id'])['association'], 'verified')
         self.assertFalse(self.plex.writes)
+
+    def test_directory_swap_after_final_check_never_writes_replacement_folder(self):
+        from curator.exclusive_install import install_exclusive_at
+
+        task, _, plan = self.publication()
+        self.service.approve_preview_publication(plan['id'], uuid.uuid4().hex)
+        folder = self.file.parent
+        moved = folder.with_name('retained-original-folder')
+
+        def swap(directory, stage, final):
+            folder.rename(moved)
+            folder.mkdir()
+            install_exclusive_at(directory, stage, final)
+
+        with patch('curator.preview_publication.install_exclusive_at', side_effect=swap):
+            with self.assertRaises(UserError):
+                self.service.execute_preview_publication(dict(publication=plan['id']))
+        self.assertFalse(list(folder.iterdir()))
+        record = self.service.get_preview_publication(plan['id'])
+        self.assertEqual(record['status'], 'attempted')
+        self.assertTrue((moved / Path(record['destination']).name).is_file())
+        self.assertTrue((moved / 'film.mkv').is_file())

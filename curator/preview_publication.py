@@ -1,13 +1,14 @@
 """Separately approved additive local trailers on the shared file-operation queue."""
 
 import os
+import hashlib
 from pathlib import Path, PurePosixPath
 import re
 import uuid
 from urllib.parse import quote
 from . import development, tools
 from .errors import UserError
-from .file_workflows import install_exclusive
+from .exclusive_install import install_exclusive_at
 from .store import now
 
 VIDEO_SUFFIXES = {'.mp4', '.mkv', '.mov', '.avi', '.m4v', '.ts', '.m2ts', '.wmv'}
@@ -20,6 +21,15 @@ def safe_directory(path):
         raise UserError('Trailer destination is missing or uses a symbolic link; inspect the mapping')
     stat = path.stat()
     return dict(device=stat.st_dev, inode=stat.st_ino)
+
+
+def digest_at(directory_fd, name):
+    handle = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+    with os.fdopen(handle, 'rb') as stream:
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b''):
+            digest.update(chunk)
+        return digest.hexdigest()
 
 
 class PreviewPublication:
@@ -191,18 +201,28 @@ class PreviewPublication:
         record.update(status='attempted', staging=str(stage), attempted_at=now())
         with self.store.transaction():
             self.store.put('settings', 'preview-publication:' + identity, record)
-        with candidate.open('rb') as source, stage.open('xb') as output:
-            os.chmod(stage, 0o600)
-            for chunk in iter(lambda: source.read(8 * 1024 * 1024), b''):
-                output.write(chunk)
-            output.flush()
-            os.fsync(output.fileno())
-        if tools.digest(stage) != record['sha256']:
-            raise UserError('Staged trailer differs; retained staging needs inspection')
-        self.check_preview_publication(record)
-        install_exclusive(stage, destination)
-        if tools.digest(destination) != record['sha256']:
-            raise UserError('Installed trailer differs; inspect the retained receipt')
+        directory = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            stat = os.fstat(directory)
+            if dict(device=stat.st_dev, inode=stat.st_ino) != record['target']['directory']:
+                raise UserError('Trailer directory changed; inspect retained files')
+            staged = os.open(stage.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+            with candidate.open('rb') as source, os.fdopen(staged, 'wb') as output:
+                for chunk in iter(lambda: source.read(8 * 1024 * 1024), b''):
+                    output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            if digest_at(directory, stage.name) != record['sha256']:
+                raise UserError('Staged trailer differs; retained staging needs inspection')
+            self.check_preview_publication(record)
+            install_exclusive_at(directory, stage.name, destination.name)
+            os.fsync(directory)
+            if digest_at(directory, destination.name) != record['sha256']:
+                raise UserError('Installed trailer differs; inspect the retained receipt')
+            if safe_directory(destination.parent) != record['target']['directory']:
+                raise UserError('Trailer directory moved; inspect the retained receipt')
+        finally:
+            os.close(directory)
         record.update(status='local_saved', association='pending', saved_at=now())
         with self.store.transaction():
             self.store.put('settings', 'preview-publication:' + identity, record)
