@@ -112,8 +112,11 @@ def parse_nfo(raw):
 
 def text(value):
     value = str(value)
-    if any(ord(c) < 32 and c not in '\t\n\r' for c in value):
-        raise UserError('Metadata contains unsupported XML control characters')
+    if any(
+        not (c in '\t\n\r' or 0x20 <= ord(c) <= 0xD7FF or 0xE000 <= ord(c) <= 0xFFFD or 0x10000 <= ord(c) <= 0x10FFFF)
+        for c in value
+    ):
+        raise UserError('Metadata contains characters that XML 1.0 cannot represent')
     return value
 
 
@@ -206,7 +209,9 @@ def movie_xml(item, previous=None):
     if list(ratings):
         root.append(ratings)
     ET.indent(root, space='  ')
-    return ET.tostring(root, encoding='utf-8', xml_declaration=True, short_empty_elements=True) + b'\n'
+    generated = ET.tostring(root, encoding='utf-8', xml_declaration=True, short_empty_elements=True) + b'\n'
+    parse_nfo(generated)
+    return generated
 
 
 def _add(parent, tag, value):

@@ -197,6 +197,19 @@ class NfoPackage(unittest.TestCase):
         self.assertIn('bounded preview budget', plan['items'][0]['reason'])
         self.assertFalse((self.media / 'film.nfo').exists())
 
+    def test_invalid_xml_unicode_is_blocked_before_file_proposal_or_admission(self):
+        for invalid in ('\ufffe', '\uffff', '\ud800'):
+            self.plex.rows[0]['summary'] = 'Invalid XML ' + invalid
+            self.asset['item'] = copy.deepcopy(self.plex.rows[0])
+            with self.store.transaction():
+                self.store.put('assets', self.asset['id'], self.asset)
+            plan = self.preview()
+            self.assertEqual(plan['items'][0]['phase'], 'blocked')
+            self.assertEqual(plan['items'][0]['files'], [])
+            with self.assertRaises(UserError):
+                self.queue(plan)
+        self.assertFalse((self.media / 'film.nfo').exists())
+
     def test_tv_multipart_wrong_identity_missing_mount_are_visible_blocks(self):
         for change in [
             dict(type='episode'),
@@ -239,6 +252,14 @@ class NfoPackage(unittest.TestCase):
 
 
 class XmlSafety(unittest.TestCase):
+    def test_xml_character_ranges_reject_noncharacters_and_surrogates_but_preserve_unicode(self):
+        for invalid in ('\ufffe', '\uffff', '\ud800', '\udfff'):
+            with self.subTest(codepoint=ord(invalid)), self.assertRaises(UserError):
+                movie_xml(dict(title='Family test', summary=invalid))
+        value = 'Café 🐕 <family> & pets\n\t日本語'
+        root = ET.fromstring(movie_xml(dict(title='Family test', summary=value)))
+        self.assertEqual(root.findtext('plot'), value)
+
     def test_nested_unknown_xml_refuses_update_instead_of_dropping_extensions(self):
         for previous in [
             b'<movie><title lang="fr">Title</title></movie>',
