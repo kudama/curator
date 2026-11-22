@@ -495,6 +495,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.discard_preview(data['id'], data['version'])
             elif path == '/api/preview/plan':
                 result = service.create_preview_plan(data)
+            elif path == '/api/preview/boundaries':
+                result = service.preview_boundaries(data)
             elif path == '/api/preview/generate':
                 result = service.generate_preview(data['plan'], data['request_id'])
             elif path == '/api/preview/cards/import':
