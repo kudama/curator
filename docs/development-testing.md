@@ -73,3 +73,25 @@ card dialog. JPEG/PSD import and cleanup are not implemented by this slice.
 
 This is #140 only; card settings do not imply the renderer/review features
 (#141/#142) are already available. No provider or Plex call occurs.
+
+## Local preview renderer
+
+Preview tasks use `preview_render` identity and share Encoding's order, workers,
+pause and limit with optimization. A reviewed immutable plan pins source identity,
+selected interval/audio, card versions/hashes and tool identities. Generation only
+queues; it never resumes paused work. Duplicate submission keys return the same job.
+A fresh plan is required after stale source/settings/tool inputs or a failed retry.
+
+The initial output is H.264 MP4, at most1280×720 without spatial upscaling,30fps,
+with AAC stereo when the source has audio. Selected multichannel audio is downmixed
+and limited; cards are silent. Silent sources produce silent previews. Card images
+contain/pad on black; transparent pixels are composited on black. Timings normalize
+to output frames and are returned before approval. HDR conversion is unsupported.
+FFmpeg must expose libx264 or macOS h264_videotoolbox plus AAC. Nothing is published
+or replaces the source. Interrupted jobs remain blocked and partial outputs are
+retained outside the verified-candidate index. Validation checks decoding, duration,
+geometry, codec, expected audio and source/card identity before offering review.
+
+References: [FFmpeg xfade](https://ffmpeg.org/ffmpeg-filters.html#xfade),
+[adelay](https://ffmpeg.org/ffmpeg-filters.html#adelay). Keep stream profiles and
+time bases equal before blending; apply the source audio offset once.

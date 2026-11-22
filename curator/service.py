@@ -46,6 +46,8 @@ from .rules import ACTIVE, RESERVING, library_kind, reserves_source, stable_id
 from .standards import LibraryStandards
 from .history import acting, current_initiator
 from .preview_cards import PreviewCards
+from .preview_render import PreviewRendering
+from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .plex import PlexError
 
@@ -55,6 +57,7 @@ identifier = stable_id
 
 class Service(
     PreviewCards,
+    PreviewRendering,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
@@ -703,7 +706,7 @@ class Service(
             raise UserError('Unsupported plan settings')
         with self.store.transaction():
             task = self.get_task(key)
-            if task['kind'] in FILE_KINDS | {'artwork', 'mage_generation', 'portrait'}:
+            if task['kind'] in FILE_KINDS | {'artwork', 'mage_generation', 'portrait', 'preview_render'}:
                 raise UserError('Preview a new file operation to change its plan')
             if 'handbrake_preset' in plan and (
                 task['kind'] != 'optimize'
@@ -748,6 +751,8 @@ class Service(
             candidate = self.get_task(key)
             if candidate['version'] != version:
                 raise UserError('Stale task version; refresh first')
+            if candidate['kind'] == 'preview_render':
+                raise UserError('Review a fresh preview plan to retry rendering')
             if candidate['kind'] in {'artwork', 'mage_generation', 'portrait'}:
                 raise UserError('Use artwork review; paid generation requires a verified configuration quote')
             if candidate['kind'] == 'folder_metadata':
@@ -832,6 +837,7 @@ class Service(
                     'optimize',
                     'join',
                     'mage_generation',
+                    'preview_render',
                 }:
                     raise UserError('This operation is finishing; remove its task after it completes')
                 self.cancels.add(key)
@@ -1007,7 +1013,8 @@ class Service(
                     if queue_wake not in workers or list(workers).index(queue_wake) >= self.queue_limit(queue_kind):
                         return
                     if sum(
-                        t['kind'] == queue_kind and t['status'] == 'running' for t in self.store.all('tasks')
+                        scheduling_kind(t['kind']) == scheduling_kind(queue_kind) and t['status'] == 'running'
+                        for t in self.store.all('tasks')
                     ) >= self.queue_limit(queue_kind):
                         return 'capacity_busy'
                 if queue_kind is not None and self.store.get(
@@ -1048,6 +1055,8 @@ class Service(
                         raise
                 else:
                     self.execute_file_task(task)
+            elif task['kind'] == 'preview_render':
+                self.execute_preview(task)
             elif task['kind'] == 'mage_generation':
                 self.execute_mage(task)
             elif task['kind'] == 'folder_metadata':
@@ -1706,6 +1715,8 @@ class Service(
         return path
 
     def review(self, key, version, mode, background=False):
+        if self.get_task(key)['kind'] == 'preview_render':
+            raise UserError('Preview selection is separate from movie publication')
         with self.store.transaction():
             task = self.get_task(key)
             if task.get('deleted') or task['status'] != 'awaiting_review' or task['version'] != version:

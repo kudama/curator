@@ -8,6 +8,7 @@ from pathlib import Path
 from . import tools
 from .store import now
 from .errors import UserError
+from .rules import scheduling_kind
 
 
 class RunReadiness:
@@ -69,6 +70,8 @@ class RunReadiness:
         for task in all_tasks:
             source = assets.get(task.get('asset'), {})
             duration = source.get('technical', {}).get('duration_seconds')
+            if task['kind'] == 'preview_render':
+                duration = self.preview_plan(task['plan']['preview'])['timing']['total_ms'] / 1000
             elapsed = task.get('processing_seconds')
             size = task.get('source', {}).get('size')
             output = task.get('result', {}).get('size_bytes')
@@ -123,6 +126,8 @@ class RunReadiness:
                         self.store.root / 'readiness-output.mkv',
                         task.get('tool_settings', {}),
                     )
+                if task['kind'] == 'preview_render':
+                    self.check_preview_plan(self.preview_plan(task['plan']['preview']))
                 if task['kind'] == 'join':
                     self.file_sources(task)
             except (OSError, ValueError, KeyError):
@@ -135,9 +140,15 @@ class RunReadiness:
                 )
                 continue
             duration = asset.get('technical', {}).get('duration_seconds')
+            if task['kind'] == 'preview_render':
+                duration = self.preview_plan(task['plan']['preview'])['timing']['total_ms'] / 1000
+                if scratch is not None:
+                    scratch['estimated_extra_bytes'] += int(duration * 600000)
             samples = costs.get(task['kind'])
             if samples and isinstance(duration, (int, float)) and duration > 0:
-                durations.setdefault(task['kind'], []).append(duration * statistics.median(samples[-20:]))
+                durations.setdefault(scheduling_kind(task['kind']), []).append(
+                    duration * statistics.median(samples[-20:])
+                )
             else:
                 unknown_estimates += 1
             if task['kind'] not in {'upscale', 'optimize', 'join'}:
@@ -191,8 +202,8 @@ class RunReadiness:
             row['low_space'] = row['free_bytes'] < row['estimated_extra_bytes']
         estimates = []
         running = [t for t in all_tasks if t['status'] == 'running' and (library is None or t['library'] == library)]
-        for kind in set(durations) | {t['kind'] for t in running}:
-            etas = [t.get('progress', {}).get('eta_seconds') for t in running if t['kind'] == kind]
+        for kind in set(durations) | {scheduling_kind(t['kind']) for t in running}:
+            etas = [t.get('progress', {}).get('eta_seconds') for t in running if scheduling_kind(t['kind']) == kind]
             if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in etas):
                 unknown_estimates += 1
                 continue
