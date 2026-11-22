@@ -49,7 +49,7 @@
     },
     {
      "signal": "feedback",
-     "text": "Like something you marked \u201cMore like this\u201d",
+     "text": "Like something you marked “More like this”",
      "source": "curator.feedback"
     }
    ]
@@ -77,25 +77,25 @@
     },
     {
      "signal": "feedback",
-     "text": "Like something you marked \u201cMore like this\u201d",
+     "text": "Like something you marked “More like this”",
      "source": "curator.feedback"
     }
    ]
   },
   {
-   "asset": "201",
-   "title": "Demo Series",
+   "asset": "107",
+   "title": "Sample Film 37",
    "kind": "in_library",
-   "score": 71,
+   "score": 85,
    "why": [
     {
      "signal": "added",
-     "text": "Added 6 days ago",
+     "text": "Added 10 days ago",
      "source": "plex.added"
     },
     {
      "signal": "rating",
-     "text": "Critics 70%, audience 72%",
+     "text": "Critics 90%, audience 80%",
      "source": "plex.rating"
     },
     {

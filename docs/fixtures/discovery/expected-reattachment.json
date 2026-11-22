@@ -1,0 +1,19 @@
+{
+ "_note": "Expected reattachment outcomes for feedback whose asset is gone.",
+ "reattachment": [
+  {
+   "asset": "199",
+   "outcome": "detached",
+   "reason": "No current show with tmdb://900005; the movie with that number is a different type"
+  },
+  {
+   "asset": "198",
+   "outcome": "ambiguous",
+   "candidates": [
+    "108",
+    "109"
+   ],
+   "reason": "Two current copies of this movie; feedback is not applied to either"
+  }
+ ]
+}

@@ -4,6 +4,29 @@
  "stale": false,
  "items": [
   {
+   "asset": "107",
+   "title": "Sample Film 37",
+   "kind": "in_library",
+   "score": 85,
+   "why": [
+    {
+     "signal": "added",
+     "text": "Added 10 days ago",
+     "source": "plex.added"
+    },
+    {
+     "signal": "rating",
+     "text": "Critics 90%, audience 80%",
+     "source": "plex.rating"
+    },
+    {
+     "signal": "unwatched",
+     "text": "Not watched yet",
+     "source": "plex.view"
+    }
+   ]
+  },
+  {
    "asset": "101",
    "title": "Sample Film 31",
    "kind": "in_library",
@@ -17,29 +40,6 @@
     {
      "signal": "rating",
      "text": "Critics 82%, audience 70%",
-     "source": "plex.rating"
-    },
-    {
-     "signal": "unwatched",
-     "text": "Not watched yet",
-     "source": "plex.view"
-    }
-   ]
-  },
-  {
-   "asset": "201",
-   "title": "Demo Series",
-   "kind": "in_library",
-   "score": 71,
-   "why": [
-    {
-     "signal": "added",
-     "text": "Added 6 days ago",
-     "source": "plex.added"
-    },
-    {
-     "signal": "rating",
-     "text": "Critics 70%, audience 72%",
      "source": "plex.rating"
     },
     {

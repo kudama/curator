@@ -1,9 +1,10 @@
 {
- "_note": "Synthetic Plex-shaped items. Fixture clock: 2026-11-20T21:00:00Z. lib-family is an Other Videos library and is never picked.",
+ "_note": "Synthetic Plex-shaped items. Fixture clock: 2026-11-20T21:00:00Z. First slice is Movies only: lib-family is Other Videos and never picked; TV is gated (see plex-series-gated.json). 107 has both scalar ratings and a Rating array: only the array is used. 108/109 are two copies of one movie identity.",
  "libraries": {
   "lib-films": "movie",
   "lib-series": "show",
-  "lib-family": "other_videos"
+  "lib-family": "other_videos",
+  "lib-films-4k": "movie"
  },
  "items": [
   {
@@ -150,30 +151,6 @@
    "audienceRatingImage": "rottentomatoes://image.rating.upright"
   },
   {
-   "ratingKey": "201",
-   "title": "Demo Series",
-   "type": "show",
-   "library": "lib-series",
-   "addedAt": 1794700800,
-   "Genre": [
-    {
-     "tag": "Drama"
-    }
-   ],
-   "Guid": [
-    {
-     "id": "tvdb://800001"
-    }
-   ],
-   "viewCount": 0,
-   "viewOffset": 0,
-   "duration": 6000000,
-   "rating": 7.0,
-   "ratingImage": "rottentomatoes://image.rating.ripe",
-   "audienceRating": 7.2,
-   "audienceRatingImage": "rottentomatoes://image.rating.upright"
-  },
-  {
    "ratingKey": "301",
    "title": "Birthday 2026",
    "type": "movie",
@@ -184,6 +161,84 @@
    "viewCount": 0,
    "viewOffset": 0,
    "duration": 6000000
+  },
+  {
+   "ratingKey": "107",
+   "title": "Sample Film 37",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1794355200,
+   "Genre": [
+    {
+     "tag": "Documentary"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900007"
+    }
+   ],
+   "viewCount": 0,
+   "viewOffset": 0,
+   "duration": 5400000,
+   "rating": 9.0,
+   "audienceRating": 8.0,
+   "Rating": [
+    {
+     "image": "rottentomatoes://image.rating.ripe",
+     "type": "critic",
+     "value": 9.0
+    },
+    {
+     "image": "rottentomatoes://image.rating.upright",
+     "type": "audience",
+     "value": 8.0
+    }
+   ]
+  },
+  {
+   "ratingKey": "108",
+   "title": "Sample Film 38",
+   "type": "movie",
+   "library": "lib-films",
+   "addedAt": 1790000000,
+   "Genre": [
+    {
+     "tag": "Drama"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900008"
+    }
+   ],
+   "viewCount": 1,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 7.0,
+   "audienceRating": 7.0
+  },
+  {
+   "ratingKey": "109",
+   "title": "Sample Film 38",
+   "type": "movie",
+   "library": "lib-films-4k",
+   "addedAt": 1790000000,
+   "Genre": [
+    {
+     "tag": "Drama"
+    }
+   ],
+   "Guid": [
+    {
+     "id": "tmdb://900008"
+    }
+   ],
+   "viewCount": 1,
+   "viewOffset": 0,
+   "duration": 6000000,
+   "rating": 7.0,
+   "audienceRating": 7.0
   }
  ]
 }
