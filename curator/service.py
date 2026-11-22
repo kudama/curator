@@ -48,6 +48,7 @@ from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
+from .seerr_arrivals import SeerrArrivals
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .nfo_export import NfoExports
@@ -62,6 +63,7 @@ class Service(
     PreviewCards,
     PreviewRendering,
     PreviewReview,
+    SeerrArrivals,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
