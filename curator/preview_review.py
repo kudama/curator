@@ -5,6 +5,8 @@ import re
 import subprocess
 from . import tools
 from .errors import UserError
+from .preview_boundaries import WINDOW_MS, suggest_boundaries
+from .preview_render import output_profile, timing
 from .store import now
 
 
@@ -31,6 +33,54 @@ def video_range(value, size):
 
 
 class PreviewReview:
+    def preview_boundaries(self, data):
+        if not isinstance(data, dict) or set(data) != {'asset', 'asset_version', 'start_ms', 'values'}:
+            raise UserError('Invalid scene search request')
+        info = self.preview_info(data['asset'])
+        if data['asset_version'] != info['asset_version']:
+            raise UserError('Source changed; reopen the preview editor before searching')
+        values = self.validate_preview_values(data['values'])
+        original = timing(data['start_ms'], values['requested_duration_ms'], info['duration_ms'], values)
+        source = self.asset({'asset': data['asset']})
+        media = tools.probe(source['local_path'], self.config())
+        suggestion = suggest_boundaries(
+            tools.executable(self.config(), 'ffmpeg'),
+            source['local_path'],
+            original['start_ms'],
+            original['end_ms'],
+            info['duration_ms'],
+            output_profile(media)['video_stream'],
+        )
+        # Re-open/check the source after potentially slow read-only analysis. A
+        # rename, refresh or replaced file must not attach a hint to another item.
+        if self.preview_info(data['asset'])['asset_version'] != info['asset_version']:
+            raise UserError('Source changed during scene search; keep your draft and reopen it')
+        note = 'Approximate nearby cuts; review before using. This does not establish spoiler safety.'
+        try:
+            proposed = timing(
+                suggestion['start_ms'],
+                suggestion['end_ms'] - suggestion['start_ms'],
+                info['duration_ms'],
+                values,
+            )
+            if any(abs(proposed[edge] - original[edge]) > WINDOW_MS for edge in ('start_ms', 'end_ms')):
+                raise UserError('Rounded cut is outside the adjustment window')
+        except UserError:
+            proposed = original
+            note = 'Nearby cuts do not fit the clip length or fades. Keep the manual interval.'
+        changed = (proposed['start_ms'], proposed['end_ms']) != (original['start_ms'], original['end_ms'])
+        if not any(suggestion['found'].values()):
+            note = 'No suitable nearby cut found. Keep the manual interval.'
+        return dict(
+            asset_version=info['asset_version'],
+            window_ms=WINDOW_MS,
+            original=original,
+            proposed=proposed,
+            found=suggestion['found'],
+            changed=changed,
+            note=note,
+        )
+
     def preview_selection(self, asset_id):
         return self.store.get('settings', 'preview-selection:' + asset_id, dict(revision=0, job=None))
 

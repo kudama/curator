@@ -55,6 +55,19 @@ Keep playback controls and the main action visible on desktop and phone layouts.
 
 ## 4. Local rendering and media behavior
 
+**Nearby scene cuts (PRE-02):** Advanced offers an explicit read-only search within
+three seconds of each selected edge. It samples at 12 fps using the existing
+FFmpeg, so results are approximate nearby cuts, not guaranteed exact scene
+boundaries or spoiler protection. Show the manual and proposed frame-rounded
+intervals and total duration. Only **Use nearby cuts** changes the draft; retain
+**Restore manual interval**. Generate still requires a fresh validated plan.
+No suitable cut, incompatible length/fades, unavailable tools, a busy search or
+changed source leaves manual selection available. Ignore late browser responses
+after the selection changes. One search may run at a time, with at most two
+six-second source windows and a 20-second timeout per window. No job, provider
+call, card change or publication is created by searching. Delivery: #153;
+integrated acceptance remains #145.
+
 Reuse the existing FFmpeg/ffprobe discovery, task persistence, progress reporting and output validation. No mandatory model, cloud service or additional scene-detection dependency is required for the first release. Use a bounded scan around the requested interval when supported; fall back to an explicit time-based excerpt. Avoid full-movie semantic analysis for this feature.
 
 - Read the source; never rewrite, rename, upscale or re-encode the original movie as part of preview generation.
