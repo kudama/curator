@@ -46,7 +46,7 @@ Nothing else. In particular, Curator never calls `POST /request`, `/request/{id}
 
 **Two typed streams, never `mediaType=all`.** TMDB numeric IDs are separate namespaces for movies and TV, so a bare `tmdbId` cannot say which it is. Curator fetches movies and TV separately and keeps the stream's type with every request. Each request's own `type` field (`movie` or `tv`, present on the request entity) and its `media.mediaType` must agree with the stream; any disagreement marks the response incompatible and nothing from it is matched.
 
-**Page to completion; never stop by age.** Seerr's `sort=modified` orders by the *request's* `updatedAt`, but arrivals are defined by Plex's `addedAt` ([ordering](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/routes/request.ts#L116)). An old approved request can land today, so stopping at an age cut-off would silently drop it. Each sync reads both streams to the end and replaces the previous snapshot atomically (household request lists are small). `sort=added` orders by request `createdAt` with `id` as a tie-break, so a request created during a sync shifts later pages and can repeat a row, which Curator de-duplicates by request `id`; it is never skipped. If `pageInfo.results` differs between the first and last page (for example, a request was deleted mid-sync), Curator retries the stream once, then keeps the previous snapshot and shows Partial. Safety bound: at most 5,000 requests per stream; above that the sync stops, keeps the last complete snapshot, and shows the Partial state. A faster incremental sync needs a proven-safe strategy and its own review; none is proposed.
+**Page to completion; never stop by age.** Seerr's `sort=modified` orders by the *request's* `updatedAt`, but arrivals are defined by Plex's `addedAt` ([ordering](https://github.com/seerr-team/seerr/blob/77c977fa0ca905831e1177bf7aa6f00a4a889e14/server/routes/request.ts#L116)). An old approved request can land today, so stopping at an age cut-off would silently drop it. Each sync reads both streams to the end and replaces the previous snapshot atomically (household request lists are small). Offset paging is not atomic: a request deleted and another created during a sync can leave the totals unchanged while a row shifts across a page boundary and is skipped. Matching totals therefore prove nothing, and Curator does not claim a complete read from them. Instead, each stream is read **twice in a row** (`sort=added`, which orders by `createdAt` with `id` as a tie-break). Curator accepts the stream only when both passes return the **same ordered list of request ids** with no duplicates. If they differ, it retries both passes once. If they still differ, the stream is not consistent: Curator keeps the last complete snapshot and shows Partial. The read is still not a database snapshot; the second pass only shows the list was stable while Curator read it. Safety bound: at most 5,000 requests per stream; above that the sync stops, keeps the last complete snapshot, and shows the Partial state. A faster incremental sync needs a proven-safe strategy and its own review; none is proposed.
 
 ## 5. States Curator shows
 
@@ -54,16 +54,16 @@ Three independent sources combine: the Seerr request status, the Seerr media sta
 
 | Curator state | Condition | Shown on Home |
 | --- | --- | --- |
-| Requested | request 1 | No (later: an optional "waiting" count) |
+| Requested | request 1 (pending), whatever the media status | No (later: an optional "waiting" count) |
 | On its way | request 2 and media 2 or 3 | No |
-| Declined | request 3 | Never |
-| Available in Seerr, not yet in Curator's catalog | media 4 or 5, but no Plex match in Curator's last scan | "Available, not yet scanned", with the last scan time |
-| **Landed** | media 5 (movie) or 4/5 (series), **and** exactly one Plex match in a Movies or TV Shows library | **Yes**: "Requests that landed", linking to the item in Library Manager |
-| Partly landed (series) | media 4, with one Plex match | Yes, labelled "Some episodes in Plex". Season detail only if the API verifiably provides it. |
-| Ambiguous | media 4 or 5, more than one Plex match | Yes, as "In Plex (2 copies)", listing both. Never guessed. |
+| Declined | request 3, whatever the media status | Never, even if the title is in Plex |
+| Available in Seerr, not yet in Curator's catalog | request 2 (approved), media 4 or 5, but no Plex match in Curator's last scan | "Available, not yet scanned", with the last scan time |
+| **Landed** | request 2 (approved), media 5 (movie) or 4/5 (series), **and** exactly one Plex match in a Movies or TV Shows library | **Yes**: "Requests that landed", linking to the item in Library Manager |
+| Partly landed (series) | request 2 (approved), media 4, with one Plex match | Yes, labelled "Some episodes in Plex". Season detail only if the API verifiably provides it. |
+| Ambiguous | request 2 (approved), media 4 or 5, more than one Plex match | Yes, as "In Plex (2 copies)", listing both. Never guessed. |
 | Removed | media 6, or a previous match is gone from Plex | No; dropped from the landed list |
 
-Seerr's own "available" alone never counts as landed. Curator's catalog is the authority for "present in Plex".
+**Precedence:** the request status is checked first. Only an approved request (status 2) can become Available, Landed, Partly landed or Ambiguous. A pending or declined request never appears among landed requests, even when its media is available (for example, because someone else's request for the same title was approved). Seerr's own "available" alone never counts as landed. Curator's catalog is the authority for "present in Plex".
 
 ## 6. Matching rules
 
@@ -90,7 +90,7 @@ Seerr's own "available" alone never counts as landed. Curator's catalog is the a
   - history records "Seer key changed", never the value
 - **Freshness:**
   - sync at most every 15 minutes, and when Home opens if the last sync is older than 5 minutes
-  - read both typed streams to completion and swap in the new snapshot only when both finish (section 3)
+  - read both typed streams to completion, twice, and swap in the new snapshot only when both streams' passes agree (section 3)
   - record the last successful sync time and show it ("Updated 14:02")
 - **Failure:** keep the last good result and mark it stale. After 24 hours of failure, hide the counts and show "Seer not reachable since …".
 - **No writes anywhere:** no Seerr writes, Plex writes or job creation. Matching only changes what Home displays.
@@ -103,7 +103,7 @@ Seerr's own "available" alone never counts as landed. Curator's catalog is the a
 | Unreachable | timeout, DNS or connection error, 5xx | "Seer could not be reached; showing the update from …" (stale rules apply) |
 | Not authorized | 401 or 403 | "Seer refused Curator's credential. Check the key in Configuration." No retry loop. |
 | Incompatible | `/status` version below the verified minimum, or a response missing required fields | "This Seer version is not supported yet." Nothing is matched. |
-| Partial | some pages fail | Show what loaded, and say it may be incomplete |
+| Partial | a page fails, the two passes disagree (section 3), or a stream exceeds 5,000 requests | Keep showing the **last complete snapshot** with its time and "Some requests could not be read just now". A truncated or unverified fresh read is never shown as complete or mixed into the snapshot. With no complete snapshot yet, show only the message. |
 
 Each transition is recorded once in Curator history as a connection event, like Plex failures and restores.
 
@@ -128,6 +128,8 @@ Synthetic JSON shaped as in the spec:
 - two pages of results
 - **typed namespaces:** a movie request and a TV request with the **same numeric `tmdbId`**, a Plex movie and a Plex series that share that number; each request lands only on its own type
 - a response whose request `type` or `media.mediaType` disagrees with its stream (incompatible, nothing matched)
+- **request precedence:** a pending request and a declined request whose media is available and in Plex; neither appears as landed
+- **unstable paging:** pass one and pass two differ (a deletion plus an insertion with equal totals); the stream is retried, then Partial keeps the previous complete snapshot
 - **old request, new arrival:** a request created and last modified months ago whose movie was added to Plex today; it appears in "last 7 days" and is not cut off by paging
 - **TV unit:** a series request matched through the series index, with episodes linked by `grandparentRatingKey`; an episode whose own GUID equals the series' TMDB number is **not** matched; season-only additions after the request
 - option A: `/auth/me` showing `MANAGE_REQUESTS` or `ADMIN` (refused), session expiry and one re-sign-in
