@@ -141,6 +141,43 @@ class PreviewReview(unittest.TestCase):
         self.assertEqual(error.exception.code, 416)
         error.exception.close()
 
+    def test_selection_between_delete_preflight_and_commit_cannot_be_deleted(self):
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        task, _ = self.candidate()
+        ready, release = threading.Event(), threading.Event()
+        original = self.store.transaction
+
+        @contextmanager
+        def transaction():
+            if threading.current_thread().name == 'preview-delete':
+                ready.set()
+                release.wait(3)
+            with original():
+                yield
+
+        deleted = []
+
+        def delete():
+            try:
+                self.service.action(task['id'], 'delete', 1)
+                deleted.append(True)
+            except UserError:
+                deleted.append(False)
+
+        with patch.object(self.store, 'transaction', transaction):
+            worker = threading.Thread(target=delete, name='preview-delete')
+            worker.start()
+            self.assertTrue(ready.wait(3))
+            selected = self.service.select_preview(task['id'], 1, 0)
+            release.set()
+            worker.join(3)
+            self.assertFalse(worker.is_alive())
+        self.assertEqual(deleted, [False])
+        self.assertEqual(self.service.preview_selection(task['asset']), selected)
+        self.assertFalse(self.service.get_task(task['id']).get('deleted'))
+
 
 class VideoRanges(unittest.TestCase):
     def test_full_suffix_bounds_and_invalid_multiple_ranges(self):

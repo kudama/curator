@@ -735,10 +735,6 @@ class Service(
         return task
 
     def action(self, key, action, version, handbrake_preset=None):
-        if action in {'delete', 'reject'}:
-            preview = self.get_task(key)
-            if preview['kind'] == 'preview_render' and self.preview_selection(preview['asset'])['job'] == key:
-                raise UserError('Select a replacement before removing the saved Curator preview')
         if action == 'refresh_join_metadata':
             return self.refresh_join_metadata(key, version)
         if action == 'restore_rename':
@@ -780,6 +776,12 @@ class Service(
                 raise UserError('Joined output changed')
         with self.store.transaction():
             task = self.get_task(key)
+            if (
+                action in {'delete', 'reject'}
+                and task['kind'] == 'preview_render'
+                and self.preview_selection(task['asset'])['job'] == key
+            ):
+                raise UserError('Select a replacement before removing the saved Curator preview')
             if task['version'] != version:
                 raise UserError('Stale task version; refresh first')
             if task.get('deleted') and action != 'restore_task':
