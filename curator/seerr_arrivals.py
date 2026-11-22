@@ -5,6 +5,7 @@ import re
 from .errors import UserError
 from .seerr_client import SeerrError, timestamp
 from .store import now
+from .rules import library_kind, OTHER_VIDEO_AGENTS
 
 
 def external_ids(item):
@@ -26,6 +27,34 @@ def added_at(item):
     return None
 
 
+def commercial_library(library, media_type):
+    chosen = library.get('standard_kind') or library.get('kind') or library_kind(library)
+    return (
+        bool(library.get('server'))
+        and bool(library.get('key'))
+        and library.get('type') == media_type
+        and chosen == media_type
+        and library.get('profile') != 'home'
+        and library.get('agent') not in OTHER_VIDEO_AGENTS
+        and 'personal' not in (library.get('agent') or '').lower()
+    )
+
+
+def current_catalogue_row(row, media_type):
+    item = row.get('item') or {}
+    return (
+        isinstance(item, dict)
+        and item.get('type') == media_type
+        and (media_type == 'show' or bool(row.get('id')))
+        and bool(row.get('present'))
+        and not row.get('deleted')
+        and not row.get('missing_file')
+        and not item.get('deleted')
+        and bool(row.get('rating_key'))
+        and str(item.get('ratingKey', '')) == str(row['rating_key'])
+    )
+
+
 def arrivals_view(requests, assets, libraries, *, series=(), tv_verified=False, clock=None):
     clock = clock if clock is not None else datetime.now(timezone.utc).timestamp()
     libs = {row['id']: row for row in libraries}
@@ -33,14 +62,7 @@ def arrivals_view(requests, assets, libraries, *, series=(), tv_verified=False, 
     for asset in assets:
         library = libs.get(asset.get('library'), {})
         item = asset.get('item', {})
-        if (
-            not asset.get('present', True)
-            or library.get('type') != 'movie'
-            or library.get('profile') == 'home'
-            or 'personal' in (library.get('agent') or '').lower()
-            or library.get('agent') == 'com.plexapp.agents.none'
-            or item.get('type') != 'movie'
-        ):
+        if not commercial_library(library, 'movie') or not current_catalogue_row(asset, 'movie'):
             continue
         movies.setdefault(
             (asset['library'], asset['rating_key']),
@@ -57,20 +79,13 @@ def arrivals_view(requests, assets, libraries, *, series=(), tv_verified=False, 
         for row in series:
             library = libs.get(row.get('library'), {})
             item = row.get('item', {})
-            if (
-                library.get('type') != 'show'
-                or item.get('type') != 'show'
-                or library.get('profile') == 'home'
-                or 'personal' in (library.get('agent') or '').lower()
-                or library.get('agent') == 'com.plexapp.agents.none'
-            ):
+            if not commercial_library(library, 'show') or not current_catalogue_row(row, 'show'):
                 continue
             episodes = [
                 asset
                 for asset in assets
                 if asset.get('library') == row['library']
-                and asset.get('present', True)
-                and asset.get('item', {}).get('type') == 'episode'
+                and current_catalogue_row(asset, 'episode')
                 and str(asset.get('item', {}).get('grandparentRatingKey')) == str(row['rating_key'])
             ]
             shows[(row['library'], row['rating_key'])] = dict(

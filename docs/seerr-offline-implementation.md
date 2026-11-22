@@ -39,7 +39,11 @@ because a shared media object is available. IDs are typed TMDB movie versus TV
 series identifiers; no title/year fallback. Movie matches are unique Plex
 movie-item identities, with duplicates explicit. Landing time comes from Plex
 addedAt, so old requests can appear for new arrivals; older Plex items are Already
-in Plex. Home-movie/personal-media libraries are excluded. 4K remains excluded.
+in Plex. Chosen standard/legacy kinds and both current/legacy none agents exclude
+Other Videos and home-movie/personal-media libraries even when the profile says
+commercial. Raw movie/series/episode namespaces remain distinct. Cached item
+rating keys must match their current catalog row, and missing/deleted/unobserved
+rows never become arrivals. 4K remains excluded.
 
 TV remains unavailable by default. The synthetic matcher can verify a separate
 series index and grandparentRatingKey episode relationships, but never compares

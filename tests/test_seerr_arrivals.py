@@ -250,14 +250,21 @@ class SeerrClientTests(unittest.TestCase):
 
 class MatchingTests(unittest.TestCase):
     def setUp(self):
-        self.library = dict(id='movies', type='movie', profile='commercial', agent='tv.plex.agents.movie')
+        self.library = dict(
+            id='movies',
+            server='fixture-server',
+            key='1',
+            type='movie',
+            profile='commercial',
+            agent='tv.plex.agents.movie',
+        )
         self.asset = dict(
             id='asset',
             library='movies',
             rating_key='10',
             present=True,
             title='Synthetic movie',
-            item=dict(type='movie', Guid=[{'id': 'tmdb://123'}], addedAt=1700000000),
+            item=dict(type='movie', ratingKey='10', Guid=[{'id': 'tmdb://123'}], addedAt=1700000000),
         )
 
     def view(self, row, assets=None, **kwargs):
@@ -280,6 +287,7 @@ class MatchingTests(unittest.TestCase):
         wrong = {**self.asset, 'item': dict(type='episode', Guid=[{'id': 'tmdb://123'}], addedAt=1700000000)}
         self.assertEqual(self.view(request(), assets=[wrong])['state'], 'available_not_scanned')
         copy_asset = {**copy.deepcopy(self.asset), 'id': 'other', 'rating_key': '20'}
+        copy_asset['item']['ratingKey'] = '20'
         self.assertEqual(self.view(request(), assets=[self.asset, copy_asset])['state'], 'ambiguous')
         same_item = {**copy.deepcopy(self.asset), 'id': 'same-item-other-part'}
         self.assertEqual(self.view(request(), assets=[self.asset, same_item])['state'], 'landed')
@@ -300,18 +308,25 @@ class MatchingTests(unittest.TestCase):
 
     def test_tv_unavailable_until_verified_series_index_not_episode_guid(self):
         self.assertEqual(self.view(request(kind='tv'))['state'], 'tv_unavailable')
-        library = dict(id='shows', type='show', profile='commercial')
+        library = dict(id='shows', server='fixture-server', key='2', type='show', profile='commercial')
         episode = dict(
             id='episode',
             library='shows',
             rating_key='40',
             present=True,
-            item=dict(type='episode', grandparentRatingKey='30', addedAt=1700000000, Guid=[{'id': 'tmdb://123'}]),
+            item=dict(
+                type='episode',
+                ratingKey='40',
+                grandparentRatingKey='30',
+                addedAt=1700000000,
+                Guid=[{'id': 'tmdb://123'}],
+            ),
         )
         series = dict(
             library='shows',
             rating_key='30',
-            item=dict(type='show', Guid=[{'id': 'tmdb://123'}], title='Synthetic series'),
+            present=True,
+            item=dict(type='show', ratingKey='30', Guid=[{'id': 'tmdb://123'}], title='Synthetic series'),
         )
         normalized = normalize_request(request(kind='tv', media_status=4), 'tv')
         self.assertEqual(
@@ -349,6 +364,84 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(self.view(request())['state'], 'landed')
         self.library['agent'] = 'com.plexapp.agents.none'
         self.assertEqual(self.view(request())['state'], 'available_not_scanned')
+
+    def test_personal_kind_and_none_agents_never_match_commercial_profile(self):
+        original = copy.deepcopy(self.library)
+        cases = [
+            dict(agent='tv.plex.agents.none'),
+            dict(agent='com.plexapp.agents.none'),
+            dict(agent='com.fixture.nfo', standard_kind='other_videos'),
+            dict(agent='com.fixture.nfo', kind='other_videos'),
+            dict(profile='home'),
+            dict(type='other_videos', kind='movie'),
+            dict(standard_kind='show'),
+        ]
+        for change in cases:
+            with self.subTest(change=change):
+                self.library = {**original, **change}
+                result = self.view(request())
+                self.assertEqual(result['state'], 'available_not_scanned')
+                self.assertFalse(result['matches'])
+        self.library = {**original, 'agent': 'com.fixture.nfo', 'standard_kind': 'movie'}
+        self.assertEqual(self.view(request())['state'], 'landed')
+
+    def test_missing_deleted_and_reused_movie_item_keys_never_match(self):
+        for change in [dict(missing_file=True), dict(deleted=True), dict(present=False)]:
+            with self.subTest(change=change):
+                result = self.view(request(), assets=[{**self.asset, **change}])
+                self.assertEqual(result['state'], 'available_not_scanned')
+        for item in [
+            {**self.asset['item'], 'ratingKey': 'reused-other-item'},
+            {k: v for k, v in self.asset['item'].items() if k != 'ratingKey'},
+        ]:
+            with self.subTest(item_key=item.get('ratingKey')):
+                self.assertFalse(self.view(request(), assets=[{**self.asset, 'item': item}])['matches'])
+
+    def test_tv_personal_library_and_stale_series_or_episode_rows_never_land(self):
+        library = dict(id='shows', server='fixture-server', key='2', type='show', profile='commercial')
+        episode = dict(
+            id='episode',
+            library='shows',
+            rating_key='40',
+            present=True,
+            item=dict(type='episode', ratingKey='40', grandparentRatingKey='30', addedAt=1700000000),
+        )
+        series = dict(
+            library='shows',
+            rating_key='30',
+            present=True,
+            item=dict(type='show', ratingKey='30', Guid=[{'id': 'tmdb://123'}], title='Synthetic series'),
+        )
+        normalized = normalize_request(request(kind='tv', media_status=4), 'tv')
+
+        def view(lib=library, ep=episode, show=series):
+            return arrivals_view([normalized], [ep], [lib], series=[show], tv_verified=True)[0]
+
+        self.assertEqual(view()['state'], 'partly_landed')
+        for change in [
+            dict(agent='tv.plex.agents.none'),
+            dict(agent='com.fixture.nfo', standard_kind='other_videos'),
+            dict(agent='com.fixture.nfo', kind='other_videos'),
+            dict(type='movie', kind='show'),
+        ]:
+            with self.subTest(library=change):
+                self.assertFalse(view(lib={**library, **change})['matches'])
+        for change in [
+            dict(missing_file=True),
+            dict(deleted=True),
+            dict(present=False),
+            dict(item={**series['item'], 'ratingKey': 'reused-series'}),
+        ]:
+            with self.subTest(series=change):
+                self.assertFalse(view(show={**series, **change})['matches'])
+        for change in [
+            dict(missing_file=True),
+            dict(deleted=True),
+            dict(present=False),
+            dict(item={**episode['item'], 'ratingKey': 'reused-episode'}),
+        ]:
+            with self.subTest(episode=change):
+                self.assertFalse(view(ep={**episode, **change})['matches'])
 
 
 class OfflineSnapshots(unittest.TestCase):
