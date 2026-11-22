@@ -48,6 +48,7 @@ from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
+from .preview_publication import PreviewPublication
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .nfo_export import NfoExports
@@ -62,6 +63,7 @@ class Service(
     PreviewCards,
     PreviewRendering,
     PreviewReview,
+    PreviewPublication,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
@@ -928,6 +930,14 @@ class Service(
             }
 
         keys, paths = identities(task)
+        for job in self.file_jobs():
+            if job['operation'] != 'preview_publish' or job['phase'] != 'running':
+                continue
+            owner = self.get_task(job['payload']['task'])
+            if owner['id'] != task['id']:
+                other_keys, other_paths = identities(owner)
+                if keys & other_keys or paths & other_paths:
+                    raise SourceBusy('This file is reserved by a running trailer publication')
         for other in self.store.all('tasks'):
             if other['id'] == task['id'] or (
                 other['status'] not in {'running', 'publishing'} and not other.get('cleanup_in_progress')

@@ -79,6 +79,7 @@ class ServiceRuntime:
                     'preview_cards',
                     'preview_render',
                     'preview_review',
+                    'preview_publication',
                     'bulk_review',
                     'backup_cleanup',
                     'encoding_controls',

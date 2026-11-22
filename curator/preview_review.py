@@ -137,6 +137,14 @@ class PreviewReview:
             selection=self.preview_selection(task['asset']),
             paused=self.store.get('settings', self.pause_key(None, 'optimize'), False),
             lane='optimize',
+            publications=[
+                self.public_preview_publication(row)
+                for row in self.store.all('settings')
+                if isinstance(row, dict)
+                and row.get('record_type') == 'preview_publication'
+                and row.get('task') == identity
+                and row.get('status') != 'review'
+            ],
         )
 
     def select_preview(self, identity, version, selection_revision):
