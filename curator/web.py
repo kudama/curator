@@ -229,6 +229,7 @@ class Handler(BaseHTTPRequestHandler):
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
             '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
+            '/home-summary.js': ('home-summary.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
         if path in static:

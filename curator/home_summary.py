@@ -28,8 +28,8 @@ def epoch(value):
         return None
 
 
-def library_link(library, view='files', **query):
-    return '#/library/' + quote(library, safe='') + '/' + view + ('?' + urlencode(query) if query else '')
+def library_link(library, workspace='files', **query):
+    return '#/library/' + quote(library, safe='') + '/' + workspace + ('?' + urlencode(query) if query else '')
 
 
 def work_summary(records, truncated=False):
@@ -59,7 +59,7 @@ def work_summary(records, truncated=False):
             sizes = [outcome.get('source_bytes'), outcome.get('output_bytes')]
             if all(type(n) is int and n >= 0 for n in sizes):
                 result['known_space_saved_bytes'] += max(0, sizes[0] - sizes[1])
-                result['space_saving_items'] += 1
+                result['space_saving_items'] += int(sizes[0] > sizes[1])
             else:
                 result['space_unknown_items'] += 1
     result['coverage'] = 'Recorded outcomes only; earlier completion dates are not inferred from mutable task records.'
@@ -95,7 +95,15 @@ class HomeSummary:
             work = work_summary(
                 [json.loads(data) for _, data in records[:COMPLETION_LIMIT]], len(records) > COMPLETION_LIMIT
             )
-            file_jobs = [job for job in self.file_jobs() if job.get('library') in scoped]
+            coverage = self.store.get('settings', 'home-outcome-coverage', {}).get('observed_since')
+            work['history_complete'] = bool(
+                epoch(coverage) and epoch(coverage) <= epoch(cutoff) and not work['truncated']
+            )
+            file_jobs = [
+                job
+                for job in self.store.where('settings', record_type='file_operation')
+                if job.get('library') in scoped
+            ]
             health, completions = [], {}
             for key, row in scoped.items():
                 effective = self.library_standard(row)
@@ -155,7 +163,10 @@ class HomeSummary:
             artwork = [row for row in artwork if row['count']]
             attention = {task['id'] for task in tasks if task.get('status') in {'failed', 'blocked'}}
             for job in file_jobs:
-                if job['phase'] in {'failed', 'interrupted'}:
+                if job['phase'] in {'failed', 'interrupted'} or (job.get('result') or {}).get('phase') in {
+                    'partial',
+                    'failed',
+                }:
                     attention.add(job.get('payload', {}).get('task') or job['id'])
             missing = [
                 asset

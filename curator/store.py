@@ -181,6 +181,8 @@ class Store:
         This is not a backfill: old records have no invented completion date or
         initiator. Publication bookkeeping shares its task's deduplication key.
         """
+        if not self.get('settings', 'home-outcome-coverage'):
+            self.put('settings', 'home-outcome-coverage', dict(record_type='completion_coverage', observed_since=now()))
         task = value if table == 'tasks' else None
         if task is None and value.get('operation') in {'publish', 'file_task'}:
             task = self.get('tasks', value.get('payload', {}).get('task'))

@@ -206,7 +206,7 @@ class Home(unittest.TestCase):
         work = self.service.home_summary()['work']
         self.assertEqual(work['space_unknown_items'], 1)
         self.assertEqual(work['initiators']['unknown'], 1)
-        self.assertFalse(work['history_complete'])
+        self.assertTrue(work['history_complete'])
 
     def test_file_queue_count_and_attention_do_not_duplicate_task_bookkeeping(self):
         self.task('blocked', status='blocked')
