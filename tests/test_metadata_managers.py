@@ -13,6 +13,55 @@ class MetadataManagers(unittest.TestCase):
     def preview(self, fields):
         return self.service.metadata_preview([{'id': self.task['id'], 'version': self.task['version']}], fields)
 
+    def metadata_followup(self, revision):
+        finding = dict(
+            kind='metadata', reason='New standard requires studio', evidence={'standard': {'revision': revision}}
+        )
+        with self.store.transaction():
+            current = self.service.task(self.asset, finding)
+            current.update(status='applied', result={'verified': True})
+            self.store.put('tasks', current['id'], current)
+            self.service.reconcile_findings(
+                self.asset, [dict(finding, evidence={'standard': {'revision': revision + 1}})]
+            )
+            return self.service.task(self.asset, finding)
+
+    def test_metadata_followup_cannot_be_overwritten_by_another_home_preview(self):
+        current = self.metadata_followup(1)
+        with self.store.transaction():
+            home = self.service.task(self.asset, dict(kind='home', reason='AI assist'))
+        first = self.service.metadata_preview(
+            [{'id': home['id'], 'version': home['version']}], {'studio': 'First studio'}
+        )
+        second = self.service.metadata_preview(
+            [{'id': current['id'], 'version': current['version']}], {'summary': 'Second approved summary'}
+        )
+        self.assertEqual(first['rows'][0]['destination_id'], current['id'])
+        self.service.approve_metadata_preview(second['id'])
+        before = copy.deepcopy(self.service.get_task(current['id']))
+        with self.assertRaisesRegex(ValueError, 'destination task changed'):
+            self.service.approve_metadata_preview(first['id'])
+        self.assertEqual(self.service.get_task(current['id']), before)
+        with self.assertRaisesRegex(ValueError, 'queued metadata work'):
+            self.service.metadata_preview([{'id': home['id'], 'version': home['version']}], {'studio': 'Third studio'})
+        self.assertEqual(self.plex.writes, [])
+
+    def test_metadata_preview_pins_destination_id_even_when_followup_versions_match(self):
+        first = self.metadata_followup(1)
+        with self.store.transaction():
+            home = self.service.task(self.asset, dict(kind='home', reason='AI assist'))
+        preview = self.service.metadata_preview(
+            [{'id': home['id'], 'version': home['version']}], {'studio': 'Reviewed'}
+        )
+        second = self.metadata_followup(3)
+        self.assertNotEqual(first['id'], second['id'])
+        self.assertEqual(first['version'], second['version'])
+        before = copy.deepcopy(self.store.all('tasks'))
+        with self.assertRaisesRegex(ValueError, 'destination task changed'):
+            self.service.approve_metadata_preview(preview['id'])
+        self.assertEqual(self.store.all('tasks'), before)
+        self.assertEqual(self.plex.writes, [])
+
     def test_preview_and_approval_only_queue_and_keep_unchecked_labels(self):
         self.plex.rows[0]['Label'] = [{'tag': 'Keep this private label'}]
         p = self.preview(
@@ -114,10 +163,18 @@ class MetadataManagers(unittest.TestCase):
         self.assertTrue(art[0]['evidence']['discovery'])
 
     def test_scan_separates_missing_description_and_cover_and_resolves_only_discovery(self):
+        self.service.save_library_overrides(
+            self.lib['id'],
+            0,
+            {
+                'metadata': {'required': ['summary']},
+                'artwork': {'enabled': True},
+            },
+        )
         self.plex.rows[0]['summary'] = ''
         self.plex.rows[0].pop('thumb', None)
         self.plex.items = lambda library: iter([self.plex.item('10')])
-        self.service.scan_status[self.lib['id']] = {}
+        self.service.scan_status[self.lib['id']] = {'count': 0}
         technical = dict(
             width=1920, height=1080, codec='h264', duration_seconds=100, size_bytes=100, bitrate=8, streams=[]
         )

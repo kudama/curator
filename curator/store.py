@@ -139,6 +139,16 @@ class Store:
 
     def put(self, table, key, value):
         self._table(table)
+        completed = isinstance(value, dict) and (
+            table == 'tasks'
+            and value.get('status') == 'applied'
+            or (
+                table == 'settings'
+                and value.get('record_type') == 'file_operation'
+                and value.get('phase') == 'complete'
+            )
+        )
+        before_completion = self.get(table, key, {}) if completed else {}
         if (
             table == 'tasks'
             and value.get('status') == 'queued'
@@ -157,6 +167,43 @@ class Store:
         self.db.execute(
             f'INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
             (str(key), json.dumps(value, allow_nan=False)),
+        )
+        if completed and (
+            before_completion.get('status') != 'applied'
+            if table == 'tasks'
+            else before_completion.get('phase') != 'complete'
+        ):
+            self._record_completion(table, key, value)
+
+    def _record_completion(self, table, key, value):
+        """One durable observed outcome, independent of later mutable task status.
+
+        This is not a backfill: old records have no invented completion date or
+        initiator. Successful publication/file-task wrappers are bookkeeping for
+        an already-recorded task transition, never another completed job.
+        """
+        if table == 'settings' and value.get('operation') in {'publish', 'file_task'}:
+            return
+        if not self.get('settings', 'home-outcome-coverage'):
+            self.put('settings', 'home-outcome-coverage', dict(record_type='completion_coverage', observed_since=now()))
+        task = value if table == 'tasks' else None
+        identity = f'task:{task["id"]}:{task.get("version")}:{task.get("queue_attempt", "")}' if task else str(key)
+        source = (task or {}).get('source') or {}
+        result = (task or {}).get('result') or {}
+        source = source if isinstance(source, dict) else {}
+        result = result if isinstance(result, dict) else {}
+        outcome = dict(
+            identity=identity,
+            kind=task.get('kind') if task else value.get('operation'),
+            published=bool(task and task.get('published')),
+            source_bytes=source.get('size'),
+            output_bytes=result.get('size_bytes'),
+            initiator=(task or value).get('queued_by'),
+        )
+        self.event(
+            task['id'] if task else None,
+            dict(action='completed', record_type='completion', outcome=outcome),
+            library=value.get('library'),
         )
 
     CURATOR_HISTORY_LIMIT = 5000

@@ -74,8 +74,7 @@ class ScanScale(unittest.TestCase):
             patch('curator.service.media_presence', return_value={'state': 'present'}),
             patch('curator.service.map_path', side_effect=lambda file, mappings: Path(file)),
             patch('curator.service.tools.fingerprint', return_value={'size': 1}),
-            patch('curator.service.tools.probe', return_value={}),
-            patch('curator.service.assess', return_value=[dict(kind='upscale', reason='Low resolution', evidence={})]),
+            patch('curator.service.tools.probe', return_value=dict(width=1280, height=720)),
             patch.object(Service, '_folder_changes', lambda self, item, defaults: (None, {'summary': 'x'}, {})),
         ):
             service._scan(self.library)
