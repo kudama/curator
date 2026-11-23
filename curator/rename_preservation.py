@@ -367,7 +367,7 @@ class RenamePreservation:
                 return dict(
                     state='not_proposed', reason='Captured values cannot be written back as they are', **excluded
                 )
-            task = self.store.get('tasks', stable_id(current['id'], 'metadata')) or self.task(
+            task = self.store.get('tasks', self.finding_task_key(current, {'kind': 'metadata'})) or self.task(
                 current, dict(kind='metadata', reason='Restore metadata Plex lost after a rename')
             )
             existing = (task.get('plan') or {}).get('changes')
