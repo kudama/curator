@@ -36,6 +36,11 @@ encoding thresholds. Changing that identity advances only an unsubmitted
 recommendation's review version, preserving its editable draft. Queue admission
 checks it again before and inside its final transaction. Submitted plans, approvals,
 retained output and receipts are never rewritten by a standards change.
+A newly required finding after completion creates a separate unapproved attempt
+linked to the completed task. Repeated scans reuse that current attempt; the old
+plan and retained-output/publication receipts stay available unchanged. Final scan
+evaluation reads both current standards and global thresholds in its commit
+transaction, even when either changed during the probe.
 
 ## Legacy profile and Plex-agent compatibility
 
