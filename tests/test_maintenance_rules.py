@@ -174,3 +174,46 @@ class Rules(unittest.TestCase):
         self.clock += timedelta(seconds=60)
         self.service.observe_maintenance_scan(self.lib['id'], [renamed['id']])
         self.assertFalse(self.service.maintenance_arrivals(self.lib['id']))
+
+    def test_configuration_http_saves_only_explicit_disabled_draft_and_rejects_enable(self):
+        import http.cookiejar
+        import json
+        import threading
+        from urllib.error import HTTPError
+        from urllib.request import build_opener, HTTPCookieProcessor, Request
+        from curator.web import App
+
+        self.harness()
+        server = App(('127.0.0.1', 0), self.service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = 'http://127.0.0.1:' + str(server.server_port)
+        opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+        def post(payload):
+            request = Request(
+                base + '/api/maintenance',
+                data=json.dumps(payload).encode(),
+                headers={'Content-Type': 'application/json', 'X-Curator-Request': '1', 'Origin': base},
+            )
+            with opener.open(request) as response:
+                return json.load(response)
+
+        try:
+            opener.open(base + '/').close()
+            with opener.open(base + '/api/maintenance') as response:
+                initial = json.load(response)
+            self.assertFalse(initial['policy_accepted'])
+            self.assertTrue(initial['machine_paused'])
+            saved = post(dict(operation='save_rule', id=None, revision=0, values=self.values))
+            self.assertFalse(saved['enabled'])
+            with self.assertRaises(HTTPError) as error:
+                post(dict(operation='preview', id=saved['id'], revision=1))
+            self.assertEqual(error.exception.code, 400)
+            self.assertEqual(self.plex.writes, [])
+            self.assertEqual(self.service.file_jobs(), [])
+            self.assertIsNone(self.service.maintenance_scheduler_thread)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(5)

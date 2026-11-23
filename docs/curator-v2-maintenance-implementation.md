@@ -1,0 +1,42 @@
+# New-arrival maintenance implementation (#118)
+
+Engineering checkpoint: 2026-11-22. Implements the explicit permission contract proposed in #117 / PR #123. This document does **not** record operator acceptance or a production enablement. `curator.maintenance.POLICY_ACCEPTED` remains false until independent policy/configuration review is accepted; every real rule remains disabled. Unit tests patch that gate only inside disposable synthetic state. Package/release acceptance remains #120.
+
+## Configuration and permission
+
+Workspace Settings → New-arrival maintenance opens a separate editor; the underlying workspace settings draft remains intact. Operators may prepare disabled rules and finite aggregate limits. Each rule has one library, one action, exact existing mapped Plex roots, explicit path/asset exclusions, named calendar timezone, permitted windows, quiet hours, exact options and finite allowances. No default root selection or default item/byte grant is saved on opening the editor. A saved draft revokes its previous permission.
+
+Machine aggregate, shared library and individual rule allowances are all required. Editing any shared cap revokes unstarted approvals. Enable uses a separate immutable digest preview tied to rule revision, effective inherited standard and resolved global thresholds, mapped library scope, source baseline generation/watermark, tool/model/preset bytes, configured Plex connection, implementation contract and execution host/state directory identity. One enabled Scan permission per library coalesces schedules. Clock rollback holds work. DST allowed windows shrink and quiet windows expand.
+
+Pause/resume/disable are explicit operator actions. Global maintenance starts paused. Rule activation never resumes a task or File operations queue. Changing standards, mappings, tools, limits or runtime implementation requires a fresh permission review. Preferences and Home/presence reads grant no execution. Nothing backfills the old catalogue, and no previous unfinished task is replayed automatically.
+
+## Supported action boundaries
+
+- **Scan new arrivals:** explicit cadence of 15, 30, 60, 180, 360 or 1440 minutes. The exact reviewed options include complete-inventory cap (100–10000 records), page size, maximum pages per verification pass, request timeout, overall scan deadline, response bytes, per-probe timeout and stdout/stderr file bounds. Inventory admission and later source observations consume the shared item allowance. Empty inventory runs still consume an admitted run item.
+- **Prepare upscale/encoding plans:** creates an unapproved recommendation only. No processing tool starts; normal manual review/approval remains required.
+- **Process separate upscale/encoding outputs:** existing typed task workers run only eligible maintenance jobs under the exact frozen tool settings. Installed executables and preset/model artifacts must be verifiable. A dedicated child installs `RLIMIT_FSIZE` before exec (no threaded `preexec_fn`); unsupported enforcement fails closed. Original files are preserved; validated output goes to manual review. No automatic publication.
+- **Local AI suggestions:** explicit draft contract exists, but activation is unavailable until local-only model/provider mode and exact model artifact digest can be independently verified. An Ollama URL on localhost is not sufficient evidence. Existing manual AI assist is unchanged. This is an explicit remaining capability limitation, not an implicit provider permission.
+
+Metadata/cast edits, artwork generation/publication, provider spend, joining, renaming, moving/deleting originals, cleanup, collections, Plex writes/refreshes and NFO export are never standing maintenance actions.
+
+## Bounded scan behavior
+
+Scans use assetless durable **File operations jobs**, the existing shared capacity and its pause/restart behavior. Maintenance-only workers never drain manually queued File jobs or unpause a stopped queue. Queue Details opens the exact retained scan receipt in Configuration, including scope, windows, caps, inventory digest/count/request count, individual observations and errors.
+
+The adapter requests only the configured Plex connection, verifies its server identity, then obtains **two complete matching paginated inventories**. Every response, page count and request duration is bounded, with a 16 MiB in-memory inventory bound. Overflow, missing/changed totals, duplicate identities, incomplete pages or differing passes abort before any filesystem/media probe. Large libraries need an explicitly reviewed higher cap or a manual scan. No undocumented new-arrival sort is assumed and the existing unbounded `Plex.items()` generator is not used.
+
+After complete verification, metadata identities, exact roots and exclusions are checked before path resolution. Old catalogue identities, rematches, inode aliases and conservative possible-copy aliases remain manual. Each new candidate is reserved atomically before its first filesystem observation, then needs a second unchanged observation at least 30 seconds later. Later observations consume another per-run/day item and there are at most three total attempts. No complete media asset replaces an existing manually edited asset.
+
+The probe uses a forced known local container demuxer, disables MOV external data references, allows only the local file protocol and pins the input descriptor through exec. Unsupported containers stay manual. The executable is pinned, stdout and stderr each have a hard file-size limit, and timeout kills the process group. Source fingerprint changes block automatic follow-up. Scratch reservations account for both probe streams. Canonical #107 evaluation is required before a ready arrival or downstream plan can be admitted; absent/unknown/stale standard facts block, without a historical-finding fallback.
+
+## Shared allowances and recovery
+
+The service lock and one database transaction cover source/action dedupe, permanent claim, shared machine/library/rule per-run/day allowance reservation, audit and task admission. Rules cannot multiply permissions by splitting or changing revisions. Delayed starts crossing midnight charge the new named day without refunding the previous conservative reservation. Minimum free space and outstanding reserved bounds are rechecked before exec; processing reserves space for both its capped output and capped tool log. A polling file-size check is diagnostic only; the child resource limit provides the enforced bound.
+
+Actual subprocess/request starts share the revoke lock. Disable that wins before start prevents the action. An already-started separate-output step may finish, and its original rule provenance remains. Cancellation targets the entire subprocess group. Failed or uncertain actions retain their claims and partial output, never automatically refund/retry. Restart blocks queued processing and scan jobs; an interrupted attempted probe pauses its rule and retains bounded artifacts for inspection.
+
+## Validation and outstanding acceptance
+
+Synthetic tests cover permission/revision guards, baseline/rematch exclusion, complete-inventory failure before media access, cadence coalescing, manual queue isolation and pause behavior, hard child output limits, source/standard changes, concurrent duplicate admission, actual start-versus-revocation serialization, midnight accounting and restart without replay. The browser workflow was exercised on a localhost-only empty synthetic library: Settings entry, required-window validation, saved disabled draft and rejected enable while policy acceptance is pending. No real connection, provider call, live rule or production media was used.
+
+Independent reviewer/controller must assess the exact PR head, Configuration design and #117 permission contract. Integration with the canonical #107 evaluator must be checked after that branch merges. Local AI activation remains unavailable as described above; no production execution acceptance is claimed.

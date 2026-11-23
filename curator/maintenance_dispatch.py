@@ -154,6 +154,17 @@ class MaintenanceDispatch:
                                     )
                                 )
                             continue
+                        if rule['values']['action'] == 'scan' and arrival.get('scan_claim'):
+                            with self.store.transaction():
+                                results.append(
+                                    self.maintenance_decision(
+                                        rule,
+                                        arrival,
+                                        'complete',
+                                        'This new arrival was already assessed by its reserved bounded Scan probe',
+                                    )
+                                )
+                            continue
                         group = action_group(rule['values']['action'])
                         claim_id = 'maintenance-claim:' + digest((library, arrival['id'], group))
                         if self.store.get('settings', claim_id):

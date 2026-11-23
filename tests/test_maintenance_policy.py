@@ -131,3 +131,45 @@ class HardLimit(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 78)
                 self.assertFalse(marker.exists())
+
+    def test_process_group_cancellation_stops_descendant_output(self):
+        import time
+        from curator.maintenance_execution import stop_group
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            heartbeat = root / 'heartbeat'
+            child = root / 'grandchild.py'
+            child.write_text(
+                'import pathlib,time,sys\np=pathlib.Path(sys.argv[1])\nwhile True:\n p.write_text(str(time.monotonic()))\n time.sleep(.02)\n'
+            )
+            parent = root / 'parent.py'
+            parent.write_text(
+                'import subprocess,sys,time\nsubprocess.Popen([sys.executable,sys.argv[1],sys.argv[2]])\ntime.sleep(30)\n'
+            )
+            command = [
+                sys.executable,
+                str(Path(__file__).parents[1] / 'curator' / 'limited_exec.py'),
+                '4096',
+                '--',
+                sys.executable,
+                str(parent),
+                str(child),
+                str(heartbeat),
+            ]
+            process = subprocess.Popen(
+                command, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while not heartbeat.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(heartbeat.exists())
+                stop_group(process, hard=True)
+                process.wait(timeout=5)
+                first = heartbeat.read_bytes()
+                time.sleep(0.1)
+                self.assertEqual(heartbeat.read_bytes(), first)
+            finally:
+                stop_group(process, hard=True)
+                process.wait(timeout=5)

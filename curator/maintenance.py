@@ -169,6 +169,7 @@ class MaintenanceRules:
             connection=digest(self.config().get('plex_url')),
             tools=self.maintenance_tool_snapshot(rule['values'], captured=captured),
             output_bound=self.maintenance_output_bound(rule),
+            storage_bound=self.maintenance_output_bound(rule) * (2 if rule['values']['action'] in PROCESSING else 1),
             queue_limit=self.queue_limit('upscale' if rule['values']['action'].endswith('upscale') else 'optimize')
             if rule['values']['action'] in PROCESSING
             else None,

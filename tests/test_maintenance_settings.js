@@ -1,0 +1,45 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+class Element{
+ constructor(tag,text='',cls=''){this.tag=tag;this.textContent=text||'';this.children=[];this.className=cls;this.classList={add(){}};this.value='';this.checked=false;this.open=false;}
+ append(...nodes){this.children.push(...nodes);}
+ replaceChildren(...nodes){this.children=nodes;}
+ setAttribute(key,value){this[key]=value;}
+ addEventListener(){}
+ showModal(){this.open=true;}
+ close(){this.open=false;}
+ remove(){}
+}
+function harness(snapshot,respond=()=>{}){
+ const document={body:new Element('body'),getElementById(){return null;}},calls=[];
+ const node=(tag,text,cls)=>new Element(tag,text,cls),button=(text,fn,cls)=>{const el=node('button',text,cls);el.onclick=fn;return el;};
+ const context=vm.createContext({window:{addEventListener(){}},document,node,button,URLSearchParams,confirm:()=>true,run:fn=>fn(),api:async(route,data)=>{calls.push({route,data});if(route==='maintenance'&&!data)return structuredClone(snapshot);return respond(route,data);}});
+ vm.runInContext(fs.readFileSync(path.join(__dirname,'../curator/static/maintenance-settings.js'),'utf8'),context);
+ function nodes(root=document.body){return [root,...root.children.flatMap(child=>child instanceof Element?nodes(child):[])];}
+ const find=(tag,text)=>nodes().find(el=>el.tag===tag&&el.textContent===text);
+ return {calls,context,find,nodes,open:()=>vm.runInContext('openMaintenanceSettings()',context)};
+}
+const snapshot=()=>({policy_accepted:false,machine_paused:true,libraries:[{id:'synthetic:1',title:'Synthetic family',roots:['/synthetic'],paused:false,caps:null}],machine_caps:null,rules:[],cadences:[15,30,60,180,360,1440],receipts:[],limitations:['No automatic publication']});
+test('saving disabled draft sends no execution/enable permission and leaves roots explicit',async()=>{
+ const h=harness(snapshot());await h.open();await h.find('button','Create disabled rule').onclick();
+ assert.equal(h.find('label','/synthetic').children[0].checked,false);
+ h.find('label','Rule name').children[0].value='Synthetic rule';h.find('label','/synthetic').children[0].checked=true;
+ for(const label of ['Items per run','Items per day','Output / scratch bytes per item','Output / scratch bytes per day','Minimum free bytes'])h.find('label',label).children[0].value='10';
+ h.find('label','Permitted windows (JSON)').children[0].value='[{"days":[0],"start":"09:00","end":"10:00"}]';
+ await h.find('button','Save disabled draft').onclick();const request=h.calls.find(row=>row.data?.operation==='save_rule');
+ assert.ok(request);assert.equal(request.data.revision,0);assert.equal(request.data.values.action,'scan');assert.equal(request.data.values.roots.join(','),'/synthetic');assert.equal(request.data.values.options.cadence_minutes,60);assert.ok(!Object.hasOwn(request.data,'enabled'));assert.ok(!h.calls.some(row=>row.data?.operation==='enable'));assert.ok(h.find('button','Create disabled rule'));
+});
+test('failed enable preview reports reason and never exposes an enable action',async()=>{
+ const state=snapshot();state.rules=[{id:'rule',revision:3,values:{name:'Draft',action:'scan',roots:['/synthetic']},enabled:false}];
+ const h=harness(state,()=>{throw Error('Policy review pending');});await h.open();await h.find('button','Review enable permission').onclick();
+ assert.ok(h.nodes().some(node=>node.textContent==='Policy review pending'));assert.equal(h.find('button','Enable this exact permission'),undefined);assert.ok(!h.calls.some(row=>row.data?.operation==='enable'));
+});
+test('enable uses only the exact retained preview digest/action and does not unpause queues',async()=>{
+ const state=snapshot();state.policy_accepted=true;state.rules=[{id:'rule',revision:3,values:{name:'Draft',action:'scan',roots:['/synthetic']},enabled:false}];
+ const h=harness(state,(route,data)=>data.operation==='preview'?{preview:'reviewed-preview',digest:'exact-digest',snapshot:{watermark:7},remaining_manual:['Publication']}:{});await h.open();await h.find('button','Review enable permission').onclick();await h.find('button','Enable this exact permission').onclick();
+ const request=h.calls.find(row=>row.data?.operation==='enable');assert.deepEqual(JSON.parse(JSON.stringify(request.data)),{operation:'enable',preview:'reviewed-preview',digest:'exact-digest',action:'scan'});assert.ok(!h.calls.some(row=>/start|resume/.test(row.route)||row.data?.operation==='scope_pause'));
+});
+test('queue receipt opens its exact retained identity even outside the recent list',async()=>{
+ const h=harness(snapshot(),route=>({id:'older-receipt',phase:'failed',inventory:{count:101}}));h.context.id='older-receipt';await vm.runInContext('openMaintenanceSettings(id)',h.context);
+ assert.ok(h.calls.some(row=>row.route==='maintenance/receipt?id=older-receipt'));assert.ok(h.find('h3','Maintenance receipt'));assert.ok(h.nodes().some(row=>row.tag==='pre'&&row.textContent.includes('101')));
+});

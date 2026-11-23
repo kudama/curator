@@ -66,9 +66,10 @@ class MaintenanceBudgets:
             if type(output_bound) is not int or not 0 <= output_bound <= bound:
                 raise UserError('Invalid bounded maintenance reservation')
             bound = output_bound
+        storage_bound = bound * (2 if rule['values']['action'] in PROCESSING else 1)
         scopes = self.maintenance_allowances(rule)
         reserved = sum(
-            row.get('output_bound', 0)
+            row.get('storage_bound', row.get('output_bound', 0))
             for row in self.store.all('settings')
             if isinstance(row, dict)
             and row.get('record_type') == 'maintenance_claim'
@@ -76,7 +77,7 @@ class MaintenanceBudgets:
         )
         if (
             shutil.disk_usage(self.store.root).free
-            < max(row['limits']['min_free_bytes'] for row in scopes) + reserved + bound
+            < max(row['limits']['min_free_bytes'] for row in scopes) + reserved + storage_bound
         ):
             raise UserError('Available output space is below the approved reserve; no maintenance job admitted')
         run = (arrival['library'], arrival['last_sequence'])
@@ -119,6 +120,7 @@ class MaintenanceBudgets:
             task=task_id,
             source=arrival['fingerprint'],
             output_bound=bound,
+            storage_bound=storage_bound,
             phase='reserved',
             approved_by=rule['approval']['initiator'],
             standing_approval=rule['approval']['id'],
@@ -161,7 +163,7 @@ class MaintenanceBudgets:
             raise UserError('Clock moved backwards; do not start maintenance until its allowance is reconciled')
         scopes = self.maintenance_allowances(rule)
         reserved = sum(
-            row.get('output_bound', 0)
+            row.get('storage_bound', row.get('output_bound', 0))
             for row in self.store.all('settings')
             if isinstance(row, dict)
             and row.get('record_type') == 'maintenance_claim'

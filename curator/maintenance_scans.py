@@ -172,8 +172,18 @@ class MaintenanceScans:
                     )
 
             guard()
+            service, client = self, self.client()
+
+            class GuardedClient:
+                def request(self, path, **kwargs):
+                    # The same lock serializes the final actual request start
+                    # with pause/disable, not merely its earlier permission check.
+                    with service.lock:
+                        guard()
+                        return client.request(path, **kwargs)
+
             deadline = time.monotonic() + run['options']['scan_timeout_seconds']
-            inventory = verified_inventory(self.client(), library, run['options'], guard, deadline=deadline)
+            inventory = verified_inventory(GuardedClient(), library, run['options'], guard, deadline=deadline)
             with self.lock, self.store.transaction():
                 rule, snapshot = self.maintenance_scan_guard(run)
                 run.update(
@@ -320,6 +330,7 @@ class MaintenanceScans:
                                 record_type='maintenance_arrival',
                                 library=library['id'],
                                 asset=asset['id'],
+                                scan_claim=candidate['claim'],
                                 generation=candidate['generation'],
                                 first_sequence=candidate['first_sequence'],
                                 last_sequence=registry['sequence'],
@@ -346,9 +357,23 @@ class MaintenanceScans:
                     with self.lock, self.store.transaction():
                         candidate.update(phase='blocked', reason=result['reason'])
                         self.store.put('settings', candidate_id, candidate)
+                        claim = self.store.get('settings', candidate['claim'])
+                        attempted = claim['phase'] == 'probe_attempted'
+                        claim.update(phase='uncertain' if attempted else 'blocked_unstarted', updated=now())
+                        self.store.put('settings', claim['id'], claim)
+                        if attempted:
+                            rule = self.maintenance_rule(run['rule'])
+                            rule.update(
+                                paused=True,
+                                last_exception='Probe outcome requires inspection; retained output is never replayed',
+                                updated=now(),
+                            )
+                            self.store.put('settings', rule['id'], rule)
                 with self.lock, self.store.transaction():
                     run['items'].append(result)
                     self.store.put('settings', identity, run)
+                    if self.maintenance_rule(run['rule']).get('paused'):
+                        break
             run.update(
                 phase='partial' if any(row['phase'] == 'blocked' for row in run['items']) else 'complete',
                 finished=now(),

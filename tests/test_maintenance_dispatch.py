@@ -230,3 +230,80 @@ class Dispatch(unittest.TestCase):
 
     def lock_context(self):
         return self.store.transaction()
+
+    def test_true_start_then_disable_race_has_one_durable_attempt_and_no_replay(self):
+        import threading
+        from types import SimpleNamespace
+
+        self.engine()
+        enabled = self.enable()
+        self.arrive()
+        self.service.dispatch_maintenance(self.lib['id'])
+        task = self.queued()[0]
+        task['status'] = 'running'
+        with self.store.transaction():
+            self.store.put('tasks', task['id'], task)
+        entered, release, revoked = threading.Event(), threading.Event(), threading.Event()
+
+        def launch(*args, **kwargs):
+            claim = self.store.get('settings', task['maintenance']['claim'])
+            self.assertEqual(claim['phase'], 'attempted')
+            self.assertFalse(self.store.db.in_transaction)
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return SimpleNamespace(pid=12345)
+
+        def disable():
+            with acting('operator'):
+                self.service.change_maintenance_state(enabled['id'], 1, 'disable')
+            revoked.set()
+
+        with (
+            patch('curator.maintenance_execution.subprocess.Popen', side_effect=launch) as popen,
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            started = pool.submit(self.service.maintenance_start_process, task, ['synthetic-only'], None, None)
+            self.assertTrue(entered.wait(5))
+            disabled = pool.submit(disable)
+            self.assertFalse(revoked.wait(0.05))
+            release.set()
+            self.assertEqual(started.result(5).pid, 12345)
+            disabled.result(5)
+            self.assertEqual(popen.call_count, 1)
+            with self.assertRaises(UserError):
+                self.service.maintenance_start_process(task, ['never'], None, None)
+            self.assertEqual(popen.call_count, 1)
+
+    def test_delayed_midnight_start_charges_new_named_day_without_refunding_old(self):
+        self.engine()
+        self.clock = datetime(2026, 11, 23, 7, 55, tzinfo=timezone.utc)  # Sunday 23:55 Los Angeles.
+        enabled = self.enable()
+        self.arrive()
+        self.service.dispatch_maintenance(self.lib['id'])
+        task = self.queued()[0]
+        claim = self.store.get('settings', task['maintenance']['claim'])
+        old = dict(claim['allocations'])
+        self.clock += timedelta(minutes=10)
+        with self.service.lock, self.store.transaction():
+            self.service.maintenance_start_allowance(claim, enabled)
+        self.assertTrue(all(claim['allocations'][key] != value for key, value in old.items()))
+        self.assertTrue(all(self.store.get('settings', value)['items'] == 1 for value in old.values()))
+        self.assertTrue(all(self.store.get('settings', value)['items'] == 1 for value in claim['allocations'].values()))
+
+    def test_changed_effective_standard_blocks_actual_start_before_popen(self):
+        self.engine()
+        self.enable()
+        self.arrive()
+        self.service.dispatch_maintenance(self.lib['id'])
+        task = self.queued()[0]
+        task['status'] = 'running'
+        with self.store.transaction():
+            self.store.put('tasks', task['id'], task)
+        changed = dict(STANDARD, effective_digest='new-standard-revision')
+        with (
+            patch('curator.maintenance.standard_identity', return_value=changed),
+            patch('curator.maintenance_execution.subprocess.Popen') as launch,
+        ):
+            with self.assertRaisesRegex(UserError, 'stale'):
+                self.service.maintenance_start_process(task, ['never'], None, None)
+        launch.assert_not_called()

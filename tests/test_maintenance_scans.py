@@ -190,7 +190,7 @@ class Scans(unittest.TestCase):
         self.fake.write_text('#!' + sys.executable + '\nimport os\nos.write(1,b"x"*16000000)\n')
         result = self.scan()
         self.assertEqual(result['phase'], 'partial')
-        claims = [r for r in self.store.all('settings') if isinstance(r, dict) and r.get('phase') == 'probe_attempted']
+        claims = [r for r in self.store.all('settings') if isinstance(r, dict) and r.get('phase') == 'uncertain']
         self.assertEqual(len(claims), 1)
         self.assertLessEqual(
             Path(claims[0]['artifacts'][0]).stat().st_size, self.values['options']['probe_output_bytes']

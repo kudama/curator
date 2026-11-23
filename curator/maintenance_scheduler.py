@@ -13,9 +13,7 @@ class MaintenanceScheduler:
         from .maintenance import POLICY_ACCEPTED
 
         with self.lock:
-            if not POLICY_ACCEPTED or not any(
-                rule.get('enabled') and rule['values']['action'] == 'scan' for rule in self.maintenance_rules()
-            ):
+            if not POLICY_ACCEPTED or not any(rule.get('enabled') for rule in self.maintenance_rules()):
                 return
             if self.maintenance_scheduler_thread and self.maintenance_scheduler_thread.is_alive():
                 return
@@ -38,12 +36,14 @@ class MaintenanceScheduler:
     def maintenance_tick(self):
         from .maintenance import POLICY_ACCEPTED
 
-        if not POLICY_ACCEPTED:
+        if not POLICY_ACCEPTED or self.maintenance_scheduler_stop.is_set():
             return []
         admitted = []
         with acting('rule'):
             for previous in self.maintenance_rules():
                 with self.lock:
+                    if self.maintenance_scheduler_stop.is_set():
+                        break
                     rule = self.maintenance_rule(previous['id'])
                     if (
                         not rule.get('enabled')
@@ -69,8 +69,10 @@ class MaintenanceScheduler:
                                 details={'rule': rule['id'], 'error': str(error)[:300]},
                                 level='warning',
                             )
-            self.start_file_queue(maintenance_only=True)
-            self.start_pending_maintenance()
+            with self.lock:
+                if not self.maintenance_scheduler_stop.is_set():
+                    self.start_file_queue(maintenance_only=True)
+                    self.start_pending_maintenance()
         return admitted
 
     def recover_maintenance_scans(self):
