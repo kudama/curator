@@ -49,9 +49,15 @@ class Dispatch(unittest.TestCase):
         self.service = Engine(self.store, lambda *args: self.plex)
         self.clock = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
         self.service.maintenance_clock = lambda: self.clock
+        try:
+            from curator.standard_evaluation import identity
+        except ImportError:
+            self.standard = copy.deepcopy(STANDARD)  # Until canonical #107 is integrated.
+        else:
+            self.standard = identity(self.service.library_standard(self.lib['id']), self.service.config())
         self.patches = [
             patch('curator.maintenance.POLICY_ACCEPTED', True),
-            patch('curator.maintenance.standard_identity', return_value=STANDARD),
+            patch('curator.maintenance.standard_identity', return_value=self.standard),
             patch('curator.maintenance_dispatch.evaluated', side_effect=lambda service, asset: self.facts(asset)),
         ]
         for item in self.patches:
@@ -74,14 +80,16 @@ class Dispatch(unittest.TestCase):
     def facts(self, asset):
         return dict(
             version=1,
-            standard=STANDARD,
+            standard=self.standard,
             completion=dict(
-                standard=STANDARD,
+                standard=self.standard,
                 status='needs_attention',
                 observed_at=asset.get('scanned', 'fixture'),
                 dimensions={'encoding': {'state': 'needs_attention'}},
             ),
-            findings=[dict(kind='optimize', reason='Encoding standard requires work', evidence={'standard': STANDARD})],
+            findings=[
+                dict(kind='optimize', reason='Encoding standard requires work', evidence={'standard': self.standard})
+            ],
         )
 
     def enable(self, name='Synthetic rule', action='process_encode'):
@@ -223,10 +231,10 @@ class Dispatch(unittest.TestCase):
         arrivals = self.service.maintenance_arrivals(self.lib['id'])
         rule_record = self.service.maintenance_rules()[0]
         with self.lock_context():
-            self.service.reserve_maintenance(rule_record, arrivals[0], 'one', STANDARD)
+            self.service.reserve_maintenance(rule_record, arrivals[0], 'one', self.standard)
         self.clock -= timedelta(seconds=1)
         with self.lock_context(), self.assertRaisesRegex(UserError, 'Clock moved backwards'):
-            self.service.reserve_maintenance(rule_record, arrivals[1], 'two', STANDARD)
+            self.service.reserve_maintenance(rule_record, arrivals[1], 'two', self.standard)
 
     def lock_context(self):
         return self.store.transaction()
@@ -299,7 +307,7 @@ class Dispatch(unittest.TestCase):
         task['status'] = 'running'
         with self.store.transaction():
             self.store.put('tasks', task['id'], task)
-        changed = dict(STANDARD, effective_digest='new-standard-revision')
+        changed = dict(self.standard, effective_digest='new-standard-revision')
         with (
             patch('curator.maintenance.standard_identity', return_value=changed),
             patch('curator.maintenance_execution.subprocess.Popen') as launch,
