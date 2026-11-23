@@ -601,6 +601,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = {'saved': True}
             elif path == '/api/standards':
                 result = service.save_type_standard(data['kind'], data['revision'], data['values'])
+            elif path == '/api/library/standard-kind':
+                result = service.save_library_standard_kind(data)
             elif path == '/api/library/standard':
                 if (
                     set(data) != {'library', 'revision', 'kind', 'type_revision', 'type_digest', 'overrides'}

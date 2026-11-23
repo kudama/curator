@@ -303,7 +303,7 @@ class ReviewedStandards(unittest.TestCase):
         reviewed = self.snapshot()
         with self.store.transaction():
             library = self.service.library('srv:1')
-            library['kind'] = 'show'
+            library['standard_kind'] = 'show'
             self.store.put('libraries', library['id'], library)
         self.assertEqual(self.snapshot()['type_digest'], reviewed['type_digest'])
         with self.assertRaisesRegex(UserError, 'inherited standard changed'):
