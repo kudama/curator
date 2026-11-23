@@ -339,6 +339,32 @@
 /* Rename recovery (#154) */
 .rename-section{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}.rename-section h3{margin:0 0 8px}.rename-field{padding:8px 0;border-bottom:1px solid var(--line)}.rename-field p{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere}.rename-lost{color:#e4c38f}.rename-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:8px 0 12px}.rename-card{border:1px solid var(--line);border-radius:9px;padding:12px;min-width:0}.rename-card p{margin:6px 0}.rename-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.rename-pair figure{margin:0;min-width:0}.rename-pair figcaption{font-size:11px;color:var(--muted);margin-top:4px}.rename-image{display:block;width:100%;max-height:180px;object-fit:contain;border-radius:6px;background:#241d2d}.rename-card.person .rename-image{max-width:120px;margin-top:8px}.rename-choice{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px}
 @media(max-width:500px){.rename-grid{grid-template-columns:minmax(0,1fr)}}
+/* Main navigation (#108): tabs, status line and tab pages. Colours follow each theme's variables. */
+.skip-link{position:absolute;left:-9999px;top:8px;z-index:100;background:var(--panel);color:var(--accent);padding:8px 12px;border-radius:6px}
+.skip-link:focus{left:12px}
+.main-tabs{display:flex;gap:4px;align-items:center;margin:0 auto 0 28px;overflow-x:auto;scrollbar-width:none;min-width:0}
+.main-tabs a{padding:9px 14px;border-radius:7px;color:var(--muted);text-decoration:none;font-size:14px;white-space:nowrap}
+.main-tabs a:hover{color:var(--text)}
+.main-tabs a[aria-current="page"]{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.main-tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tab-count{margin-left:6px;font-size:11px;padding:1px 7px;border-radius:9px;background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent)}
+.global-status{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:7px 28px;font-size:12px;border-bottom:1px solid var(--line);color:var(--text)}
+.global-status a{color:var(--accent)}
+.route-banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:12px}
+.route-banner p{margin:0;flex:1 1 260px}
+.route-notice{font-size:12px;color:var(--warm,#e4c38f);margin:0 0 10px}
+.tab-page{padding:28px;min-width:0;grid-column:1 / -1}
+.tab-page h1{margin:6px 0}
+.home-links{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin:18px 0}
+.home-link{display:flex;flex-direction:column;gap:6px;text-align:left;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);text-decoration:none;font:inherit;cursor:pointer}
+.home-link:hover,.home-link:focus-visible{border-color:var(--accent)}
+body[data-tab="home"] .layout>aside,body[data-tab="home"] .layout>main,body[data-tab="configuration"] .layout>aside,body[data-tab="configuration"] .layout>main{display:none}
+body[data-tab="home"] .layout,body[data-tab="configuration"] .layout{grid-template-columns:minmax(0,1fr)}
+@media(max-width:800px){header{flex-wrap:wrap;height:auto;row-gap:8px;padding-bottom:8px}.main-tabs{order:3;width:100%;margin:0}.global-status{padding:7px 16px}.tab-page{padding:20px 16px}}
+header>.brand{order:1}header>.main-tabs{order:2}header>.theme-picker{order:3}
+@media(min-width:801px){.layout{height:calc(100vh - 76px - 31px)}}
+.home-link:disabled{opacity:.55;cursor:default}
+.main-tabs{flex-wrap:nowrap}@media(max-width:800px){.main-tabs a{padding:8px 10px;font-size:13px}}
 
 /* Read-only Home summaries. */
 .home-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.home-section{margin-top:30px;padding-top:18px;border-top:1px solid var(--line);min-width:0}.home-links,.home-dimensions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}.home-link{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:10px;padding:16px;color:var(--text);text-decoration:none;min-width:0;overflow-wrap:anywhere}.home-link:hover,.home-link:focus-visible{border-color:var(--accent);outline-offset:3px}.home-link strong{color:var(--accent)}.home-health{margin:18px 0 26px}.home-health>.home-link{margin-top:12px;max-width:360px}.home-content{min-width:0}.home-content p{overflow-wrap:anywhere}

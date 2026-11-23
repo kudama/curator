@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
+            '/navigation.js': ('navigation.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
             '/discovery.js': ('discovery.js', 'application/javascript'),
             '/discovery-rows.js': ('discovery-rows.js', 'application/javascript'),

@@ -32,7 +32,7 @@ function refresh(){
    if(serviceRestarting)return;
    state=applyStateUpdate(update);stateRevision=update.revision;connectionStatus(false);
    if(!libraryId&&state.libraries.length)libraryId=state.libraries[0].id;
-   render();updateServiceControls();
+   render();updateServiceControls();if(typeof navStateLoaded==='function')navStateLoaded();
   }while(refreshAgain&&!serviceRestarting);
  })().finally(()=>{refreshFlight=null;});
  return refreshFlight;
