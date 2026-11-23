@@ -231,3 +231,27 @@ class Scans(unittest.TestCase):
         ):
             self.assertEqual(self.service.maintenance_tick(), [])
         admit.assert_not_called()
+
+    def test_pending_scan_projection_uses_its_reserved_next_sequence_not_old_baseline(self):
+        self.engine()
+        baseline = self.store.get('settings', 'maintenance-arrivals:' + self.lib['id'])
+        run = self.service.admit_maintenance_scan(self.enabled['id'])
+        self.assertEqual(run['sequence'], baseline['sequence'] + 1)
+        result = self.service.maintenance_configuration()['rules'][0]['operational']
+        self.assertEqual(result['counts']['queued'], 1)
+        self.assertTrue(all(row['latest_run_items'] == 19 for row in result['remaining']))
+        self.assertTrue(all(row['run_sequence'] == run['sequence'] for row in result['remaining']))
+
+    def test_malformed_later_inventory_row_prevents_earlier_new_source_observation(self):
+        self.engine()
+        self.arrive()
+        self.client.rows.append(dict(ratingKey='100', Media=[dict(Part=['malformed'])]))
+        with (
+            patch('curator.maintenance_scans.map_path') as mapping,
+            patch('curator.maintenance_scans.tools.probe') as probe,
+        ):
+            result = self.scan()
+        self.assertEqual(result['phase'], 'failed')
+        mapping.assert_not_called()
+        probe.assert_not_called()
+        self.assertIn('malformed', result['error'])

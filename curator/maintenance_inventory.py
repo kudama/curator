@@ -1,6 +1,7 @@
 """Finite complete inventory verification before any scheduled media access."""
 
 import json
+from pathlib import PurePosixPath
 import time
 from urllib.parse import quote
 
@@ -76,6 +77,28 @@ def verified_inventory(client, library, options, guard, deadline=None):
                     or len(str(item['ratingKey'])) > 256
                 ):
                     raise UserError('Inventory item identity is incomplete; no media probes authorized')
+                media_rows = item.get('Media', [])
+                if not isinstance(media_rows, list):
+                    raise UserError('Inventory media structure is malformed; no media probes authorized')
+                for media in media_rows:
+                    if not isinstance(media, dict) or not isinstance(media.get('Part', []), list):
+                        raise UserError('Inventory part structure is malformed; no media probes authorized')
+                    for part in media.get('Part', []):
+                        if not isinstance(part, dict):
+                            raise UserError('Inventory part metadata is malformed; no media probes authorized')
+                        if 'file' in part:
+                            source_path = part['file']
+                            if (
+                                not isinstance(source_path, str)
+                                or not source_path
+                                or '\x00' in source_path
+                                or source_path.startswith('//')
+                                or not PurePosixPath(source_path).is_absolute()
+                                or '..' in PurePosixPath(source_path).parts
+                            ):
+                                raise UserError('Inventory file paths are malformed; no media probes authorized')
+                if 'guid' in item and not isinstance(item['guid'], str):
+                    raise UserError('Inventory source identity is malformed; no media probes authorized')
                 key = str(item['ratingKey'])
                 if key in seen:
                     raise UserError('Inventory pagination repeated an identity; no media probes authorized')

@@ -30,6 +30,15 @@ class MaintenanceConfiguration:
             ],
             machine_caps=self.maintenance_caps(),
             rules=rules,
+            cached_assets=[
+                dict(
+                    id=row['id'],
+                    library=row['library'],
+                    title=row.get('title') or 'Untitled media item',
+                    available=bool(row.get('present', True)),
+                )
+                for row in self.store.all('assets')
+            ],
             actions=sorted(ACTIONS),
             cadences=list(SCAN_CADENCES),
             receipts=sorted(

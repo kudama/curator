@@ -307,3 +307,75 @@ class Dispatch(unittest.TestCase):
             with self.assertRaisesRegex(UserError, 'stale'):
                 self.service.maintenance_start_process(task, ['never'], None, None)
         launch.assert_not_called()
+
+    def test_paused_typed_queue_projects_held_waiting_rule_work(self):
+        self.engine()
+        self.enable()
+        self.arrive()
+        self.service.dispatch_maintenance(self.lib['id'])
+        self.assertEqual(len(self.queued()), 1)
+        with self.store.transaction():
+            self.store.put('settings', self.service.pause_key(None, 'optimize'), True)
+        result = self.service.maintenance_configuration()['rules'][0]['operational']
+        self.assertEqual(result['counts']['queued'], 1)
+        self.assertEqual(result['counts']['waiting'], 1)
+        self.assertTrue(result['held'])
+
+    def test_explicit_operator_manual_requeue_preserves_old_claim_and_detaches_standing_permission(self):
+        self.engine()
+        enabled = self.enable()
+        self.arrive()
+        self.service.dispatch_maintenance(self.lib['id'])
+        task = self.queued()[0]
+        retained = self.root / 'retained-output.mkv'
+        retained.write_bytes(b'retained-synthetic-result')
+        with self.store.transaction():
+            task.update(status='blocked', output=str(retained))
+            self.store.put('tasks', task['id'], task)
+        with acting('operator'):
+            self.service.change_maintenance_state(enabled['id'], 1, 'disable')
+        claim = copy.deepcopy(self.store.get('settings', task['maintenance']['claim']))
+        with patch('curator.maintenance_execution.subprocess.Popen') as launch, self.assertRaises(UserError):
+            self.service.maintenance_start_process(task, ['never-automatic'], None, None)
+        launch.assert_not_called()
+        with (
+            acting('ai'),
+            patch('curator.service.tools.freeze_handbrake_preset') as freeze,
+            self.assertRaisesRegex(UserError, 'explicit operator'),
+        ):
+            self.service.action(task['id'], 'queue', task['version'])
+        freeze.assert_not_called()
+        import os
+
+        source = Path(self.new_assets[0]['local_path'])
+        before = source.stat()
+        original = source.read_bytes()
+        source.write_bytes(b'changed-synthetic-source')
+        with (
+            acting('operator'),
+            patch('curator.service.tools.freeze_handbrake_preset') as freeze,
+            self.assertRaises(UserError),
+        ):
+            self.service.action(task['id'], 'queue', task['version'])
+        freeze.assert_not_called()
+        self.assertIn('maintenance', self.service.get_task(task['id']))
+        self.assertEqual(self.store.get('settings', claim['id']), claim)
+        source.write_bytes(original)
+        os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with (
+            acting('operator'),
+            patch('curator.service.tools.freeze_handbrake_preset', return_value=copy.deepcopy(task['tool_settings'])),
+            patch('curator.service.tools.command', return_value=['synthetic-manual-command']),
+        ):
+            manual = self.service.action(task['id'], 'queue', task['version'])
+        self.assertNotIn('maintenance', manual)
+        self.assertNotIn('maintenance_proposal', manual)
+        self.assertEqual(manual['queued_by'], 'operator')
+        self.assertEqual(manual['approval'], manual['version'])
+        self.assertEqual(manual['maintenance_origins'][0]['provenance'], task['maintenance'])
+        self.assertEqual(self.store.get('settings', claim['id']), claim)
+        with patch('curator.maintenance_execution.subprocess.Popen') as launch:
+            self.service.maintenance_start_process(manual, ['synthetic-manual-command'], None, None)
+        self.assertEqual(launch.call_args.args[0], ['synthetic-manual-command'])
+        self.assertEqual(retained.read_bytes(), b'retained-synthetic-result')
+        self.assertEqual(self.store.get('settings', claim['id']), claim)

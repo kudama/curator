@@ -97,3 +97,19 @@ class Inventory(unittest.TestCase):
         with self.assertRaisesRegex(UserError, 'deadline reached'):
             verified_inventory(self.client, self.library, self.options, self.guard, deadline=0)
         self.assertEqual(self.client.calls, [])
+
+    def test_all_media_part_path_shapes_checked_before_inventory_can_authorize_access(self):
+        malformed = [
+            dict(Media=None),
+            dict(Media=['bad']),
+            dict(Media=[dict(Part={})]),
+            dict(Media=[dict(Part=['bad'])]),
+            dict(Media=[dict(Part=[dict(file='/synthetic/../outside.mp4')])]),
+            dict(Media=[dict(Part=[dict(file=None)])]),
+            dict(guid={'unknown': 'identity'}),
+        ]
+        for row in malformed:
+            self.client = InventoryClient()
+            self.client.rows[2].update(row)
+            with self.subTest(row=row), self.assertRaisesRegex(UserError, 'malformed'):
+                self.run_inventory()
