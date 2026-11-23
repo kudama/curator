@@ -48,7 +48,9 @@ from .history import acting, current_initiator
 from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
+from .seerr_arrivals import SeerrArrivals
 from .preview_publication import PreviewPublication
+from .preview_batches import PreviewBatches
 from .discovery import Discovery
 from .discovery_rows import DiscoveryRows
 from .rules import scheduling_kind
@@ -70,7 +72,9 @@ class Service(
     PreviewCards,
     PreviewRendering,
     PreviewReview,
+    SeerrArrivals,
     PreviewPublication,
+    PreviewBatches,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
