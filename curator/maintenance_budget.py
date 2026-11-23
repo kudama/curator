@@ -34,6 +34,11 @@ class MaintenanceBudgets:
         ]
 
     def maintenance_output_bound(self, rule):
+        if rule['values']['action'] == 'scan':
+            needed = 2 * rule['values']['options']['probe_output_bytes']
+            if any(row['limits']['output_bytes_per_item'] < needed for row in self.maintenance_allowances(rule)):
+                raise UserError('Scan stdout/stderr scratch bounds exceed a reviewed per-item allowance')
+            return needed
         if rule['values']['action'] not in PROCESSING:
             return 0
         bound = min(row['limits']['output_bytes_per_item'] for row in self.maintenance_allowances(rule))
@@ -41,7 +46,7 @@ class MaintenanceBudgets:
             raise UserError('Processing has no positive hard output-file allowance')
         return bound
 
-    def reserve_maintenance(self, rule, arrival, task_id, standard):
+    def reserve_maintenance(self, rule, arrival, task_id, standard, output_bound=None):
         """Caller holds service lock and one transaction covering task admission."""
         if not self.store.db.in_transaction:
             raise RuntimeError('Maintenance reservation must share the task-admission transaction')
@@ -57,13 +62,17 @@ class MaintenanceBudgets:
                 'This arrival/action already has a retained maintenance attempt; review it instead of replaying'
             )
         bound = self.maintenance_output_bound(rule)
+        if output_bound is not None:
+            if type(output_bound) is not int or not 0 <= output_bound <= bound:
+                raise UserError('Invalid bounded maintenance reservation')
+            bound = output_bound
         scopes = self.maintenance_allowances(rule)
         reserved = sum(
             row.get('output_bound', 0)
             for row in self.store.all('settings')
             if isinstance(row, dict)
             and row.get('record_type') == 'maintenance_claim'
-            and row.get('phase') in {'reserved', 'attempted'}
+            and row.get('phase') in {'reserved', 'attempted', 'probe_attempted'}
         )
         if (
             shutil.disk_usage(self.store.root).free
@@ -156,7 +165,7 @@ class MaintenanceBudgets:
             for row in self.store.all('settings')
             if isinstance(row, dict)
             and row.get('record_type') == 'maintenance_claim'
-            and row.get('phase') in {'reserved', 'attempted'}
+            and row.get('phase') in {'reserved', 'attempted', 'probe_attempted'}
         )
         if shutil.disk_usage(self.store.root).free < max(row['limits']['min_free_bytes'] for row in scopes) + reserved:
             raise UserError('Output free-space reserve is no longer available; no tool started')

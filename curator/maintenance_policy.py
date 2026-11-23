@@ -122,6 +122,7 @@ def options(action, value):
             'probe_timeout_seconds',
             'response_limit_bytes',
             'probe_output_bytes',
+            'max_pages',
         }
         if (
             set(value) != required
@@ -133,6 +134,7 @@ def options(action, value):
             cadence_minutes=value['cadence_minutes'],
             inventory_limit=finite_int(value['inventory_limit'], 100, 10000, 'catalogue record cap'),
             page_size=finite_int(value['page_size'], 1, 200, 'inventory page size'),
+            max_pages=finite_int(value['max_pages'], 1, 200, 'inventory page-request cap per verification pass'),
             request_timeout_seconds=finite_int(value['request_timeout_seconds'], 1, 20, 'Plex request timeout'),
             scan_timeout_seconds=finite_int(value['scan_timeout_seconds'], 10, 600, 'overall scan deadline'),
             probe_timeout_seconds=finite_int(value['probe_timeout_seconds'], 1, 60, 'new-media probe timeout'),

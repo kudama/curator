@@ -129,6 +129,8 @@ class MaintenanceArrivals:
                         )
                     elif (
                         asset.get('fingerprint')
+                        and asset.get('scanned')
+                        and asset.get('technical')
                         and (instant - datetime.fromisoformat(arrival['stable_since'])).total_seconds()
                         >= STABILITY_SECONDS
                     ):

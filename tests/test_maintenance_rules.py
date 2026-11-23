@@ -148,6 +148,8 @@ class Rules(unittest.TestCase):
             local_path=str(path.resolve()),
             fingerprint=fingerprint(path),
             item=dict(ratingKey='99', guid='new-guid'),
+            scanned='2026-11-22T12:00:00+00:00',
+            technical={'width': 1280, 'height': 720},
         )
         with self.store.transaction():
             self.store.put('assets', asset['id'], asset)

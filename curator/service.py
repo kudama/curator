@@ -94,6 +94,9 @@ class Service(
         self.active = set()
         self.queue_workers = {}
         self.file_workers = {}
+        self.file_manual_requested = False
+        self.maintenance_scheduler_thread = None
+        self.maintenance_scheduler_stop = threading.Event()
         self.file_errors = {}
         self.cancels = set()
         self.scan_status = {}
@@ -105,6 +108,7 @@ class Service(
         Mage(self.store.root).register_key_secret()
         self.recover_file_jobs()
         self.recover_maintenance()
+        self.recover_maintenance_scans()
         self.recover_nfo_exports()
         self.recover_review_batches()
         self.recover_backup_cleanups()
@@ -113,6 +117,7 @@ class Service(
         self.migrate_universal_queue()
         self.recover_run_receipts()
         self.split_metadata_findings()
+        self.ensure_maintenance_scheduler()
 
     def operation_lock(self, key):
         with self.lock:

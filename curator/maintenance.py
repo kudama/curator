@@ -341,3 +341,14 @@ class MaintenanceRules:
             task.update(status='blocked', approval=None, error=reason, version=task['version'] + 1, updated=now())
             self.store.put('tasks', task['id'], task)
             self.store.event(task['id'], dict(action='maintenance permission invalidated', rule=approval['rule']))
+
+        for job in self.file_jobs():
+            if job['operation'] != 'maintenance_scan' or job['phase'] != 'waiting':
+                continue
+            scan = self.maintenance_scan_run(job['payload']['run'])
+            if (rule and scan['rule'] != rule) or (library and scan['library'] != library):
+                continue
+            scan.update(phase='revoked', error=reason, updated=now())
+            job.update(phase='cancelled', error=reason, updated=now())
+            self.store.put('settings', scan['id'], scan)
+            self.store.put('settings', job['id'], job)

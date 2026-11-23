@@ -33,6 +33,7 @@ def rule(**changes):
             cadence_minutes=60,
             inventory_limit=1000,
             page_size=100,
+            max_pages=20,
             request_timeout_seconds=10,
             scan_timeout_seconds=120,
             probe_timeout_seconds=30,

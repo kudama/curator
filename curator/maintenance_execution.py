@@ -40,9 +40,19 @@ class MaintenanceExecution:
         action = values['action']
         config = {key: self.config().get(key) for key in TOOL_CONFIG}
         if action == 'scan':
-            raise UserError(
-                'Recurring Scan permission is unavailable until a scope/item-bounded inventory adapter is verified; manual completed scans can supply new-arrival facts'
+            if os.name != 'posix' or not hasattr(signal, 'SIGXFSZ'):
+                raise UserError('Bounded probes require POSIX hard output-file limits')
+            import resource
+
+            if not hasattr(resource, 'RLIMIT_FSIZE'):
+                raise UserError('Hard probe output limits are unavailable')
+            pinned = file_identity(tools.executable(self.config(), 'ffprobe'))
+            snapshot = dict(
+                config=digest({'ffprobe': self.config().get('ffprobe')}), files=[pinned], local_demuxers=True
             )
+            if captured is not None and captured != snapshot:
+                raise UserError('Pinned probe executable/configuration changed; review Scan permission again')
+            return snapshot
         if action == 'local_ai':
             raise UserError(
                 'Automatic local AI is unavailable until pinned model digest and local-only execution can be independently verified; use manual AI assist'
