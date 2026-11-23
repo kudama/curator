@@ -150,7 +150,7 @@ function artworkCardHarness(){
  h.context.cardChanged=()=>changes.push([card.dirty(),card.ready()]);
  const card=h.run("managerArtworkCard({id:'a',library:'l',title:'Synthetic item'}, {}, 'cover', cardChanged)");
  const file=all(card.section).find(el=>el.type==='file'),undo=all(card.section).find(el=>el.textContent==='Undo draft');
- return {h,card,file,undo,images,changes,select(size=20){file.files=[{size}];file.onchange();return images.at(-1);},finish(image){image.naturalWidth=2;image.naturalHeight=3;image.onload();}};
+ return {h,card,file,undo,crop:all(card.section).find(el=>el.textContent==='Crop'),images,changes,select(size=20){file.files=[{size}];file.onchange();return images.at(-1);},finish(image){image.naturalWidth=2;image.naturalHeight=3;image.onload();}};
 }
 test('selected replacement blocks preview immediately until decoding finishes',()=>{
  const h=artworkCardHarness(),first=h.select();
@@ -165,4 +165,14 @@ test('oversized replacement stays unready and obsolete decode cannot restore a d
  h.select(10*1024*1024+1);assert.equal(h.card.dirty(),true);assert.equal(h.card.ready(),false);
  h.finish(first);assert.equal(h.card.ready(),false);
  h.undo.onclick();h.finish(first);assert.equal(h.card.dirty(),false);assert.equal(h.card.ready(),false);
+});
+
+test('Crop cannot substitute the current image for a pending, oversized or failed replacement',()=>{
+ const h=artworkCardHarness();h.card.current.naturalWidth=2;h.card.current.naturalHeight=3;
+ h.crop.onclick();assert.equal(h.card.ready(),true);h.undo.onclick();
+ const pending=h.select();assert.equal(h.crop.disabled,true);h.crop.onclick();assert.equal(h.card.ready(),false);
+ pending.onerror();h.crop.onclick();assert.equal(h.card.ready(),false);assert.equal(h.crop.disabled,true);
+ h.select(10*1024*1024+1);h.crop.onclick();assert.equal(h.card.ready(),false);assert.equal(h.crop.disabled,true);
+ h.undo.onclick();assert.equal(h.crop.disabled,false);h.crop.onclick();assert.equal(h.card.ready(),true);
+ h.undo.onclick();const valid=h.select();h.finish(valid);assert.equal(h.crop.disabled,false);h.crop.onclick();assert.equal(h.card.ready(),true);
 });
