@@ -43,3 +43,14 @@ test('queue receipt opens its exact retained identity even outside the recent li
  const h=harness(snapshot(),route=>({id:'older-receipt',phase:'failed',inventory:{count:101}}));h.context.id='older-receipt';await vm.runInContext('openMaintenanceSettings(id)',h.context);
  assert.ok(h.calls.some(row=>row.route==='maintenance/receipt?id=older-receipt'));assert.ok(h.find('h3','Maintenance receipt'));assert.ok(h.nodes().some(row=>row.tag==='pre'&&row.textContent.includes('101')));
 });
+test('consent displays frozen selected roots, windows, options and actual shared cap amounts',async()=>{
+ const state=snapshot();state.rules=[{id:'rule',revision:3,values:{name:'Draft',action:'scan',roots:['/wrong-current-root']},enabled:false}];
+ const permission={name:'Frozen permission',action:'scan',roots:['/selected-root'],excluded_paths:['/selected-root/private'],excluded_assets:['excluded-item'],timezone:'America/Los_Angeles',windows:[{days:[0],start:'09:00',end:'17:00'}],quiet:[{days:[0],start:'12:00',end:'13:00'}],options:{cadence_minutes:30,inventory_limit:500}};
+ const reviewed={preview:'frozen',digest:'digest',snapshot:{permission,allowances:[{scope:'machine',timezone:'UTC',limits:{items_per_run:7,items_per_day:20,output_bytes_per_item:1000,output_bytes_per_day:9000,min_free_bytes:12345}}]},remaining_manual:['Publication']};
+ const h=harness(state,()=>reviewed);await h.open();await h.find('button','Review enable permission').onclick();const text=h.nodes().map(node=>node.textContent).join('\n');
+ assert.match(text,/Selected allowed roots/);assert.match(text,/\/selected-root/);assert.match(text,/09:00–17:00/);assert.match(text,/12:00–13:00/);assert.match(text,/cadence minutes: 30/);assert.match(text,/Items per run: 7/);assert.match(text,/Minimum free bytes: 12345/);assert.ok(!text.includes('/wrong-current-root'));
+});
+test('operational rule summary shows counts, remaining allowance and next eligible scan window',async()=>{
+ const state=snapshot();state.rules=[{id:'rule',revision:3,values:{name:'Draft',action:'scan',roots:['/synthetic'],timezone:'UTC'},enabled:false,operational:{counts:{queued:2,running:1,waiting:1,review:3,blocked:4},remaining:[{scope:'machine',daily_items:5,daily_output_bytes:987,day:'2026-11-23',timezone:'UTC',latest_run_items:2}],next_permitted_window:'2026-11-23T09:00:00+00:00',next_scan_window:'2026-11-23T10:00:00+00:00',held:true}}];
+ const h=harness(state);await h.open();const text=h.nodes().map(node=>node.textContent).join('\n');assert.match(text,/queued: 2.*running: 1.*review: 3/);assert.match(text,/5 items and 987 output bytes left today/);assert.match(text,/Next cadence-eligible scan window: 2026-11-23T10:00:00/);assert.match(text,/held by disabled\/paused maintenance/);
+});

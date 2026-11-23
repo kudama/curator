@@ -2,6 +2,7 @@
 
 from .errors import UserError
 from .maintenance_policy import ACTIONS, SCAN_CADENCES
+from .maintenance_projection import summary
 
 
 class MaintenanceConfiguration:
@@ -11,6 +12,9 @@ class MaintenanceConfiguration:
         records = [row for row in self.store.all('settings') if isinstance(row, dict)]
         if receipt:
             return self.maintenance_scan_run(receipt)
+        index = {row.get('id'): row for row in records if row.get('id')}
+        tasks = self.store.all('tasks')
+        rules = [dict(rule, operational=summary(self, rule, index, tasks)) for rule in self.maintenance_rules()]
         return dict(
             policy_accepted=POLICY_ACCEPTED,
             machine_paused=self.store.get('settings', 'maintenance-paused:machine', True),
@@ -25,7 +29,7 @@ class MaintenanceConfiguration:
                 for row in self.store.all('libraries')
             ],
             machine_caps=self.maintenance_caps(),
-            rules=self.maintenance_rules(),
+            rules=rules,
             actions=sorted(ACTIONS),
             cadences=list(SCAN_CADENCES),
             receipts=sorted(

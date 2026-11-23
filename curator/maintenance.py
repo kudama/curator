@@ -105,7 +105,12 @@ class MaintenanceRules:
                 raise UserError('Maintenance rule changed; reload before saving')
             if previous and previous['values']['library'] != library['id']:
                 raise UserError('A rule cannot move to another library; create a separate disabled rule')
-            if previous and previous['values'] == values:
+            if (
+                previous
+                and previous['values'] == values
+                and not previous.get('enabled')
+                and not previous.get('approval')
+            ):
                 return previous
             identity = identity or 'maintenance-rule:' + uuid.uuid4().hex
             record = dict(
@@ -156,11 +161,17 @@ class MaintenanceRules:
         baseline = self.store.get('settings', 'maintenance-arrivals:' + library['id'])
         if not baseline or not baseline.get('completed_scan'):
             raise UserError('Complete an authoritative baseline scan before enabling new-arrival maintenance')
+        if baseline.get('scope') != digest(self.maintenance_scope(library)):
+            raise UserError(
+                'Library scope changed since the authoritative baseline; complete a fresh full scan before enabling or starting maintenance'
+            )
         return dict(
             contract=self.maintenance_contract(),
             rule=rule['id'],
             revision=rule['revision'],
             values=digest(rule['values']),
+            permission=copy.deepcopy(rule['values']),
+            allowances=copy.deepcopy(self.maintenance_allowances(rule)),
             library=self.maintenance_scope(library),
             standard=standard_identity(self, library['id']),
             caps=dict(machine=machine['revision'], library=aggregate['revision']),
