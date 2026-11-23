@@ -3,7 +3,8 @@
 from datetime import timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from .maintenance_policy import boundary, digest, minute, permitted
+from .maintenance_policy import PROCESSING, boundary, digest, minute, permitted
+from .rules import scheduling_kind
 
 
 def next_window(values, instant):
@@ -49,7 +50,10 @@ def summary(service, rule, records, tasks):
         )
         if key:
             counts[key] += 1
-            if status == 'queued' and service.maintenance_holds(task):
+            if status == 'queued' and (
+                service.maintenance_holds(task)
+                or service.store.get('settings', service.pause_key(None, scheduling_kind(task['kind'])), False)
+            ):
                 counts['waiting'] += 1
     for row in records.values():
         if row.get('record_type') != 'maintenance_scan' or row['rule'] != identity:
@@ -69,14 +73,20 @@ def summary(service, rule, records, tasks):
         elif row['phase'] in {'failed', 'partial', 'interrupted'}:
             counts['blocked'] += 1
     baseline = records.get('maintenance-arrivals:' + values['library'], {})
+    sequences = [
+        row['run_sequence']
+        for row in records.values()
+        if row.get('record_type') == 'maintenance_claim'
+        and row.get('library') == values['library']
+        and type(row.get('run_sequence')) is int
+    ]
+    run_sequence = max(sequences, default=baseline.get('sequence'))
     remaining = []
     try:
         for scope in service.maintenance_allowances(rule):
             day = instant.astimezone(ZoneInfo(scope['timezone'])).date().isoformat()
             daily = records.get('maintenance-day:' + digest((scope['scope'], day)), {})
-            run = records.get(
-                'maintenance-run:' + digest((scope['scope'], (values['library'], baseline.get('sequence')))), {}
-            )
+            run = records.get('maintenance-run:' + digest((scope['scope'], (values['library'], run_sequence))), {})
             cap = scope['limits']
             remaining.append(
                 dict(
@@ -86,6 +96,7 @@ def summary(service, rule, records, tasks):
                     daily_items=max(0, cap['items_per_day'] - daily.get('items', 0)),
                     daily_output_bytes=max(0, cap['output_bytes_per_day'] - daily.get('output_bytes', 0)),
                     latest_run_items=max(0, cap['items_per_run'] - run.get('items', 0)),
+                    run_sequence=run_sequence,
                 )
             )
         allowance_error = None
@@ -100,7 +111,24 @@ def summary(service, rule, records, tasks):
             due = max(
                 due, datetime.fromisoformat(last['admitted']) + timedelta(minutes=values['options']['cadence_minutes'])
             )
-    held = not rule.get('enabled') or rule.get('paused') or service.maintenance_paused(values['library'])
+    queue_paused = (
+        service.file_queue_paused()
+        if values['action'] == 'scan'
+        else service.store.get(
+            'settings',
+            service.pause_key(None, 'upscale' if values['action'].endswith('upscale') else 'optimize'),
+            False,
+        )
+        if values['action'] in PROCESSING
+        else False
+    )
+    held = (
+        not rule.get('enabled')
+        or rule.get('paused')
+        or service.maintenance_paused(values['library'])
+        or queue_paused
+        or not permitted(values, instant)
+    )
     return dict(
         counts=counts,
         remaining=remaining,

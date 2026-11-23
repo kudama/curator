@@ -119,6 +119,7 @@ class MaintenanceBudgets:
             options=digest(rule['values']['options']),
             task=task_id,
             source=arrival['fingerprint'],
+            run_sequence=arrival['last_sequence'],
             output_bound=bound,
             storage_bound=storage_bound,
             phase='reserved',

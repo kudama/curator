@@ -231,3 +231,13 @@ class Scans(unittest.TestCase):
         ):
             self.assertEqual(self.service.maintenance_tick(), [])
         admit.assert_not_called()
+
+    def test_pending_scan_projection_uses_its_reserved_next_sequence_not_old_baseline(self):
+        self.engine()
+        baseline = self.store.get('settings', 'maintenance-arrivals:' + self.lib['id'])
+        run = self.service.admit_maintenance_scan(self.enabled['id'])
+        self.assertEqual(run['sequence'], baseline['sequence'] + 1)
+        result = self.service.maintenance_configuration()['rules'][0]['operational']
+        self.assertEqual(result['counts']['queued'], 1)
+        self.assertTrue(all(row['latest_run_items'] == 19 for row in result['remaining']))
+        self.assertTrue(all(row['run_sequence'] == run['sequence'] for row in result['remaining']))

@@ -119,6 +119,7 @@ class MaintenanceScans:
             self.maintenance_scan_guard(run)
             baseline = self.store.get('settings', 'maintenance-arrivals:' + library)
             arrival = dict(library=library, id=run['id'], last_sequence=baseline['sequence'] + 1, fingerprint=None)
+            run['sequence'] = arrival['last_sequence']
 
             def admit(job):
                 claim = self.reserve_maintenance(rule, arrival, run['id'], snapshot['standard'], output_bound=0)

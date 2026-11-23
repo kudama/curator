@@ -52,5 +52,5 @@ test('consent displays frozen selected roots, windows, options and actual shared
 });
 test('operational rule summary shows counts, remaining allowance and next eligible scan window',async()=>{
  const state=snapshot();state.rules=[{id:'rule',revision:3,values:{name:'Draft',action:'scan',roots:['/synthetic'],timezone:'UTC'},enabled:false,operational:{counts:{queued:2,running:1,waiting:1,review:3,blocked:4},remaining:[{scope:'machine',daily_items:5,daily_output_bytes:987,day:'2026-11-23',timezone:'UTC',latest_run_items:2}],next_permitted_window:'2026-11-23T09:00:00+00:00',next_scan_window:'2026-11-23T10:00:00+00:00',held:true}}];
- const h=harness(state);await h.open();const text=h.nodes().map(node=>node.textContent).join('\n');assert.match(text,/queued: 2.*running: 1.*review: 3/);assert.match(text,/5 items and 987 output bytes left today/);assert.match(text,/Next cadence-eligible scan window: 2026-11-23T10:00:00/);assert.match(text,/held by disabled\/paused maintenance/);
+ const h=harness(state);await h.open();const text=h.nodes().map(node=>node.textContent).join('\n');assert.match(text,/queued: 2.*running: 1.*review: 3/);assert.match(text,/5 items and 987 output bytes left today/);assert.match(text,/Next cadence-eligible scan window: 2026-11-23T10:00:00/);assert.match(text,/held by a disabled rule, window, maintenance or queue pause/);
 });

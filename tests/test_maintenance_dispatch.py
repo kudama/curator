@@ -307,3 +307,16 @@ class Dispatch(unittest.TestCase):
             with self.assertRaisesRegex(UserError, 'stale'):
                 self.service.maintenance_start_process(task, ['never'], None, None)
         launch.assert_not_called()
+
+    def test_paused_typed_queue_projects_held_waiting_rule_work(self):
+        self.engine()
+        self.enable()
+        self.arrive()
+        self.service.dispatch_maintenance(self.lib['id'])
+        self.assertEqual(len(self.queued()), 1)
+        with self.store.transaction():
+            self.store.put('settings', self.service.pause_key(None, 'optimize'), True)
+        result = self.service.maintenance_configuration()['rules'][0]['operational']
+        self.assertEqual(result['counts']['queued'], 1)
+        self.assertEqual(result['counts']['waiting'], 1)
+        self.assertTrue(result['held'])
