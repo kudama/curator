@@ -55,8 +55,8 @@ test('native logo candidate becomes a ready draft through a CSP-compatible blob 
  const previous=Object.getOwnPropertyDescriptor(Element.prototype,'src');
  Object.defineProperty(Element.prototype,'src',{configurable:true,set(value){this._src=value;if(value.startsWith('blob:')){this.naturalWidth=600;this.naturalHeight=180;queueMicrotask(()=>this.onload?.());}},get(){return this._src||'';}});
  Element.prototype.getContext=()=>({clearRect(){},drawImage(){},getImageData:()=>({data:new Uint8Array([255,255,255,128])})});Element.prototype.classList={add(){},toggle(){}};Element.prototype.style={};
- let changed=0;h.context.changed=()=>changed++;
- try{const card=h.run("managerArtworkCard(asset,{},'logo',changed)");await card.setCandidate('aGVsbG8=','original');assert.equal(card.dirty(),true);assert.equal(card.ready(),true);assert.equal(card.canvas.width,600);assert.equal(card.canvas.hidden,false);assert.equal(await card.original(),'original');assert.equal(changed,1);}finally{delete Element.prototype.src;if(previous)Object.defineProperty(Element.prototype,'src',previous);}
+ let card;const changed=[];h.context.changed=()=>changed.push([card.dirty(),card.ready()]);
+ try{card=h.run("managerArtworkCard(asset,{},'logo',changed)");await card.setCandidate('aGVsbG8=','original');assert.equal(card.dirty(),true);assert.equal(card.ready(),true);assert.equal(card.canvas.width,600);assert.equal(card.canvas.hidden,false);assert.equal(await card.original(),'original');assert.deepEqual(changed,[[true,false],[true,true]]);}finally{delete Element.prototype.src;if(previous)Object.defineProperty(Element.prototype,'src',previous);}
 });
 
 test('Mage settings preserve an unavailable saved model and use model-specific resolutions',()=>{
@@ -141,4 +141,28 @@ test('personal media poster editor only offers portrait, backgrounds stay landsc
  assert.deepEqual(format.children.map(e=>e.value),['2:3']);assert.equal(format.value,'2:3');
  const background=h.run("managerArtworkCard(asset,{},'background',()=>{})");
  assert.ok(all(background.section).some(e=>e.textContent.startsWith('16:9')));
+});
+
+function artworkCardHarness(){
+ const h=setup(),images=[],changes=[];h.context.state.libraries=[];
+ h.context.URL={createObjectURL:()=> 'blob:synthetic',revokeObjectURL(){}};
+ h.context.node=(...args)=>{const el=new Element(...args);el.style={};if(el.tag==='img')images.push(el);if(el.tag==='canvas')el.getContext=()=>({clearRect(){},drawImage(){}});return el;};
+ h.context.cardChanged=()=>changes.push([card.dirty(),card.ready()]);
+ const card=h.run("managerArtworkCard({id:'a',library:'l',title:'Synthetic item'}, {}, 'cover', cardChanged)");
+ const file=all(card.section).find(el=>el.type==='file'),undo=all(card.section).find(el=>el.textContent==='Undo draft');
+ return {h,card,file,undo,images,changes,select(size=20){file.files=[{size}];file.onchange();return images.at(-1);},finish(image){image.naturalWidth=2;image.naturalHeight=3;image.onload();}};
+}
+test('selected replacement blocks preview immediately until decoding finishes',()=>{
+ const h=artworkCardHarness(),first=h.select();
+ assert.equal(h.card.dirty(),true);assert.equal(h.card.ready(),false);assert.deepEqual(h.changes.at(-1),[true,false]);assert.equal(h.undo.hidden,false);
+ h.finish(first);assert.equal(h.card.ready(),true);
+ const second=h.select();assert.equal(h.card.ready(),false);assert.deepEqual(h.changes.at(-1),[true,false]);
+ second.onerror();assert.equal(h.card.dirty(),true);assert.equal(h.card.ready(),false);
+ h.undo.onclick();assert.equal(h.card.dirty(),false);h.finish(second);assert.equal(h.card.dirty(),false);assert.equal(h.card.ready(),false);
+});
+test('oversized replacement stays unready and obsolete decode cannot restore a discarded draft',()=>{
+ const h=artworkCardHarness(),first=h.select();h.finish(first);assert.equal(h.card.ready(),true);
+ h.select(10*1024*1024+1);assert.equal(h.card.dirty(),true);assert.equal(h.card.ready(),false);
+ h.finish(first);assert.equal(h.card.ready(),false);
+ h.undo.onclick();h.finish(first);assert.equal(h.card.dirty(),false);assert.equal(h.card.ready(),false);
 });
