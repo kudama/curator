@@ -121,6 +121,7 @@ class Plex:
                 '/library/sections/' + quote(library['key'], safe='') + '/all',
                 params={
                     'type': 4 if library['type'] == 'show' else 1,
+                    'includeGuids': 1,
                     'X-Plex-Container-Start': start,
                     'X-Plex-Container-Size': 200,
                 },

@@ -49,6 +49,10 @@ from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
 from .seerr_arrivals import SeerrArrivals
+from .preview_publication import PreviewPublication
+from .preview_batches import PreviewBatches
+from .discovery import Discovery
+from .discovery_rows import DiscoveryRows
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .nfo_export import NfoExports
@@ -59,11 +63,15 @@ identifier = stable_id
 
 
 class Service(
+    Discovery,
+    DiscoveryRows,
     NfoExports,
     PreviewCards,
     PreviewRendering,
     PreviewReview,
     SeerrArrivals,
+    PreviewPublication,
+    PreviewBatches,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
@@ -111,6 +119,7 @@ class Service(
         self.migrate_universal_queue()
         self.recover_run_receipts()
         self.split_metadata_findings()
+        self.recover_discovery_rows()
 
     def operation_lock(self, key):
         with self.lock:
@@ -607,6 +616,7 @@ class Service(
             if self.pending_rename_receipts(library['id']):
                 self.reconcile_rename_receipts(library, scanned_items, self.checked_client(library))
             state['finished'] = now()
+            self.reconcile_discovery_feedback()
             self.connection_ok()
             self.store.record(
                 'scan',
@@ -930,6 +940,14 @@ class Service(
             }
 
         keys, paths = identities(task)
+        for job in self.file_jobs():
+            if job['operation'] != 'preview_publish' or job['phase'] != 'running':
+                continue
+            owner = self.get_task(job['payload']['task'])
+            if owner['id'] != task['id']:
+                other_keys, other_paths = identities(owner)
+                if keys & other_keys or paths & other_paths:
+                    raise SourceBusy('This file is reserved by a running trailer publication')
         for other in self.store.all('tasks'):
             if other['id'] == task['id'] or (
                 other['status'] not in {'running', 'publishing'} and not other.get('cleanup_in_progress')
