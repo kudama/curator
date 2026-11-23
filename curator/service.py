@@ -779,6 +779,7 @@ class Service(
             raise UserError('Choose an installed preset for this optimization task')
         if action == 'queue':
             candidate = self.get_task(key)
+            self.maintenance_operator_queue_guard(candidate)
             if candidate['version'] != version:
                 raise UserError('Stale task version; refresh first')
             if candidate['kind'] == 'preview_render':
@@ -906,6 +907,7 @@ class Service(
                         if reserves_source(pending, task['asset']):
                             raise UserError('A file operation reserves this source; finish or cancel it first')
                 task = prepared
+                self.maintenance_operator_queue(task)
                 version = task['version']
                 self.cancels.discard(key)
             elif action == 'reject' and task['status'] == 'awaiting_review':

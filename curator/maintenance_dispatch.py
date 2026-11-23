@@ -3,7 +3,7 @@
 import copy
 
 from .errors import UserError
-from .history import acting
+from .history import acting, current_initiator
 from .maintenance_budget import action_group
 from .maintenance_facts import evaluated, finding_for
 from .maintenance_policy import PREPARATION, PROCESSING, digest, excluded, permitted
@@ -292,6 +292,48 @@ class MaintenanceDispatch:
                             results.append(self.maintenance_decision(rule, arrival, 'exception', reason))
         self.start_pending_maintenance()
         return results
+
+    def maintenance_operator_queue_guard(self, task):
+        if (task.get('maintenance') or task.get('maintenance_proposal')) and current_initiator() != 'operator':
+            raise UserError('A fresh explicit operator queue review is required to take over rule-owned work')
+
+    def maintenance_operator_queue(self, task):
+        """Only called from the explicit, version/source/settings-checked queue action.
+
+        The previous claim is never changed/refunded/replayed. Its immutable
+        provenance stays in the event trail and retained origin, while this new
+        item-level operator approval follows the ordinary manual worker path.
+        """
+        previous = task.get('maintenance') or task.get('maintenance_proposal')
+        if not previous:
+            return
+        self.maintenance_operator_queue_guard(task)
+        if not self.store.db.in_transaction or task['status'] != 'queued' or task.get('approval') != task['version']:
+            raise UserError('Complete the current explicit queue/source/settings review first')
+        facts = evaluated(self, self.asset(task))
+        origin = dict(
+            provenance=copy.deepcopy(previous),
+            task_version=task['version'],
+            operator_reviewed=now(),
+            standard=facts['standard'],
+        )
+        self.store.event(
+            task['id'],
+            dict(
+                action='explicit operator took over rule-owned work after fresh queue checks',
+                origin=origin,
+                previous_claim_unchanged=True,
+            ),
+        )
+        task.setdefault('maintenance_origins', []).append(origin)
+        task.pop('maintenance', None)
+        task.pop('maintenance_proposal', None)
+        task.update(
+            version=task['version'] + 1,
+            approval=task['version'] + 1,
+            queued_by='operator',
+            manual_standard=facts['standard'],
+        )
 
     def finish_maintenance_task(self, task):
         approval = task.get('maintenance')

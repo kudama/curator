@@ -55,7 +55,7 @@ test('consent displays frozen selected roots, windows, options and actual shared
 });
 test('operational rule summary shows counts, remaining allowance and next eligible scan window',async()=>{
  const state=snapshot();state.rules=[{id:'rule',revision:3,values:{name:'Draft',action:'scan',roots:['/synthetic'],timezone:'UTC'},enabled:false,operational:{counts:{queued:2,running:1,waiting:1,review:3,blocked:4},remaining:[{scope:'machine',daily_items:5,daily_output_bytes:987,day:'2026-11-23',timezone:'UTC',latest_run_items:2}],next_permitted_window:'2026-11-23T09:00:00+00:00',next_scan_window:'2026-11-23T10:00:00+00:00',held:true}}];
- const h=harness(state);await h.open();const text=h.nodes().map(node=>node.textContent).join('\n');assert.match(text,/queued: 2.*running: 1.*review: 3/);assert.match(text,/5 items and 987 B \(987 bytes\) output space left today/);assert.match(text,/Next cadence-eligible scan window: 2026-11-23T10:00:00/);assert.match(text,/held by a disabled rule, window, maintenance or queue pause/);
+ const h=harness(state);await h.open();const text=h.nodes().map(node=>node.textContent).join('\n');assert.match(text,/queued: 2.*running: 1.*review: 3/);assert.match(text,/5 items and 987 B \(987 bytes\) output space left today/);assert.match(text,/Next cadence-eligible scan window:/);assert.ok(!text.includes('2026-11-23T10:00:00'));assert.match(text,/held by a disabled rule, window, maintenance or queue pause/);
 });
 test('storage units convert exactly and reject blank, fractional bytes or unsafe rounded grants',()=>{
  const h=harness(snapshot());assert.equal(vm.runInContext("maintenanceBytes('1.5','GiB')",h.context),1610612736);assert.equal(vm.runInContext("maintenanceBytes('0','B')",h.context),0);assert.throws(()=>vm.runInContext("maintenanceBytes('','GiB')",h.context),/explicit/);assert.throws(()=>vm.runInContext("maintenanceBytes('0.1','B')",h.context),/whole number/);assert.throws(()=>vm.runInContext("maintenanceBytes('999999999','GiB')",h.context),/too large/);
@@ -74,4 +74,7 @@ test('weekday time controls emit original window payload and transport bounds li
 });
 test('an unsafe rounded server allowance cannot be consented through the browser',async()=>{
  const state=snapshot();state.rules=[{id:'rule',revision:1,values:{name:'Draft',action:'scan',roots:[]},enabled:false}];const h=harness(state,()=>({snapshot:{allowances:[{limits:{output_bytes_per_day:Number.MAX_SAFE_INTEGER+1}}]},remaining_manual:[]}));await h.open();await h.find('button','Review enable permission').onclick();assert.equal(h.find('button','Enable this exact permission'),undefined);assert.ok(h.nodes().some(node=>node.textContent.includes('exceeds exact browser precision')));
+});
+test('next windows format in the rule named timezone and invalid inputs never fall back locally',()=>{
+ const h=harness(snapshot());const text=vm.runInContext("maintenanceWindowText('2026-11-23T17:00:00+00:00','America/Los_Angeles')",h.context);assert.match(text,/9:00/);assert.match(text,/PST/);for(const expression of ["maintenanceWindowText('invalid','UTC')","maintenanceWindowText('2026-11-23T17:00:00','UTC')","maintenanceWindowText('2026-11-23T17:00:00Z','invalid-zone')","maintenanceWindowText('2026-11-23T17:00:00Z','')"]){assert.equal(vm.runInContext(expression,h.context),'Unavailable');}
 });
