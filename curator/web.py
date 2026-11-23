@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
             '/preview-batches.js': ('preview-batches.js', 'application/javascript'),
             '/preview-publication.js': ('preview-publication.js', 'application/javascript'),
+            '/seerr-connections.js': ('seerr-connections.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/navigation.js': ('navigation.js', 'application/javascript'),
@@ -303,6 +304,10 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.service.get_preview_publication(query['id'][0])
                     )
                 )
+            if path == '/api/seerr/status':
+                return self.reply(self.server.service.seerr_status())
+            if path == '/api/seerr/arrivals':
+                return self.reply(self.server.service.seerr_arrivals())
             if path == '/api/preview/job':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.preview_job(query['id'][0]))

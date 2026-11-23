@@ -22,6 +22,7 @@ jobs:
       - run: node --check curator/static/preview-batches.js
       - run: node --check curator/static/preview-publication.js
       - run: node --check curator/static/preview-editor.js
+      - run: node --check curator/static/seerr-connections.js
       - run: node --check curator/static/client-compat.js
       - run: node --check curator/static/metadata-manager.js
       - run: node --check curator/static/artwork-manager.js

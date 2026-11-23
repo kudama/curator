@@ -58,6 +58,7 @@ from .discovery import Discovery
 from .discovery_rows import DiscoveryRows
 from .preview_publication import PreviewPublication
 from .preview_batches import PreviewBatches
+from .seerr_arrivals import SeerrArrivals
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .nfo_export import NfoExports
@@ -77,6 +78,7 @@ class Service(
     PreviewReview,
     PreviewPublication,
     PreviewBatches,
+    SeerrArrivals,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
