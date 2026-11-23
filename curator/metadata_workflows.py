@@ -5,7 +5,7 @@ import uuid
 from .plex import Plex
 from .store import now
 from .errors import UserError
-from .rules import ACTIVE
+from .rules import ACTIVE, stable_id
 
 
 class MetadataWorkflows:
@@ -77,11 +77,11 @@ class MetadataWorkflows:
                     ]
                 if not self._same_metadata(before, {key: value}):
                     changes[key] = copy.deepcopy(value)
-            from .service import identifier
-
-            destination = self.store.get('tasks', identifier(asset['id'], 'metadata'))
+            destination_id = self.finding_task_key(asset, {'kind': 'metadata'})
+            destination = self.store.get('tasks', destination_id)
             rows.append(
                 dict(
+                    destination_id=destination_id,
                     destination_version=destination['version'] if destination else None,
                     task=task['id'],
                     version=task['version'],
@@ -109,8 +109,21 @@ class MetadataWorkflows:
                 task = self.get_task(row['task'])
                 if task['version'] != row['version'] or task['status'] in ACTIVE:
                     raise UserError('A selected task changed during preview')
+                self.check_metadata_destination(row, task)
             self.store.put('settings', receipt['id'], receipt)
         return receipt
+
+    def check_metadata_destination(self, row, source_task):
+        if not row['changes']:
+            return
+        key = self.finding_task_key({'id': row['asset']}, {'kind': 'metadata'})
+        destination = self.store.get('tasks', key)
+        # Pre-cursor previews implicitly selected the original stable task id.
+        expected = row.get('destination_id', stable_id(row['asset'], 'metadata'))
+        if key != expected or (destination['version'] if destination else None) != row['destination_version']:
+            raise UserError('Metadata destination task changed; preview again')
+        if destination and destination['id'] != source_task['id'] and destination['status'] in ACTIVE:
+            raise UserError('An item already has queued metadata work')
 
     def approve_metadata_preview(self, key):
         receipt = self.store.get('settings', key)
@@ -147,18 +160,7 @@ class MetadataWorkflows:
                     or asset.get('library') != row['library']
                 ):
                     raise UserError('A selected task or source changed; preview again')
-                from .service import identifier
-
-                destination = self.store.get('tasks', identifier(row['asset'], 'metadata'))
-                if row['changes'] and (destination['version'] if destination else None) != row['destination_version']:
-                    raise UserError('Metadata destination task changed; preview again')
-                if (
-                    row['changes']
-                    and destination
-                    and destination['id'] != task['id']
-                    and destination['status'] in ACTIVE
-                ):
-                    raise UserError('An item already has queued metadata work')
+                self.check_metadata_destination(row, task)
             queued = []
             for row in receipt['rows']:
                 if not row['changes']:

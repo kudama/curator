@@ -143,6 +143,67 @@ class ScanIntegration(unittest.TestCase):
     setUp = fixtures.Workflows.setUp
     tearDown = fixtures.Workflows.tearDown
 
+    def test_global_threshold_changed_during_probe_is_used_before_finding_commit(self):
+        self.plex.items = lambda library: iter([self.plex.item('10')])
+        self.service.scan_status[self.lib['id']] = {'count': 0}
+
+        def probe(*args):
+            config = self.service.config()
+            config['max_mbps_1080'] = 40
+            with self.store.transaction():
+                self.store.put('settings', 'config', config)
+            return dict(width=1920, height=1080, duration_seconds=60, bitrate=30_000_000)
+
+        with patch('curator.service.tools.probe', side_effect=probe):
+            self.service._scan(self.lib)
+        self.assertNotIn('error', self.service.scan_status[self.lib['id']])
+        self.assertFalse(
+            [t for t in self.store.all('tasks') if t['kind'] == 'optimize' and t['status'] == 'recommendation']
+        )
+        current = self.store.all('assets')[0]
+        self.assertEqual(current['completion']['dimensions']['encoding']['state'], 'met')
+
+    def test_stricter_standard_keeps_completed_receipt_and_creates_one_unapproved_followup(self):
+        source = asset()
+        source.update(id=self.asset['id'], library=self.lib['id'], title=self.asset['title'])
+        effective = self.service.library_standard(self.lib)
+        first = next(row for row in evaluate(source, effective)[1] if row['kind'] == 'upscale')
+        with self.store.transaction():
+            completed = self.service.task(source, first)
+            completed.update(
+                status='applied',
+                approval=1,
+                plan={'approved': 'original'},
+                output='/retained/output.mp4',
+                output_hash='retained-hash',
+                archive={'original': '/retained/original.mp4'},
+                published=True,
+                result={'verified': True},
+            )
+            self.store.put('tasks', completed['id'], completed)
+        before = copy.deepcopy(completed)
+        values = self.service.type_standard('movie')['values']
+        values['upscaling']['target'] = '2160'
+        self.service.save_type_standard('movie', 0, values)
+        required = next(
+            row for row in evaluate(source, self.service.library_standard(self.lib))[1] if row['kind'] == 'upscale'
+        )
+        ids = {completed['id']: None}
+        with self.store.transaction():
+            self.service.reconcile_findings(source, [required], ids)
+            self.service.reconcile_findings(source, [required], ids)
+            current = self.service.task(source, required)
+        self.assertEqual(self.service.get_task(completed['id']), before)
+        self.assertNotEqual(current['id'], completed['id'])
+        self.assertEqual(current['supersedes'], completed['id'])
+        self.assertEqual((current['status'], current['version'], current['plan']), ('recommendation', 1, {}))
+        self.assertNotIn('approval', current)
+        self.assertNotIn('output', current)
+        self.assertEqual(
+            len([t for t in self.store.all('tasks') if t['asset'] == source['id'] and t['kind'] == 'upscale']), 2
+        )
+        self.assertIn(current['id'], ids)
+
     def test_scan_consumes_latest_override_even_when_it_changes_during_probe(self):
         self.plex.items = lambda library: iter([self.plex.item('10')])
         self.service.scan_status[self.lib['id']] = {'count': 0}

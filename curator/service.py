@@ -399,8 +399,23 @@ class Service(
                     'library settings', f'{row["title"]} settings changed: ' + ', '.join(changed), library=key
                 )
 
+    def finding_task_key(self, asset, finding):
+        base = identifier(asset['id'], finding['kind'])
+        cursor = self.store.get('settings', 'finding-current:' + base)
+        if not cursor:
+            return base
+        current = self.store.get('tasks', cursor.get('task'))
+        if (
+            cursor.get('record_type') != 'standard_finding_cursor'
+            or not current
+            or current.get('asset') != asset['id']
+            or current.get('kind') != finding['kind']
+        ):
+            raise UserError('The current finding receipt needs inspection before rescanning')
+        return current['id']
+
     def task(self, asset, finding):
-        key = identifier(asset['id'], finding['kind'])
+        key = self.finding_task_key(asset, finding)
         old = self.store.get('tasks', key)
         if old:
             if old['status'] == 'resolved':
@@ -464,7 +479,48 @@ class Service(
                 self.store.put('tasks', old['id'], old)
                 self.store.event(old['id'], {'action': 'resolved by scan'})
         for finding in findings:
-            previous = self.store.get('tasks', identifier(asset['id'], finding['kind']))
+            previous = self.store.get('tasks', self.finding_task_key(asset, finding))
+            stamp = finding.get('evidence', {}).get('standard')
+            if (
+                previous
+                and previous['status'] == 'applied'
+                and finding['kind'] != 'home'
+                and not finding.get('evidence', {}).get('optional')
+                and stamp is not None
+                and previous.get('evidence', {}).get('standard') != stamp
+            ):
+                # A new requirement is a new attempt, not permission to erase the
+                # completed attempt's approved plan, retained output or receipts.
+                key = identifier(previous['id'], 'standard-followup', stamp)
+                if self.store.get('tasks', key):
+                    raise UserError('A standards follow-up already exists; inspect its receipt')
+                followup = dict(
+                    id=key,
+                    asset=asset['id'],
+                    library=asset['library'],
+                    title=asset['title'],
+                    kind=finding['kind'],
+                    reason=finding['reason'],
+                    evidence=finding.get('evidence', {}),
+                    status='recommendation',
+                    version=1,
+                    created=now(),
+                    updated=now(),
+                    plan={},
+                    supersedes=previous['id'],
+                )
+                self.store.put('tasks', key, followup)
+                self.store.put(
+                    'settings',
+                    'finding-current:' + identifier(asset['id'], finding['kind']),
+                    dict(record_type='standard_finding_cursor', task=key),
+                )
+                self.store.event(
+                    key, dict(action='new requirement after completed attempt', previous_task=previous['id'])
+                )
+                if task_ids is not None:
+                    task_ids[key] = None
+                continue
             if (
                 previous
                 and previous['status'] == 'applied'
@@ -617,7 +673,7 @@ class Service(
                             # A type/override edit during probe must not reconcile
                             # findings from the stale scan-start standard.
                             effective = self.library_standard(library['id'])
-                            asset['completion'], findings = evaluate_standard(asset, effective, config)
+                            asset['completion'], findings = evaluate_standard(asset, effective, self.config())
                             self.store.put('assets', aid, asset)
                             task_ids = task_index.setdefault(aid, {})
                             self.reconcile_findings(asset, findings, task_ids)
