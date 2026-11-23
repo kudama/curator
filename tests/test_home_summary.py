@@ -42,6 +42,18 @@ class Home(unittest.TestCase):
         self.asset('a1', 'one')
         self.asset('a2', 'two')
 
+    def test_only_an_actual_type_observation_notice_needs_a_decision(self):
+        with self.store.transaction():
+            hint = self.store.get('libraries', 'one')
+            hint.update(standard_kind='other_videos', observed_kind='movie', suggested_kind='other_videos')
+            self.store.put('libraries', 'one', hint)
+        self.assertEqual(self.service.home_summary()['decisions']['standards_questions'], 0)
+        with self.store.transaction():
+            changed = self.store.get('libraries', 'two')
+            changed.update(standard_type_notice={'before': 'movie', 'observed': 'other_videos'})
+            self.store.put('libraries', 'two', changed)
+        self.assertEqual(self.service.home_summary()['decisions']['standards_questions'], 1)
+
     def asset(self, key, library, **changes):
         row = dict(
             id=key,

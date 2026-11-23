@@ -235,10 +235,7 @@ class HomeSummary:
                 needs_attention=len(attention),
                 attention_routes=attention_routes,
                 missing_required=len(missing),
-                standards_questions=sum(
-                    (row.get('standard_kind') or row.get('kind')) != (row.get('observed_kind') or row.get('kind'))
-                    for row in scoped.values()
-                ),
+                standards_questions=sum(bool(row.get('standard_type_notice')) for row in scoped.values()),
             )
             arrivals = {}
             for asset in assets:
