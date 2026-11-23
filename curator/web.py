@@ -226,6 +226,7 @@ class Handler(BaseHTTPRequestHandler):
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
+            '/seerr-connections.js': ('seerr-connections.js', 'application/javascript'),
             '/preview-batches.js': ('preview-batches.js', 'application/javascript'),
             '/preview-publication.js': ('preview-publication.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
@@ -286,6 +287,10 @@ class Handler(BaseHTTPRequestHandler):
                 person = int(query['person'][0]) if 'person' in query and kind is None else None
                 image = self.server.service.rename_receipt_image(query['id'][0], kind=kind, person=person)
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/seerr/status':
+                return self.reply(self.server.service.seerr_status())
+            if path == '/api/seerr/arrivals':
+                return self.reply(self.server.service.seerr_arrivals())
             if path == '/api/preview/batch':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(
