@@ -10,7 +10,12 @@ function maintenanceBytes(amount,unit){
 }
 function maintenanceStorage(value){if(value===undefined||value===null)return {amount:'',unit:'GiB'};if(!Number.isSafeInteger(value)||value<0)return {amount:'',unit:'B'};const unit=Object.keys(MAINTENANCE_UNITS).reverse().find(unit=>value>0&&value%MAINTENANCE_UNITS[unit]===0)||'B';return {amount:String(value/MAINTENANCE_UNITS[unit]),unit};}
 function maintenanceScopeLabel(scope){return scope==='machine'?'Machine aggregate':scope.startsWith('library:')?'Shared library':'This rule';}
-function maintenanceWindowText(value,zone){try{if(typeof value!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)||typeof zone!=='string'||!zone)return 'Unavailable';const date=new Date(value);if(Number.isNaN(date.getTime()))return 'Unavailable';return new Intl.DateTimeFormat(undefined,{timeZone:zone,weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(date);}catch{return 'Unavailable';}}
+function maintenanceWindowText(value,zone){try{
+ if(typeof value!=='string'||value.length>64||typeof zone!=='string'||!zone)return 'Unavailable';const match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(value);if(!match)return 'Unavailable';
+ const [year,month,day,hour,minute,second]=match.slice(1).map(Number),days=[31,year%4===0&&(year%100!==0||year%400===0)?29:28,31,30,31,30,31,31,30,31,30,31];if(year<1||month<1||month>12||day<1||day>days[month-1]||hour>23||minute>59||second>59)return 'Unavailable';
+ const date=new Date(value);if(Number.isNaN(date.getTime()))return 'Unavailable';return new Intl.DateTimeFormat(undefined,{timeZone:zone,weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(date);
+ }catch{return 'Unavailable';}}
+
 function maintenanceSpaceText(value){const display=maintenanceStorage(value);return display.amount===''?'Unset':display.amount+' '+display.unit+' ('+String(value)+' bytes)';}
 
 function maintenanceOptions(action){if(action==='scan')return {cadence_minutes:60,inventory_limit:1000,page_size:100,max_pages:10,request_timeout_seconds:10,scan_timeout_seconds:120,probe_timeout_seconds:30,response_limit_bytes:1048576,probe_output_bytes:1048576};if(action==='local_ai')return {model:'',model_digest:'',max_frames:1,max_input_bytes:1048576};if(action.endsWith('encode'))return {handbrake_preset:''};return {topaz_filter:'',topaz_rate_control:'',topaz_quality:0,topaz_bitrate_mbps:0};}
