@@ -49,6 +49,7 @@ from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
 from .discovery import Discovery
+from .discovery_rows import DiscoveryRows
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
 from .nfo_export import NfoExports
@@ -60,6 +61,7 @@ identifier = stable_id
 
 class Service(
     Discovery,
+    DiscoveryRows,
     NfoExports,
     PreviewCards,
     PreviewRendering,
@@ -111,6 +113,7 @@ class Service(
         self.migrate_universal_queue()
         self.recover_run_receipts()
         self.split_metadata_findings()
+        self.recover_discovery_rows()
 
     def operation_lock(self, key):
         with self.lock:
