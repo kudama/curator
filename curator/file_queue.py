@@ -264,7 +264,9 @@ class FileQueueWorkflows:
     def _execute_file_operation(self, job):
         payload = job['payload']
         operation = job['operation']
-        if operation == 'local_artwork':
+        if operation == 'preview_publish':
+            job['result'] = self.execute_preview_publication(payload)
+        elif operation == 'local_artwork':
             job['result'] = self.render_local_artwork(payload)
         elif operation == 'nfo_export':
             job['result'] = self.execute_nfo_export(payload['plan'])
