@@ -234,6 +234,7 @@ class Handler(BaseHTTPRequestHandler):
             '/discovery.js': ('discovery.js', 'application/javascript'),
             '/discovery-rows.js': ('discovery-rows.js', 'application/javascript'),
             '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
+            '/home-summary.js': ('home-summary.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
         if path in static:
@@ -379,6 +380,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(self.server.service.file_operation(query['id'][0]))
             if path == '/api/standards':
                 return self.reply(self.server.service.standards())
+            if path == '/api/home':
+                query = parse_qs(urlsplit(self.path).query)
+                limit = query.get('limit', ['12'])[0]
+                if not limit.isdigit():
+                    raise UserError('Choose a valid recent-arrivals limit')
+                return self.reply(
+                    self.server.service.home_summary(
+                        query.get('library', ['all'])[0], query.get('view', ['full'])[0], int(limit)
+                    )
+                )
             if path == '/api/history':
                 query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 return self.reply(self.server.service.history(**query))
@@ -601,6 +612,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = {'saved': True}
             elif path == '/api/standards':
                 result = service.save_type_standard(data['kind'], data['revision'], data['values'])
+            elif path == '/api/library/standard-kind':
+                result = service.save_library_standard_kind(data)
             elif path == '/api/library/standard':
                 if (
                     set(data) != {'library', 'revision', 'kind', 'type_revision', 'type_digest', 'overrides'}

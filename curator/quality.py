@@ -38,7 +38,7 @@ def display_geometry(media):
     return width, height
 
 
-def assess(media: dict, policy: dict | None = None) -> list[dict]:
+def assess(media: dict, policy: dict | None = None, standard: dict | None = None) -> list[dict]:
     """Return findings with kind, reason and evidence.
 
     Media fields: width, height, duration_seconds, size_bytes, codec, bitrate,
@@ -58,21 +58,30 @@ def assess(media: dict, policy: dict | None = None) -> list[dict]:
         return type(value) in (int, float) and math.isfinite(value) and value > 0
 
     policy = policy or {}
+    upscale = (standard or {}).get('upscaling', {})
+    encoding = (standard or {}).get('encoding', {})
     width, height = media.get('width'), media.get('height')
     if not positive(width) or not positive(height):
         return [dict(kind='inspect', reason='Dimensions missing or invalid', evidence={})]
     width, height = display_geometry(media)
     long_edge, short_edge = max(width, height), min(width, height)
     findings = []
-    if long_edge < 1920 or short_edge < 720:
+    target = upscale.get('target', '1080')
+    target_long, target_short = (3840, 1440) if target == '2160' else (1920, 720)
+    if upscale.get('enabled', True) and (long_edge < target_long or short_edge < target_short):
         findings.append(
             dict(
                 kind='upscale',
-                reason='Source is below the 1080-class target',
-                evidence=dict(width=width, height=height, target_long_edge=1920, preserve_aspect_ratio=True),
+                reason=f'Source is below the {target}-class target',
+                evidence=dict(width=width, height=height, target_long_edge=target_long, preserve_aspect_ratio=True),
             )
         )
-    elif long_edge < 3840 and short_edge < 2160:
+    elif (
+        upscale.get('enabled', True)
+        and upscale.get('suggest_when_met', True)
+        and long_edge < 3840
+        and short_edge < 2160
+    ):
         findings.append(
             dict(
                 kind='upscale',
@@ -81,10 +90,18 @@ def assess(media: dict, policy: dict | None = None) -> list[dict]:
             )
         )
     duration, bitrate, size = (media.get(x) for x in ('duration_seconds', 'bitrate', 'size_bytes'))
-    if positive(duration) and not media.get('preserve_quality'):
+    if (
+        positive(duration)
+        and encoding.get('enabled', True)
+        and not encoding.get('preserve_originals')
+        and not media.get('preserve_quality')
+    ):
         if not positive(bitrate) and positive(size):
             bitrate = size * 8 / duration
-        limit = policy.get('max_mbps_4k' if long_edge >= 3840 else 'max_mbps_1080', 55 if long_edge >= 3840 else 18)
+        field = 'max_mbps_4k' if long_edge >= 3840 else 'max_mbps_1080'
+        limit = encoding.get(field)
+        if limit is None:
+            limit = policy.get(field, 55 if long_edge >= 3840 else 18)
         if positive(bitrate) and positive(limit) and bitrate > limit * 1_000_000:
             findings.append(
                 dict(

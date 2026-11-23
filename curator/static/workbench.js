@@ -91,7 +91,7 @@ function matchesSearch(asset){return !searchText||[fileName(asset),asset.title,a
 function fileTasks(asset){if(!asset)return [];return (catalogIndex().byAsset.get(asset.id)||[]).filter(t=>t.library===libraryId);}
 function attentionTasks(asset){return fileTasks(asset).filter(t=>['recommendation','blocked','failed','awaiting_review'].includes(t.status));}
 function libraryFiles(){return state.assets.filter(a=>a.library===libraryId&&a.present!==false&&!a.artwork_target);}
-function workspaceFiles(){return libraryFiles().filter(matchesSearch).filter(a=>screen!=='library'||libraryView==='files'||(libraryView==='completed'?movieCompleted(a):attentionTasks(a).length>0));}
+function workspaceFiles(){return libraryFiles().filter(matchesSearch).filter(a=>typeof homeMatchesStandardDimension!=='function'||screen!=='library'||homeMatchesStandardDimension(a)).filter(a=>screen!=='library'||libraryView==='files'||(libraryView==='completed'?movieCompleted(a):attentionTasks(a).length>0));}
 function taskStatusLabel(status){return ({queued:'Waiting',running:'Processing',awaiting_review:'Ready to review'})[status]||String(status).replaceAll('_',' ');}
 function fileBadge(asset){
  const tasks=fileTasks(asset);

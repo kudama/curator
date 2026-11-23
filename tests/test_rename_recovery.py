@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from curator.errors import UserError
 from curator.plex import PlexError
+from curator.store import now
 import test_rename_preservation
 from test_rename_preservation import JPEG, PNG
 
@@ -80,6 +81,34 @@ class Recovery(unittest.TestCase):
             sorted(t['id'] for t in self.store.all('tasks')),
             len(self.store.curator_history()),
         )
+
+    def test_metadata_restore_checks_current_followup_and_keeps_completed_attempt(self):
+        asset = self.store.get('assets', self.assets[0]['id'])
+        with self.store.transaction():
+            completed = self.service.task(
+                asset, dict(kind='metadata', reason='Earlier standard', evidence={'standard': {'revision': 1}})
+            )
+            completed.update(
+                status='applied',
+                approval=completed['version'],
+                plan={'changes': {'summary': 'Approved earlier'}},
+                result={'verified': True},
+            )
+            self.store.put('tasks', completed['id'], completed)
+            finding = dict(kind='metadata', reason='Stricter standard', evidence={'standard': {'revision': 2}})
+            self.service.reconcile_findings(asset, [finding])
+            current = self.service.task(asset, finding)
+            current['plan'] = {'changes': {'studio': 'Current unsaved draft'}}
+            self.store.put('tasks', current['id'], current)
+        before = copy.deepcopy(completed)
+        draft = copy.deepcopy(current)
+        receipt = dict(receipt='synthetic-receipt', captured_at=now(), metadata={'summary': 'Captured summary'})
+        proposed = self.service._propose_metadata_restore(asset, receipt, ['summary'])
+        self.assertEqual(proposed['state'], 'conflict')
+        self.assertEqual(proposed['task'], current['id'])
+        self.assertEqual(self.service.get_task(completed['id']), before)
+        self.assertEqual(self.service.get_task(current['id']), draft)
+        self.assertEqual(self.plex.uploads, [])
 
     def test_capture_keeps_uploaded_pictures_and_references_agent_pictures(self):
         self.run_task(self.plan())
