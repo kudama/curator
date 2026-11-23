@@ -61,6 +61,8 @@ from .preview_batches import PreviewBatches
 from .seerr_arrivals import SeerrArrivals
 from .rules import scheduling_kind
 from .upscale_recovery import UpscaleRecovery, processing_validation
+from .maintenance_workflows import MaintenanceWorkflows
+from .maintenance_dispatch import MaintenanceHeld
 from .nfo_export import NfoExports
 from .plex import PlexError
 
@@ -69,6 +71,7 @@ identifier = stable_id
 
 
 class Service(
+    MaintenanceWorkflows,
     Discovery,
     HomeSummary,
     DiscoveryRows,
@@ -108,6 +111,9 @@ class Service(
         self.active = set()
         self.queue_workers = {}
         self.file_workers = {}
+        self.file_manual_requested = False
+        self.maintenance_scheduler_thread = None
+        self.maintenance_scheduler_stop = threading.Event()
         self.file_errors = {}
         self.cancels = set()
         self.scan_status = {}
@@ -118,6 +124,8 @@ class Service(
         register_secret(self.config().get('plex_token'))
         Mage(self.store.root).register_key_secret()
         self.recover_file_jobs()
+        self.recover_maintenance()
+        self.recover_maintenance_scans()
         self.recover_nfo_exports()
         self.recover_review_batches()
         self.recover_backup_cleanups()
@@ -127,6 +135,7 @@ class Service(
         self.recover_run_receipts()
         self.split_metadata_findings()
         self.recover_discovery_rows()
+        self.ensure_maintenance_scheduler()
 
     def operation_lock(self, key):
         with self.lock:
@@ -719,6 +728,14 @@ class Service(
                 library=library['id'],
                 details={'files': state['count'], 'skipped_reserved': state.get('skipped_reserved', 0)},
             )
+            try:
+                observed = self.observe_maintenance_scan(library['id'], seen, state['finished'])
+                if not observed.get('baseline') and not observed.get('held'):
+                    self.dispatch_maintenance(library['id'])
+            except Exception:
+                # A failed maintenance audit/check never authorizes new work and
+                # must not misreport a completed manual scan as incomplete.
+                log.exception('New-arrival maintenance checks failed; no new dispatch authorized')
         except Exception as error:
             if isinstance(error, PlexError):
                 self.connection_failed(str(error))
@@ -1130,7 +1147,9 @@ class Service(
             if values.get('status') in {'awaiting_review', 'applied', 'blocked', 'failed', 'cancelled'}:
                 self.refresh_run_receipts()
 
-    def _execute(self, key, queue_head=False, queue_kind=None, queue_library=None, queue_wake=None):
+    def _execute(
+        self, key, queue_head=False, queue_kind=None, queue_library=None, queue_wake=None, queue_maintenance_only=False
+    ):
         task = self.get_task(key)
         side_effects_started = False
         started = None
@@ -1156,7 +1175,7 @@ class Service(
                     return
                 if queue_head:
                     head = (
-                        self.next_waiting(queue_library, queue_kind)
+                        self.next_waiting(queue_library, queue_kind, maintenance_only=queue_maintenance_only)
                         if queue_kind is not None
                         else next(iter(self.waiting_tasks(task['library'])), None)
                     )
@@ -1175,6 +1194,8 @@ class Service(
                 asset = self.asset(task, check=task['kind'] != 'mage_generation')
                 if task['kind'] != 'mage_generation' and asset['fingerprint'] != task.get('source'):
                     raise UserError('Source changed since queue approval')
+                if task.get('maintenance'):
+                    self.maintenance_start_guard(task)
                 task.update(status='running', updated=now(), retry_at=None, error=None)
                 self.store.put('tasks', key, task)
             side_effects_started = True
@@ -1215,6 +1236,11 @@ class Service(
             else:
                 self._process(task, asset)
             self._save(self.get_task(key), processing_seconds=time.monotonic() - started)
+        except MaintenanceHeld as held:
+            # No subprocess was attempted. Keep its existing permission and
+            # reservation waiting; a later explicit resume rechecks everything.
+            self._save(task, status='queued', error=str(held), retry_at=None)
+            return 'maintenance_hold'
         except Exception as e:
             log.exception('Task %s failed', key)
             if (
@@ -1553,21 +1579,28 @@ class Service(
         telemetry = EncodingProgress(task['kind'], asset['technical'].get('duration_seconds'))
         started = time.monotonic()
         with log.open('wb') as stream:
-            process = subprocess.Popen(
-                cmd,
-                stdout=stream,
-                stderr=subprocess.STDOUT,
-                env=tools.processing_environment(task['kind'], task['tool_settings']),
+            if task.get('maintenance'):
+                self._save(task, output=str(output), maintenance_partial=True)
+            process = self.maintenance_start_process(
+                task, cmd, stream, tools.processing_environment(task['kind'], task['tool_settings'])
             )
             try:
                 while process.poll() is None:
                     if task['id'] in self.cancels:
-                        process.terminate()
+                        self.maintenance_stop_process(task, process)
                         try:
                             process.wait(timeout=10)
                         except subprocess.TimeoutExpired:
-                            process.kill()
+                            self.maintenance_stop_process(task, process, hard=True)
                         raise UserError('Cancelled; original preserved')
+                    if (
+                        task.get('maintenance')
+                        and output.exists()
+                        and output.stat().st_size > task['maintenance']['output_bound']
+                    ):
+                        raise UserError(
+                            'Maintenance output bound reached; partial output retained and original preserved'
+                        )
                     self._save(
                         task,
                         progress={
@@ -1578,9 +1611,13 @@ class Service(
                     )
                     time.sleep(1)
             finally:
-                if process.poll() is None:
-                    process.kill()
+                if process.poll() is None or task.get('maintenance'):
+                    self.maintenance_stop_process(task, process, hard=True)
                 process.wait()
+        if task.get('maintenance') and output.exists() and output.stat().st_size >= task['maintenance']['output_bound']:
+            raise UserError(
+                'Maintenance output bound reached; partial output retained for inspection and original preserved'
+            )
         if process.returncode:
             raise UserError(tools.processing_failure(log))
         self._save(task, progress={'phase': 'Validating output', 'output_bytes': output.stat().st_size})

@@ -225,6 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             '/workbench.js': ('workbench.js', 'application/javascript'),
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
+            '/maintenance-settings.js': ('maintenance-settings.js', 'application/javascript'),
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
             '/preview-batches.js': ('preview-batches.js', 'application/javascript'),
             '/preview-publication.js': ('preview-publication.js', 'application/javascript'),
@@ -384,6 +385,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/file-operation':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.file_operation(query['id'][0]))
+            if path == '/api/maintenance':
+                return self.reply(self.server.service.maintenance_configuration())
+            if path == '/api/maintenance/receipt':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.maintenance_configuration(query['id'][0]))
             if path == '/api/standards':
                 return self.reply(self.server.service.standards())
             if path == '/api/home':
@@ -540,7 +546,9 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
-            if path == '/api/nfo/preview':
+            if path == '/api/maintenance':
+                result = service.maintenance_configuration_action(data)
+            elif path == '/api/nfo/preview':
                 result = service.create_nfo_preview(data)
             elif path == '/api/nfo/status':
                 result = service.nfo_manifest(data['id'])
@@ -900,6 +908,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        server.service.stop_maintenance_scheduler()
         server.server_close()
         with acting('curator'):
             store.record('stopped', 'Curator restarting' if restart else 'Curator stopped')
