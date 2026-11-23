@@ -231,6 +231,8 @@ class Handler(BaseHTTPRequestHandler):
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
+            '/discovery.js': ('discovery.js', 'application/javascript'),
+            '/discovery-rows.js': ('discovery-rows.js', 'application/javascript'),
             '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
         }
@@ -247,6 +249,22 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return self.reply({'error': 'Open Curator in this browser first'}, 403)
         try:
+            if path == '/api/discovery/rows':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.discovery_rows(query['library'][0]))
+            if path == '/api/discovery':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.discovery(
+                        query.get('row', ['picked'])[0],
+                        query.get('library', ['all'])[0],
+                        int(query.get('limit', ['20'])[0]),
+                    )
+                )
+            if path == '/api/discovery/feedback':
+                return self.reply(self.server.service.discovery_feedback_list())
+            if path == '/api/discovery/settings':
+                return self.reply(self.server.service.discovery_settings())
             if path == '/api/service/status':
                 return self.reply(self.server.runtime.status())
             if path == '/api/review-session':
@@ -563,6 +581,16 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.hide_preview_card(data['id'], data['revision'])
             elif path == '/api/preview/defaults':
                 result = service.save_preview_defaults(data['revision'], data['changes'])
+            elif path == '/api/discovery/rows/preview':
+                result = service.discovery_row_preview(data)
+            elif path == '/api/discovery/rows/apply':
+                result = service.apply_discovery_row(data['id'], data['token'], data['approved'])
+            elif path == '/api/discovery/rows/inspect':
+                result = service.inspect_discovery_row(data['id'], data.get('accept_current', False))
+            elif path == '/api/discovery/feedback':
+                result = service.discovery_feedback(data)
+            elif path == '/api/discovery/settings':
+                result = service.save_discovery_settings(data['revision'], data['changes'])
             elif path == '/api/config':
                 service.save_config(data)
                 result = {'saved': True}
