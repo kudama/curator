@@ -5,6 +5,7 @@ import uuid
 from .store import now
 from .logs import log
 from .errors import UserError
+from .history import acting, current_initiator
 
 
 class FileQueueWorkflows:
@@ -81,10 +82,11 @@ class FileQueueWorkflows:
             'archive_portrait',
             'local_artwork',
             'nfo_export',
+            'maintenance_scan',
         }:
             raise UserError('Unsupported file operation')
         task = self.get_task(payload['task']) if 'task' in payload else None
-        local = operation in {'local_artwork', 'nfo_export'}
+        local = operation in {'local_artwork', 'nfo_export', 'maintenance_scan'}
         profile = (
             self.store.get('settings', 'cast_profiles', {}).get(payload.get('profile'))
             if operation == 'archive_portrait'
@@ -115,6 +117,7 @@ class FileQueueWorkflows:
             synchronous=not background,
             created=now(),
             updated=now(),
+            initiator=current_initiator(),
         )
         with self.store.transaction():
             if admit is not None:
@@ -140,20 +143,30 @@ class FileQueueWorkflows:
             return self.cleanup_receipt(payload['receipt'])
         return self.get_task(payload['task'])
 
-    def start_file_queue(self, resume=False):
+    def start_file_queue(self, resume=False, maintenance_only=False):
         threads = []
         with self.lock:
             if resume:
                 with self.store.transaction():
                     self.store.put('settings', self.pause_key(None, 'file_operations'), False)
-            waiting = sum(j['phase'] == 'waiting' for j in self.file_jobs())
+                for info in self.file_workers.values():
+                    if isinstance(info, dict):
+                        info['maintenance_only'] = False
+            waiting = sum(
+                j['phase'] == 'waiting'
+                and (not maintenance_only or j['operation'] == 'maintenance_scan')
+                and (j['operation'] != 'maintenance_scan' or not self.maintenance_scan_job_holds(j))
+                for j in self.file_jobs()
+            )
             if self.file_queue_paused() or not waiting:
                 return
+            if not maintenance_only:
+                self.file_manual_requested = True
             for _ in range(
                 min(waiting, max(0, self.queue_limits().get('file_operations', 4) - len(self.file_workers)))
             ):
                 wake = threading.Event()
-                self.file_workers[wake] = True
+                self.file_workers[wake] = dict(maintenance_only=maintenance_only)
                 threads.append(wake)
             if self.file_workers:
                 self.active.add('file-queue')
@@ -174,7 +187,15 @@ class FileQueueWorkflows:
                         return
                     with self.store.transaction():
                         jobs = self.file_jobs()
-                        waiting = [j for j in jobs if j['phase'] == 'waiting']
+                        info = self.file_workers.get(wake)
+                        maintenance_only = isinstance(info, dict) and info.get('maintenance_only')
+                        waiting = [
+                            j
+                            for j in jobs
+                            if j['phase'] == 'waiting'
+                            and (not maintenance_only or j['operation'] == 'maintenance_scan')
+                            and (j['operation'] != 'maintenance_scan' or not self.maintenance_scan_job_holds(j))
+                        ]
                         if not waiting:
                             self._release_file_worker(wake)
                             return
@@ -231,9 +252,14 @@ class FileQueueWorkflows:
 
     def _release_file_worker(self, wake):
         with self.lock:
+            existed = wake in self.file_workers
             self.file_workers.pop(wake, None)
             if not self.file_workers:
                 self.active.discard('file-queue')
+                if not any(j['phase'] == 'waiting' and j['operation'] != 'maintenance_scan' for j in self.file_jobs()):
+                    self.file_manual_requested = False
+        if existed:
+            self.start_file_queue(maintenance_only=not self.file_manual_requested)
 
     def _execute_file_operation(self, job):
         payload = job['payload']
@@ -244,6 +270,11 @@ class FileQueueWorkflows:
             job['result'] = self.render_local_artwork(payload)
         elif operation == 'nfo_export':
             job['result'] = self.execute_nfo_export(payload['plan'])
+            if job['result']['phase'] == 'paused':
+                job.update(phase='waiting', updated=now())
+        elif operation == 'maintenance_scan':
+            with acting('rule'):
+                job['result'] = self.execute_maintenance_scan(payload['run'])
             if job['result']['phase'] == 'paused':
                 job.update(phase='waiting', updated=now())
         elif operation == 'publish':

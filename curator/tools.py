@@ -175,8 +175,8 @@ def freeze_handbrake_preset(settings, preset, folder, source=None):
     )
 
 
-def probe(path, config):
-    result = subprocess.run(
+def probe(path, config, runner=None):
+    result = (runner or subprocess.run)(
         [
             executable(config, 'ffprobe'),
             '-v',
