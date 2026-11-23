@@ -23,6 +23,12 @@ class MaintenanceScheduler:
             )
             self.maintenance_scheduler_thread.start()
 
+    def stop_maintenance_scheduler(self):
+        with self.lock:
+            self.maintenance_scheduler_stop.set()
+        if self.maintenance_scheduler_thread:
+            self.maintenance_scheduler_thread.join(timeout=1)
+
     def _maintenance_schedule_loop(self):
         while not self.maintenance_scheduler_stop.is_set():
             try:

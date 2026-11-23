@@ -852,10 +852,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        with server.service.lock:
-            server.service.maintenance_scheduler_stop.set()
-        if server.service.maintenance_scheduler_thread:
-            server.service.maintenance_scheduler_thread.join(timeout=1)
+        server.service.stop_maintenance_scheduler()
         server.server_close()
         with acting('curator'):
             store.record('stopped', 'Curator restarting' if restart else 'Curator stopped')
