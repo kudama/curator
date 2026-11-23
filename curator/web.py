@@ -226,6 +226,7 @@ class Handler(BaseHTTPRequestHandler):
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
+            '/preview-batches.js': ('preview-batches.js', 'application/javascript'),
             '/preview-publication.js': ('preview-publication.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
@@ -285,6 +286,14 @@ class Handler(BaseHTTPRequestHandler):
                 person = int(query['person'][0]) if 'person' in query and kind is None else None
                 image = self.server.service.rename_receipt_image(query['id'][0], kind=kind, person=person)
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/preview/batch':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.public_preview_batch(self.server.service.preview_batch(query['id'][0]))
+                )
+            if path == '/api/preview/batches':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.preview_batches(query.get('library', [None])[0]))
             if path == '/api/preview/publish':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(
@@ -546,6 +555,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.restore_rename_portraits(
                     data['id'], data['version'], data['people'], data['cast_digest']
                 )
+            elif path == '/api/preview/batch/plan':
+                result = service.create_preview_batch(data)
+            elif path == '/api/preview/batch/submit':
+                result = service.submit_preview_batch(data['id'], data['request_id'])
             elif path == '/api/preview/publish/plan':
                 result = service.preview_publication_plan(data['id'], data['version'])
             elif path == '/api/preview/publish/approve':

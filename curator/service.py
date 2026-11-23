@@ -49,6 +49,7 @@ from .preview_cards import PreviewCards
 from .preview_render import PreviewRendering
 from .preview_review import PreviewReview
 from .preview_publication import PreviewPublication
+from .preview_batches import PreviewBatches
 from .discovery import Discovery
 from .discovery_rows import DiscoveryRows
 from .rules import scheduling_kind
@@ -68,6 +69,7 @@ class Service(
     PreviewRendering,
     PreviewReview,
     PreviewPublication,
+    PreviewBatches,
     ArtworkSettings,
     LocalArtwork,
     ArtworkArchives,
