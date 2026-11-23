@@ -226,9 +226,13 @@ class Handler(BaseHTTPRequestHandler):
             '/queue-board.js': ('queue-board.js', 'application/javascript'),
             '/file-management.js': ('file-management.js', 'application/javascript'),
             '/nfo-export.js': ('nfo-export.js', 'application/javascript'),
+            '/preview-batches.js': ('preview-batches.js', 'application/javascript'),
+            '/preview-publication.js': ('preview-publication.js', 'application/javascript'),
             '/preview-editor.js': ('preview-editor.js', 'application/javascript'),
             '/rename-receipts.js': ('rename-receipts.js', 'application/javascript'),
             '/preview-cards.js': ('preview-cards.js', 'application/javascript'),
+            '/discovery.js': ('discovery.js', 'application/javascript'),
+            '/discovery-rows.js': ('discovery-rows.js', 'application/javascript'),
             '/standards-editor.js': ('standards-editor.js', 'application/javascript'),
             '/home-summary.js': ('home-summary.js', 'application/javascript'),
             '/collections.js': ('collections.js', 'application/javascript'),
@@ -246,6 +250,22 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return self.reply({'error': 'Open Curator in this browser first'}, 403)
         try:
+            if path == '/api/discovery/rows':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.discovery_rows(query['library'][0]))
+            if path == '/api/discovery':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.discovery(
+                        query.get('row', ['picked'])[0],
+                        query.get('library', ['all'])[0],
+                        int(query.get('limit', ['20'])[0]),
+                    )
+                )
+            if path == '/api/discovery/feedback':
+                return self.reply(self.server.service.discovery_feedback_list())
+            if path == '/api/discovery/settings':
+                return self.reply(self.server.service.discovery_settings())
             if path == '/api/service/status':
                 return self.reply(self.server.runtime.status())
             if path == '/api/review-session':
@@ -267,6 +287,21 @@ class Handler(BaseHTTPRequestHandler):
                 person = int(query['person'][0]) if 'person' in query and kind is None else None
                 image = self.server.service.rename_receipt_image(query['id'][0], kind=kind, person=person)
                 return self.reply(image, content_type='image/png' if image.startswith(b'\x89PNG') else 'image/jpeg')
+            if path == '/api/preview/batch':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.public_preview_batch(self.server.service.preview_batch(query['id'][0]))
+                )
+            if path == '/api/preview/batches':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(self.server.service.preview_batches(query.get('library', [None])[0]))
+            if path == '/api/preview/publish':
+                query = parse_qs(urlsplit(self.path).query)
+                return self.reply(
+                    self.server.service.public_preview_publication(
+                        self.server.service.get_preview_publication(query['id'][0])
+                    )
+                )
             if path == '/api/preview/job':
                 query = parse_qs(urlsplit(self.path).query)
                 return self.reply(self.server.service.preview_job(query['id'][0]))
@@ -531,6 +566,16 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.restore_rename_portraits(
                     data['id'], data['version'], data['people'], data['cast_digest']
                 )
+            elif path == '/api/preview/batch/plan':
+                result = service.create_preview_batch(data)
+            elif path == '/api/preview/batch/submit':
+                result = service.submit_preview_batch(data['id'], data['request_id'])
+            elif path == '/api/preview/publish/plan':
+                result = service.preview_publication_plan(data['id'], data['version'])
+            elif path == '/api/preview/publish/approve':
+                result = service.approve_preview_publication(data['plan'], data['request_id'])
+            elif path == '/api/preview/publish/check':
+                result = service.reconcile_preview_publication(data['id'])
             elif path == '/api/preview/select':
                 result = service.select_preview(data['id'], data['version'], data['selection_revision'])
             elif path == '/api/preview/discard':
@@ -547,6 +592,16 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.hide_preview_card(data['id'], data['revision'])
             elif path == '/api/preview/defaults':
                 result = service.save_preview_defaults(data['revision'], data['changes'])
+            elif path == '/api/discovery/rows/preview':
+                result = service.discovery_row_preview(data)
+            elif path == '/api/discovery/rows/apply':
+                result = service.apply_discovery_row(data['id'], data['token'], data['approved'])
+            elif path == '/api/discovery/rows/inspect':
+                result = service.inspect_discovery_row(data['id'], data.get('accept_current', False))
+            elif path == '/api/discovery/feedback':
+                result = service.discovery_feedback(data)
+            elif path == '/api/discovery/settings':
+                result = service.save_discovery_settings(data['revision'], data['changes'])
             elif path == '/api/config':
                 service.save_config(data)
                 result = {'saved': True}
